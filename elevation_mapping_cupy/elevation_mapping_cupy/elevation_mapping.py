@@ -100,8 +100,7 @@ class ElevationMap:
 
         self.semantic_map.initialize_fusion()
 
-        weight_file = subprocess.getoutput('echo "' + param.weight_file + '"')
-        param.load_weights(weight_file)
+        param.load_weights(param.weight_file)
 
         if param.use_chainer:
             self.traversability_filter = get_filter_chainer(param.w1, param.w2, param.w3, param.w_out)
@@ -111,8 +110,7 @@ class ElevationMap:
 
         # Plugins
         self.plugin_manager = PluginManager(cell_n=self.cell_n)
-        plugin_config_file = subprocess.getoutput('echo "' + param.plugin_config_file + '"')
-        self.plugin_manager.load_plugin_settings(plugin_config_file)
+        self.plugin_manager.load_plugin_settings(param.plugin_config_file)
 
         self.map_initializer = MapInitializer(self.initial_variance, param.initialized_variance, xp=cp, method="points")
 
