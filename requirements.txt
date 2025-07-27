@@ -11,4 +11,4 @@ networkx==3.0
 # cupy
 
 ###### Requirements with Version Specifiers ######`
-shapely==1.7.1
+shapely
