@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import numpy as np
 import os
+import threading
 from functools import partial
 
 import rclpy
 from rclpy.node import Node
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from ament_index_python.packages import get_package_share_directory
 import ros2_numpy as rnp
 from sensor_msgs.msg import PointCloud2, Image, CameraInfo
@@ -42,6 +44,9 @@ class ElevationMappingNode(Node):
                 rclpy.Parameter('use_sim_time', rclpy.Parameter.Type.BOOL, True)
             ]
         )
+        # Create callback groups to separate timer execution from pointcloud processing
+        self.timer_callback_group = MutuallyExclusiveCallbackGroup()
+        self.pointcloud_callback_group = ReentrantCallbackGroup()
         self.root = get_package_share_directory("elevation_mapping_cupy")
         weight_file = os.path.join(self.root, "config/core/weights.dat")
         plugin_config_file = os.path.join(self.root, "config/core/plugin_config.yaml")
@@ -61,12 +66,17 @@ class ElevationMappingNode(Node):
         self.param.subscriber_cfg = self.my_subscribers
 
         self.initialize_elevation_mapping()
+        self.get_logger().info("\n=== REGISTERING ROS INTERFACES ===")
         self.register_subscribers()
         self.register_publishers()
         self.register_timers()
         self._last_t = None
+        self.get_logger().info("\n=== ELEVATION MAPPING NODE READY ===")
+        self.get_logger().info(f"Waiting for pointclouds on configured topics...")
+        self.get_logger().info(f"Total timers created: {len(self._publishers_timers) + 3}")  # publishers + pose/variance/time
 
     def initialize_elevation_mapping(self) -> None:
+        self.get_logger().info("\n=== INITIALIZING ELEVATION MAPPING ===")
         self.param.update()
         self._pointcloud_process_counter = 0
         self._image_process_counter = 0
@@ -74,10 +84,12 @@ class ElevationMappingNode(Node):
         self._map_data = np.zeros(
             (self._map.cell_n - 2, self._map.cell_n - 2), dtype=np.float32
         )
-        self.get_logger().info(f"Initialized map with length: {self._map.map_length}, resolution: {self._map.resolution}, cells: {self._map.cell_n}")
+        self.get_logger().info(f"Map initialized: length={self._map.map_length}m, resolution={self._map.resolution}m, cells={self._map.cell_n}")
 
         self._map_q = None
         self._map_t = None
+        self._lock = threading.Lock()  # Thread safety for shared state
+        self.get_logger().info("_map_q and _map_t initialized to None (will be set on first pose update)")
 
     def initialize_ros(self) -> None:
         self._tf_buffer = tf2_ros.Buffer()
@@ -204,6 +216,7 @@ class ElevationMappingNode(Node):
         except: pass
 
     def register_subscribers(self) -> None:
+        self.get_logger().info("Registering subscribers...")
         if any(config.get("data_type") == "image" for config in self.my_subscribers.values()):
             self.cv_bridge = CvBridge()
 
@@ -212,6 +225,7 @@ class ElevationMappingNode(Node):
 
         for key, config in self.my_subscribers.items():
             data_type = config.get("data_type")
+            self.get_logger().info(f"  - Subscriber '{key}': type={data_type}, topic={config.get('topic_name', 'N/A')}")
             if data_type == "image":
                 topic_name_camera = config.get("topic_name_camera", "/camera/image")
                 topic_name_camera_info = config.get("topic_name_camera_info", "/camera/camera_info")
@@ -242,51 +256,83 @@ class ElevationMappingNode(Node):
                     PointCloud2,
                     topic_name,
                     partial(self.pointcloud_callback, sub_key=key),
-                    qos_profile
+                    qos_profile,
+                    callback_group=self.pointcloud_callback_group
                 )
                 pointcloud_subs[key] = subscription
 
     def register_publishers(self) -> None:
+        self.get_logger().info(f"Registering publishers for: {list(self.my_publishers.keys())}")
         self._publishers_dict = {}
         self._publishers_timers = []
 
         for pub_key, pub_config in self.my_publishers.items():
             topic_name = f"/{self.get_name()}/{pub_key}"
+            self.get_logger().info(f"Creating publisher for {pub_key} on topic {topic_name}")
             publisher = self.create_publisher(GridMap, topic_name, 10)
             self._publishers_dict[pub_key] = publisher
 
             fps = pub_config.get("fps", 1.0)
+            period = 1.0 / fps
+            self.get_logger().info(f"Creating timer for {pub_key} with period {period}s (fps={fps})")
             timer = self.create_timer(
-                1.0 / fps,
-                partial(self.publish_map, key=pub_key)
+                period,
+                partial(self.publish_map, key=pub_key),
+                callback_group=self.timer_callback_group
             )
             self._publishers_timers.append(timer)
+            self.get_logger().info(f"  - Timer created for {pub_key}: {timer}")
+        self.get_logger().info(f"Publisher registration complete! Created {len(self._publishers_timers)} timers")
 
     def register_timers(self) -> None:
+        self.get_logger().info("Registering timers...")
+        self.get_logger().info(f"Creating pose update timer with period 0.1s")
         self.time_pose_update = self.create_timer(
             0.1,
-            self.pose_update
+            self.pose_update,
+            callback_group=self.timer_callback_group
         )
+        self.get_logger().info(f"  - Pose update timer created: {self.time_pose_update}")
+        
+        self.get_logger().info(f"Creating variance timer with period {1.0 / self.update_variance_fps}s")
         self.timer_variance = self.create_timer(
             1.0 / self.update_variance_fps,
-            self.update_variance
+            self.update_variance,
+            callback_group=self.timer_callback_group
         )
+        self.get_logger().info(f"  - Variance update timer created: {self.timer_variance}")
+        
+        self.get_logger().info(f"Creating time timer with period {self.time_interval}s")
         self.timer_time = self.create_timer(
             self.time_interval,
-            self.update_time
+            self.update_time,
+            callback_group=self.timer_callback_group
         )
+        self.get_logger().info(f"  - Time update timer created: {self.timer_time}")
+        self.get_logger().info("Timer registration complete!")
 
     def publish_map(self, key: str) -> None:
-        if self._map_q is None:
-            return
+        self.get_logger().info(f"publish_map timer fired for key: {key}")
+        with self._lock:
+            if self._map_q is None:
+                self.get_logger().warn(f"publish_map: _map_q is None, skipping")
+                return
+            if self._map_t is None:
+                self.get_logger().warn(f"publish_map: _map_t is None, skipping")
+                return
+            # Copy values to avoid holding lock too long
+            map_t = self._map_t
+            map_q = self._map_q
+        self.get_logger().info(f"Publishing map for key: {key}")
+        
         gm = GridMap()
         gm.header.frame_id = self.map_frame
         gm.header.stamp = self.get_clock().now().to_msg()
         gm.info.resolution = self._map.resolution
         gm.info.length_x = self._map.map_length
         gm.info.length_y = self._map.map_length
-        gm.info.pose.position.x = self._map_t.x
-        gm.info.pose.position.y = self._map_t.y
+        gm.info.pose.position.x = map_t.x
+        gm.info.pose.position.y = map_t.y
         gm.info.pose.position.z = 0.0
         gm.info.pose.orientation.w = 1.0
         gm.info.pose.orientation.x = 0.0
@@ -309,20 +355,28 @@ class ElevationMappingNode(Node):
         gm.outer_start_index = 0
         gm.inner_start_index = 0
         self._publishers_dict[key].publish(gm)
+        self.get_logger().info(f"Published GridMap for {key} with {len(gm.layers)} layers")
 
     def safe_lookup_transform(self, target_frame, source_frame, time):
         try:
-            return self._tf_buffer.lookup_transform(
+            self.get_logger().info(f"TF lookup: {source_frame} -> {target_frame}")
+            result = self._tf_buffer.lookup_transform(
                 target_frame,
                 source_frame,
                 time
             )
-        except tf2_ros.ExtrapolationException:
+            self.get_logger().info(f"TF lookup successful")
+            return result
+        except tf2_ros.ExtrapolationException as e:
+            self.get_logger().warn(f"TF ExtrapolationException, trying with current time: {e}")
             return self._tf_buffer.lookup_transform(
                 target_frame,
                 source_frame,
                 rclpy.time.Time()
             )
+        except Exception as e:
+            self.get_logger().error(f"TF lookup failed: {e}")
+            return None
 
     def image_callback(self, camera_msg: Image, camera_info_msg: CameraInfo, sub_key: str) -> None:
         self._last_t = camera_msg.header.stamp
@@ -355,46 +409,154 @@ class ElevationMappingNode(Node):
 
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
         self._last_t = msg.header.stamp
+        
         channels = ["x", "y", "z"] + self.param.subscriber_cfg[sub_key].get("channels", [])
+        
+        # Try multiple parsing methods
+        points_xyz = None
+        
+        # Method 1: Try ros2_numpy
         try:
             points = rnp.numpify(msg)
-        except:
+            self.get_logger().info(f"ros2_numpy result type: {type(points)}")
+            
+            # Check if it's a structured array or a dict
+            if isinstance(points, dict):
+                self.get_logger().info(f"ros2_numpy returned dict with keys: {points.keys()}")
+                # If it's a dict, try to extract x, y, z directly
+                if 'x' in points and 'y' in points and 'z' in points:
+                    x = points['x']
+                    y = points['y'] 
+                    z = points['z']
+                    points_xyz = np.stack([x, y, z], axis=-1)
+                    self.get_logger().info(f"Extracted from dict, shape: {points_xyz.shape}")
+            elif hasattr(points, 'dtype'):
+                self.get_logger().info(f"ros2_numpy parsed array, dtype: {points.dtype}, shape: {points.shape}")
+                self.get_logger().info(f"Field names in parsed array: {points.dtype.names}")
+                
+                # Try to access xyz data in different ways
+                if 'xyz' in points.dtype.names:
+                    points_xyz = points['xyz']
+                    self.get_logger().info(f"Found 'xyz' field, shape: {points_xyz.shape}")
+                elif 'x' in points.dtype.names and 'y' in points.dtype.names and 'z' in points.dtype.names:
+                    points_xyz = np.stack([points['x'], points['y'], points['z']], axis=-1)
+                    self.get_logger().info(f"Stacked x,y,z fields, shape: {points_xyz.shape}")
+                else:
+                    self.get_logger().warn(f"Could not find xyz data in dtype fields")
+        except Exception as e:
+            self.get_logger().error(f"ros2_numpy failed: {e}")
+            
+        # Method 2: Try point_cloud2 with generator
+        if points_xyz is None:
+            try:
+                self.get_logger().info("Trying point_cloud2.read_points generator method...")
+                points_list = []
+                for p in point_cloud2.read_points(msg, field_names=['x', 'y', 'z'], skip_nans=True):
+                    points_list.append([p[0], p[1], p[2]])
+                    if len(points_list) >= 100:  # Sample first 100 to test
+                        break
+                
+                if points_list:
+                    # Process all points if test succeeded
+                    points_list = []
+                    for p in point_cloud2.read_points(msg, field_names=['x', 'y', 'z'], skip_nans=True):
+                        points_list.append([p[0], p[1], p[2]])
+                    points_xyz = np.array(points_list, dtype=np.float32)
+                    self.get_logger().info(f"point_cloud2 parsed {len(points_list)} points, shape: {points_xyz.shape}")
+                else:
+                    self.get_logger().warn("point_cloud2.read_points returned no points")
+            except Exception as e:
+                self.get_logger().error(f"point_cloud2 generator method failed: {e}")
+                
+        # Method 3: Manual parsing as last resort
+        if points_xyz is None:
+            try:
+                self.get_logger().info("Trying manual parsing...")
+                # Parse the binary data directly
+                import struct
+                points_list = []
+                for i in range(0, len(msg.data), msg.point_step):
+                    x = struct.unpack('f', msg.data[i:i+4])[0]
+                    y = struct.unpack('f', msg.data[i+4:i+8])[0]
+                    z = struct.unpack('f', msg.data[i+8:i+12])[0]
+                    if not (np.isnan(x) or np.isnan(y) or np.isnan(z)):
+                        points_list.append([x, y, z])
+                
+                if points_list:
+                    points_xyz = np.array(points_list, dtype=np.float32)
+                    self.get_logger().info(f"Manual parsing succeeded: {len(points_list)} points, shape: {points_xyz.shape}")
+            except Exception as e:
+                self.get_logger().error(f"Manual parsing failed: {e}")
+        
+        if points_xyz is None or points_xyz.size == 0:
+            self.get_logger().error(f"Failed to extract pointcloud data for {sub_key}")
             return
-        if points['xyz'].size == 0:
-            return
+            
+        self.get_logger().info(f"Successfully extracted {points_xyz.shape[0]} points")
+        
+        # TF lookup
         frame_sensor_id = msg.header.frame_id
+        self.get_logger().info(f"Looking up transform: {frame_sensor_id} -> {self.map_frame}")
         transform_sensor_to_map = self.safe_lookup_transform(
             self.map_frame,
             frame_sensor_id,
             msg.header.stamp
         )
+        if transform_sensor_to_map is None:
+            self.get_logger().error(f"Transform lookup failed!")
+            return
+            
         t = transform_sensor_to_map.transform.translation
         q = transform_sensor_to_map.transform.rotation
         t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
         R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
-        self._map.input_pointcloud(points['xyz'], channels, R, t_np, 0, 0)
-        self._pointcloud_process_counter += 1
+        
+        self.get_logger().info(f"Transform: t=({t.x:.2f}, {t.y:.2f}, {t.z:.2f})")
+        self.get_logger().info(f"About to input pointcloud to map...")
+        
+        try:
+            self._map.input_pointcloud(points_xyz, channels, R, t_np, 0, 0)
+            self._pointcloud_process_counter += 1
+            # Log every 100th pointcloud to reduce spam
+            if self._pointcloud_process_counter % 100 == 0:
+                self.get_logger().info(f"Processed {self._pointcloud_process_counter} pointclouds")
+        except Exception as e:
+            self.get_logger().error(f"Failed to input pointcloud to map: {e}")
 
     def pose_update(self) -> None:
+        self.get_logger().info("pose_update timer fired")
         if self._last_t is None:
+            self.get_logger().warn("pose_update: _last_t is None, skipping")
             return
+        
         transform = self.safe_lookup_transform(
             self.map_frame,
             self.base_frame,
             self._last_t
         )
+        if transform is None:
+            self.get_logger().warn("pose_update: transform lookup failed")
+            return
+        
         t = transform.transform.translation
         q = transform.transform.rotation
         trans = np.array([t.x, t.y, t.z], dtype=np.float32)
         rot = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
+        
+        self.get_logger().info(f"pose_update: moving map to ({t.x:.2f}, {t.y:.2f}, {t.z:.2f})")
         self._map.move_to(trans, rot)
-        self._map_t = t
-        self._map_q = q
+        
+        with self._lock:
+            self._map_t = t
+            self._map_q = q
+            self.get_logger().info("pose_update: _map_t and _map_q updated")
 
     def update_variance(self) -> None:
+        self.get_logger().info("update_variance timer fired")
         self._map.update_variance()
 
     def update_time(self) -> None:
+        self.get_logger().info("update_time timer fired")
         self._map.update_time()
 
     def destroy_node(self) -> None:
@@ -403,7 +565,8 @@ class ElevationMappingNode(Node):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = ElevationMappingNode()
-    executor = rclpy.executors.SingleThreadedExecutor()
+    # Use MultiThreadedExecutor with more threads to handle both pointcloud processing and timers
+    executor = rclpy.executors.MultiThreadedExecutor(num_threads=8)
     executor.add_node(node)
     try:
         executor.spin()
