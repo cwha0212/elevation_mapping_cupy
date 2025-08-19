@@ -365,10 +365,36 @@ class ElevationMappingNode(Node):
         channels = ["x", "y", "z"] + additional_channels
         try:
             points = rnp.numpify(msg)
-        except:
+        except Exception as e:
+            self.get_logger().warn(f"Failed to numpify point cloud: {e}")
             return
-        if points['x'].size == 0:
+        
+        # Check if points is empty - handle both structured array and dict cases
+        if points is None:
             return
+        
+        # Handle different data structures from rnp.numpify
+        if isinstance(points, dict):
+            # If it's a dict, check if it has data
+            if not points or (len(points) == 0):
+                return
+            # Check for x,y,z keys or xyz field in dict
+            if 'xyz' in points:
+                # Handle combined xyz field (common in Livox lidars)
+                xyz_data = points['xyz']
+                if len(xyz_data) == 0:
+                    return
+            elif 'x' in points:
+                # Handle separate x,y,z fields
+                if len(points['x']) == 0:
+                    return
+            else:
+                self.get_logger().warn(f"Point cloud dict missing 'x' or 'xyz' field. Available fields: {list(points.keys())}")
+                return
+        else:
+            # It's a structured numpy array
+            if points.size == 0:
+                return
         frame_sensor_id = msg.header.frame_id
         transform_sensor_to_map = self.safe_lookup_transform(
             self.map_frame,
@@ -379,15 +405,50 @@ class ElevationMappingNode(Node):
         q = transform_sensor_to_map.transform.rotation
         t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
         R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
-        pts = rnp.point_cloud2.get_xyz_points(points)
-        # TODO: This is probably expensive. Consider modifying rnp or input_pointcloud()
-        # Append additional channels to pts
-        for channel in additional_channels:
-            if channel in points.dtype.names:
-                data = points[channel].flatten()
-                if data.ndim == 1:
-                    data = data[:, np.newaxis]
-                pts = np.hstack((pts, data))
+        
+        # Extract xyz points based on data structure
+        if isinstance(points, dict):
+            # If points is a dict, manually construct xyz array
+            if 'xyz' in points:
+                # Handle combined xyz field (common in Livox lidars)
+                xyz_array = np.array(points['xyz'])
+                if xyz_array.ndim == 2 and xyz_array.shape[1] == 3:
+                    pts = xyz_array
+                elif xyz_array.ndim == 1:
+                    # Reshape if flattened
+                    pts = xyz_array.reshape(-1, 3)
+                else:
+                    # Try to extract x, y, z from the structure
+                    pts = xyz_array[:, :3] if xyz_array.shape[1] >= 3 else xyz_array
+            elif 'x' in points and 'y' in points and 'z' in points:
+                # Handle separate x,y,z fields
+                x = np.array(points['x']).flatten()
+                y = np.array(points['y']).flatten()
+                z = np.array(points['z']).flatten()
+                pts = np.column_stack((x, y, z))
+            else:
+                # Fallback: try to use any available method
+                self.get_logger().warn(f"Unexpected point cloud structure, attempting fallback")
+                return
+            
+            # Append additional channels
+            for channel in additional_channels:
+                if channel in points:
+                    data = np.array(points[channel]).flatten()
+                    if data.ndim == 1:
+                        data = data[:, np.newaxis]
+                    pts = np.hstack((pts, data))
+        else:
+            # Use standard method for structured arrays
+            pts = rnp.point_cloud2.get_xyz_points(points)
+            # TODO: This is probably expensive. Consider modifying rnp or input_pointcloud()
+            # Append additional channels to pts
+            for channel in additional_channels:
+                if hasattr(points, 'dtype') and hasattr(points.dtype, 'names') and channel in points.dtype.names:
+                    data = points[channel].flatten()
+                    if data.ndim == 1:
+                        data = data[:, np.newaxis]
+                    pts = np.hstack((pts, data))
         self._map.input_pointcloud(pts, channels, R, t_np, 0, 0)
         self._pointcloud_process_counter += 1
 
