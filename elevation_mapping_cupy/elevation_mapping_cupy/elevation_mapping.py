@@ -797,6 +797,7 @@ class ElevationMap:
             else:
                 print("Layer {} is not in the map".format(name))
                 return
+        # Need 180 degree rotation to match coordinate system
         m = xp.flip(m, 0)
         m = xp.flip(m, 1)
         if use_stream:
