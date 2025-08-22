@@ -1,6 +1,6 @@
 #### Basic parameters ########
-resolution: 0.04                                # resolution in m.
-map_length: 8.0                                 # map's size in m.
+resolution: 0.05                                # resolution in m.
+map_length: 20                                  # map's size in m.
 sensor_noise_factor: 0.05                       # point's noise is sensor_noise_factor*z^2 (z is distance from sensor).
 mahalanobis_thresh: 2.0                         # points outside this distance is outlier.
 outlier_variance: 0.01                          # if point is outlier, add this value to the cell.
@@ -9,7 +9,7 @@ max_drift: 0.1                                  # drift compensation happens onl
 drift_compensation_alpha: 0.1                   # drift compensation alpha for smoother update of drift compensation
 time_variance: 0.0001                           # add this value when update_variance is called.
 max_variance: 100.0                             # maximum variance for each cell.
-initial_variance: 1000.0                         # initial variance for each cell.
+initial_variance: 1000.0                        # initial variance for each cell.
 traversability_inlier: 0.9                      # cells with higher traversability are used for drift compensation.
 dilation_size: 3                                # dilation filter size before traversability filter.
 wall_num_thresh: 20                             # if there are more points than this value, only higher points than the current height are used to make the wall more sharp.
@@ -41,8 +41,8 @@ overlap_clear_range_xy: 4.0                     # xy range [m] for clearing over
 overlap_clear_range_z: 2.0                      # z range [m] for clearing overlapped area. cells outside this range will be cleared. (used for multi floor setting)
 
 map_frame: 'odom'                               # The map frame where the odometry source uses.
-base_frame: 'base_footprint'                              # The robot's base frame. This frame will be a center of the map.
-corrected_map_frame: 'odom'
+base_frame: 'base'                              # The robot's base frame. This frame will be a center of the map.
+corrected_map_frame: 'odom_corrected'
 
 #### Feature toggles ########
 enable_edge_sharpen: true
@@ -60,13 +60,30 @@ weight_file: '$(rospack find elevation_mapping_cupy)/config/core/weights.dat'   
 #### Upper bound ########
 use_only_above_for_upper_bound: false
 
+#### Plugins ########
+# plugin_config_file: '$(rospack find elevation_mapping_cupy)/config/anymal_plugin_config.yaml'
+
+#### Publishers ########
+# topic_name:
+#   layers:               # Choose from 'elevation', 'variance', 'traversability', 'time', 'normal_x', 'normal_y', 'normal_z', 'color', plugin_layer_names
+#   basic_layers:         # basic_layers for valid cell computation (e.g. Rviz): Choose a subset of `layers`.
+#   fps:                  # Publish rate. Use smaller value than `map_acquire_fps`.
+
+# publishers:
+#   elevation_map_raw:
+#     layers: ['elevation', 'traversability', 'variance']
+#     basic_layers: ['elevation', 'traversability']
+#     fps: 5.0
+
+#   semantic_map_raw:
+#     layers: ['elevation', 'traversability']
+#     basic_layers: ['elevation', 'traversability']
+#     fps: 5.0
+
 #### Initializer ########
 initialize_method: 'linear'                                         # Choose one from 'nearest', 'linear', 'cubic'
-initialize_frame_id: ['base_footprint']   # One tf (like ['footprint'] ) initializes a square around it.
+initialize_frame_id: ['RF_FOOT', 'LF_FOOT', 'RH_FOOT', 'LH_FOOT']   # One tf (like ['footprint'] ) initializes a square around it.
 initialize_tf_offset: [0.0, 0.0, 0.0, 0.0]                          # z direction. Should be same number as initialize_frame_id.
-dilation_size_initialize: 2                                         # dilation size after the init.
-initialize_tf_grid_size: 0.5                                        # This is not used if number of tf is more than 3.
+dilation_size_initialize: 5                                         # dilation size after the init.
+initialize_tf_grid_size: 0.4                                        # This is not used if number of tf is more than 3.
 use_initializer_at_start: true                                      # Use initializer when the node starts.
-
-#### Default Plugins ########
-plugin_config_file: '$(rospack find elevation_mapping_cupy)/config/core/plugin_config.yaml'
