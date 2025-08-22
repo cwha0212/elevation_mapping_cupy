@@ -22,6 +22,13 @@ setup(
     ],
     python_requires=">=3.7",
     include_package_data=True,
+    package_data={
+        "elevation_mapping_cupy": [
+            "config/*",
+            "*.yaml",
+            "*.yml",
+        ],
+    },
 )
 
 # Original versions used
