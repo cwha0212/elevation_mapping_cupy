@@ -1,0 +1,23 @@
+[project]
+name = "elevation_mapping_cupy"
+version = "0.1.0"
+description = "Elevation mapping with cupy acceleration"
+authors = []
+requires-python = ">=3.7"
+dependencies = [
+    "numpy",
+    "scipy",
+    "ruamel.yaml",
+    "opencv-python",
+    "simple-parsing",
+    "scikit-image",
+    "matplotlib",
+    "catkin-tools",
+    "networkx==3.0",
+    "shapely",
+]
+
+[tool.setuptools]
+packages = ["elevation_mapping_cupy"]
+package-dir = {"" = "src"}
+include-package-data = true
