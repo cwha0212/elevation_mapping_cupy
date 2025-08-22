@@ -6,8 +6,8 @@ setup(
     description="Elevation mapping with cupy acceleration",
     author="Jonas Frey",
     author_email="jonfrey@ethz.ch",
-    packages=find_packages(where="elevation_mapping_cupy"),
-    package_dir={"": "elevation_mapping_cupy"},
+    packages=find_packages(),
+    package_dir={},
     install_requires=[
         "numpy",
         "scipy",
@@ -24,7 +24,10 @@ setup(
     include_package_data=True,
     package_data={
         "elevation_mapping_cupy": [
-            "*",
+            "**/*.yaml",  # Include all .yaml files recursively
+            "**/*.dat",  # Include all .dat files recursively
+            "**/*.json",  # Add other file types as needed
+            "**/*.txt",
         ],
     },
 )

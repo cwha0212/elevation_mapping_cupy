@@ -1,2 +1,6 @@
-recursive-include elevation_mapping_cupy/*.yaml
-recursive-include elevation_mapping_cupy/*.dat
+recursive-include elevation_mapping_cupy *.yaml
+recursive-include elevation_mapping_cupy *.dat
+recursive-include elevation_mapping_cupy *.json
+recursive-include elevation_mapping_cupy *.txt
+include README*
+include LICENSE*
