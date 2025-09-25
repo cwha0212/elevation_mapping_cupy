@@ -21,6 +21,4 @@
     <depend>tf2_ros</depend>
     <depend>visualization_msgs</depend>
 
-    <exec_depend>grid_map_demos</exec_depend>
-
 </package>
