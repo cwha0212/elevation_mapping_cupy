@@ -23,12 +23,14 @@ setup(
         ],
     },
     data_files=[
+        (os.path.join('share', 'ament_index', 'resource_index', 'packages'),
+         [os.path.join('resource', package_name)]),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         *[(os.path.join('share', package_name, os.path.dirname(yaml_file)), [yaml_file]) for yaml_file in glob('config/**/*.yaml', recursive=True)],
         # also the .*dat files
         *[(os.path.join('share', package_name, os.path.dirname(dat_file)), [dat_file]) for dat_file in glob('config/**/*.dat', recursive=True)],
         # add rviz files
         *[(os.path.join('share', package_name, os.path.dirname(rviz_file)), [rviz_file]) for rviz_file in glob('rviz/**/*.rviz', recursive=True)],
-        (os.path.join('share', package_name), ['package.xml']),
+        (os.path.join('share', package_name), ['package.xml', os.path.join('resource', package_name)]),
     ],
 )
