@@ -12,6 +12,7 @@ from sensor_msgs.msg import PointCloud2, Image, CameraInfo
 from sensor_msgs_py import point_cloud2
 from tf_transformations import quaternion_matrix
 import tf2_ros
+import tf2_py as tf2
 import message_filters
 from cv_bridge import CvBridge
 from rclpy.duration import Duration
@@ -323,11 +324,40 @@ class ElevationMappingNode(Node):
                 time
             )
         except tf2_ros.ExtrapolationException:
-            return self._tf_buffer.lookup_transform(
-                target_frame,
-                source_frame,
-                rclpy.time.Time()
+            # Time is in the future/past, try with latest available
+            try:
+                return self._tf_buffer.lookup_transform(
+                    target_frame,
+                    source_frame,
+                    rclpy.time.Time()
+                )
+            except (tf2.LookupException, tf2.ConnectivityException) as e:
+                self.get_logger().warning(
+                    f"Transform from '{source_frame}' to '{target_frame}' not available: {e}",
+                    throttle_duration_sec=5.0
+                )
+                return None
+        except tf2.LookupException as e:
+            # Frame doesn't exist
+            self.get_logger().warning(
+                f"Frame '{target_frame}' or '{source_frame}' does not exist: {e}",
+                throttle_duration_sec=5.0
             )
+            return None
+        except tf2.ConnectivityException as e:
+            # No transform path between frames
+            self.get_logger().warning(
+                f"No transform path from '{source_frame}' to '{target_frame}': {e}",
+                throttle_duration_sec=5.0
+            )
+            return None
+        except Exception as e:
+            # Catch any other unexpected TF2 errors
+            self.get_logger().warning(
+                f"Unexpected TF2 error for transform from '{source_frame}' to '{target_frame}': {e}",
+                throttle_duration_sec=5.0
+            )
+            return None
 
     def image_callback(self, camera_msg: Image, camera_info_msg: CameraInfo, sub_key: str) -> None:
         self._last_t = camera_msg.header.stamp
@@ -348,6 +378,9 @@ class ElevationMappingNode(Node):
             camera_msg.header.frame_id,
             camera_msg.header.stamp
         )
+        if transform_camera_to_map is None:
+            # Transform not available, skip this image
+            return
         t = transform_camera_to_map.transform.translation
         q = transform_camera_to_map.transform.rotation
         t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
@@ -401,6 +434,9 @@ class ElevationMappingNode(Node):
             frame_sensor_id,
             msg.header.stamp
         )
+        if transform_sensor_to_map is None:
+            # Transform not available, skip this pointcloud
+            return
         t = transform_sensor_to_map.transform.translation
         q = transform_sensor_to_map.transform.rotation
         t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
@@ -460,6 +496,9 @@ class ElevationMappingNode(Node):
             self.base_frame,
             self._last_t
         )
+        if transform is None:
+            # Transform not available, skip pose update
+            return
         t = transform.transform.translation
         q = transform.transform.rotation
         trans = np.array([t.x, t.y, t.z], dtype=np.float32)
