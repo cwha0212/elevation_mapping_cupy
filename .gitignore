@@ -10,6 +10,3 @@ _build
 .vscode*
 *.egg-info
 elevation_mapping_cupy/compile_commands.json
-build/
-install/
-log/
