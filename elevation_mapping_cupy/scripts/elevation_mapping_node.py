@@ -240,7 +240,8 @@ class ElevationMappingNode(Node):
                 # )
                 # qos_profile = QoSPresetProfiles.get_from_short_key("sensor_data")
                 # qos_profile = rclpy.qos.QoSProfile(depth=10)
-                qos_profile = 10
+                # Use sensor data QoS (BEST_EFFORT) for point clouds
+                qos_profile = QoSPresetProfiles.get_from_short_key("sensor_data")
                 subscription = self.create_subscription(
                     PointCloud2,
                     topic_name,

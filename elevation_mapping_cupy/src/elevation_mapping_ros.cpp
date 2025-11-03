@@ -186,6 +186,7 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions& options)
             // rmw_qos_profile_t qos_profile = rmw_qos_profile_default;
             // auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, qos_profile.depth), qos_profile);
 
+            // Use sensor data QoS (BEST_EFFORT) for high-frequency point clouds
             rmw_qos_profile_t sensor_qos_profile = rmw_qos_profile_sensor_data;
             auto sensor_qos = rclcpp::QoS(rclcpp::QoSInitialization(sensor_qos_profile.history, sensor_qos_profile.depth), sensor_qos_profile);
 
@@ -201,30 +202,13 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions& options)
             // point_cloud_transport::Subscriber sub = pct.subscribe(pointcloud_topic, 100, callback, {}, transport_hint.get())
 
 
-            auto callback_transport = [this, key](const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
-            this->pointcloudtransportCallback(msg, key);
-            };
-
-            // Create transport hints (e.g., "draco")
-            // auto transport_hint = std::make_shared<point_cloud_transport::TransportHints>("draco");
+            auto callback = [this, key](const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg) {
+                  this->pointcloudtransportCallback(msg, key);
+              };
             
-
-            // Use PointCloudTransport to create a subscriber
-            point_cloud_transport::PointCloudTransport pct(node_);
-            auto sub_transport = pct.subscribe(pointcloud_topic, 100, callback_transport);
-
-            // Add the subscriber to the vector to manage its lifetime
-            pointcloudtransportSubs_.push_back(sub_transport);
-
-
-            // auto callback = [this, key](const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-            //       this->pointcloudCallback(msg, key);
-            //   };
-              
-            //   auto sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(pointcloud_topic, sensor_qos, callback);
-            
-            //   pointcloudSubs_.push_back(sub);
-                RCLCPP_INFO(this->get_logger(), "Subscribed to PointCloud2 topic: %s", pointcloud_topic.c_str());
+            auto sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(pointcloud_topic, sensor_qos, callback);
+            pointcloudSubs_.push_back(sub);
+            RCLCPP_INFO(this->get_logger(), "Subscribed to PointCloud2 topic: %s", pointcloud_topic.c_str());
           }
       }
     }
