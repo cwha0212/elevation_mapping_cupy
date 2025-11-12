@@ -255,8 +255,6 @@ have the third-party libaries installed on you machine:
   sudo apt install libboost-all-dev
 
 
-Semantic Sensors
-==================================================================
 Build
 ==================================================================
 After installing all the dependencies, you can build the packages.
