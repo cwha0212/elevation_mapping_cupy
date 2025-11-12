@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+import math
 import numpy as np
 import os
+from pathlib import Path
 from functools import partial
+from typing import Dict, List
 
 import rclpy
 from rclpy.node import Node
@@ -16,12 +19,16 @@ import tf2_py as tf2
 import message_filters
 from cv_bridge import CvBridge
 from rclpy.duration import Duration
+from rclpy.serialization import serialize_message, deserialize_message
 from grid_map_msgs.msg import GridMap
+from grid_map_msgs.srv import SetGridMap, ProcessFile
+from geometry_msgs.msg import Vector3, Quaternion
 from std_msgs.msg import Float32MultiArray
 from std_msgs.msg import MultiArrayLayout as MAL
 from std_msgs.msg import MultiArrayDimension as MAD
-from rclpy.serialization import serialize_message
+import rosbag2_py
 from elevation_mapping_cupy import ElevationMap, Parameter
+from elevation_mapping_cupy.elevation_mapping import GridGeometry
 
 PDC_DATATYPE = {
     "1": np.int8,
@@ -53,6 +60,11 @@ class ElevationMappingNode(Node):
             plugin_config_file=plugin_config_file
         )
 
+        self.declare_parameter('masked_replace_service_mask_layer_name', 'mask')
+        self.declare_parameter('save_map_default_topic', 'elevation_map')
+        self.declare_parameter('save_map_storage_id', 'mcap')
+        self.declare_parameter('service_namespace', '/elevation_mapping_cupy')
+
         # Read ROS parameters (including YAML)
         self.initialize_ros()
         self.set_param_values_from_ros()
@@ -64,6 +76,7 @@ class ElevationMappingNode(Node):
         self.register_subscribers()
         self.register_publishers()
         self.register_timers()
+        self.register_services()
         self._last_t = None
 
     def initialize_elevation_mapping(self) -> None:
@@ -203,6 +216,16 @@ class ElevationMappingNode(Node):
         try: self.param.use_only_above_for_upper_bound = self.get_parameter('use_only_above_for_upper_bound').get_parameter_value().bool_value
         except: pass
 
+        mask_param = self.get_parameter('masked_replace_service_mask_layer_name').get_parameter_value().string_value
+        topic_param = self.get_parameter('save_map_default_topic').get_parameter_value().string_value
+        storage_param = self.get_parameter('save_map_storage_id').get_parameter_value().string_value
+        service_ns_param = self.get_parameter('service_namespace').get_parameter_value().string_value
+
+        self.masked_replace_mask_layer_name = mask_param or 'mask'
+        self.save_map_default_topic = topic_param or 'elevation_map'
+        self.save_map_storage_id = storage_param or 'mcap'
+        self.service_namespace = self._normalize_namespace(service_ns_param or '/elevation_mapping_cupy')
+
     def register_subscribers(self) -> None:
         if any(config.get("data_type") == "image" for config in self.my_subscribers.values()):
             self.cv_bridge = CvBridge()
@@ -280,9 +303,31 @@ class ElevationMappingNode(Node):
             self.update_time
         )
 
+    def register_services(self) -> None:
+        service_masked = self._resolve_service_name('masked_replace')
+        service_save = self._resolve_service_name('save_map')
+        service_load = self._resolve_service_name('load_map')
+
+        self._srv_masked_replace = self.create_service(
+            SetGridMap,
+            service_masked,
+            self.handle_masked_replace
+        )
+        self._srv_save_map = self.create_service(
+            ProcessFile,
+            service_save,
+            self.handle_save_map
+        )
+        self._srv_load_map = self.create_service(
+            ProcessFile,
+            service_load,
+            self.handle_load_map
+        )
+
     def publish_map(self, key: str) -> None:
         if self._map_q is None:
             return
+        center = self._get_map_center()
         gm = GridMap()
         gm.header.frame_id = self.map_frame
         gm.header.stamp = self._last_t if self._last_t is not None else self.get_clock().now().to_msg()
@@ -290,13 +335,25 @@ class ElevationMappingNode(Node):
         actual_map_length = (self._map.cell_n - 2) * self._map.resolution
         gm.info.length_x = actual_map_length
         gm.info.length_y = actual_map_length
-        gm.info.pose.position.x = self._map_t.x
-        gm.info.pose.position.y = self._map_t.y
-        gm.info.pose.position.z = 0.0
-        gm.info.pose.orientation.w = 1.0
-        gm.info.pose.orientation.x = 0.0
-        gm.info.pose.orientation.y = 0.0
-        gm.info.pose.orientation.z = 0.0
+        if self._map_t is not None:
+            gm.info.pose.position.x = self._map_t.x
+            gm.info.pose.position.y = self._map_t.y
+            gm.info.pose.position.z = self._map_t.z
+        else:
+            gm.info.pose.position.x = float(center[0])
+            gm.info.pose.position.y = float(center[1])
+            gm.info.pose.position.z = float(center[2])
+
+        if self._map_q is not None:
+            gm.info.pose.orientation.x = self._map_q.x
+            gm.info.pose.orientation.y = self._map_q.y
+            gm.info.pose.orientation.z = self._map_q.z
+            gm.info.pose.orientation.w = self._map_q.w
+        else:
+            gm.info.pose.orientation.w = 1.0
+            gm.info.pose.orientation.x = 0.0
+            gm.info.pose.orientation.y = 0.0
+            gm.info.pose.orientation.z = 0.0
         gm.layers = []
         gm.basic_layers = self.my_publishers[key]["basic_layers"]
 
@@ -316,6 +373,306 @@ class ElevationMappingNode(Node):
         gm.outer_start_index = 0
         gm.inner_start_index = 0
         self._publishers_dict[key].publish(gm)
+
+    def handle_masked_replace(self, request, response):
+        try:
+            layer_arrays, geometry = self._grid_map_to_numpy(request.map)
+            mask = layer_arrays.pop(self.masked_replace_mask_layer_name, None)
+            if not layer_arrays:
+                raise ValueError("Provide at least one data layer to update.")
+            self._map.apply_masked_replace(layer_arrays, mask, geometry)
+            self._republish_all_once()
+            self.get_logger().info(f"masked_replace updated {len(layer_arrays)} layer(s).")
+        except Exception as exc:
+            self.get_logger().error(f"masked_replace failed: {exc}")
+        return response
+
+    def handle_save_map(self, request, response):
+        try:
+            fused_path, raw_path = self._prepare_bag_paths(request.file_path)
+            topic_base = request.topic_name or self.save_map_default_topic
+            fused_topic = self._resolve_topic_name(topic_base)
+            raw_topic = self._resolve_topic_name(f"{topic_base}_raw")
+
+            fused_layer_names = self._collect_fused_layer_names()
+            raw_layer_names = self._map.list_layers()
+            self.get_logger().info(
+                f"Saving map: fused layers={fused_layer_names}, raw layers={raw_layer_names}"
+            )
+
+            fused_layers = self._map.export_layers(fused_layer_names)
+            raw_layers = self._map.export_layers(raw_layer_names)
+            self.get_logger().info(
+                f"Exported raw layer keys: {list(raw_layers.keys())}"
+            )
+
+            gm_fused = self._build_grid_map_message(
+                fused_layer_names,
+                fused_layers,
+                self._collect_basic_layers(),
+            )
+            gm_raw = self._build_grid_map_message(
+                raw_layer_names,
+                raw_layers,
+                ['elevation'],
+            )
+            self.get_logger().info(
+                f"Built fused msg layers={gm_fused.layers}, raw msg layers={gm_raw.layers}"
+            )
+
+            self._write_grid_map_bag(fused_path, fused_topic, gm_fused)
+            self._write_grid_map_bag(raw_path, raw_topic, gm_raw)
+
+            response.success = True
+        except Exception as exc:
+            self.get_logger().error(f"save_map failed: {exc}")
+            response.success = False
+        return response
+
+    def handle_load_map(self, request, response):
+        try:
+            fused_path = Path(request.file_path).expanduser().resolve()
+            raw_path = Path(f"{fused_path}_raw")
+            if not fused_path.exists():
+                raise FileNotFoundError(f"Fused map bag '{fused_path}' does not exist.")
+            if not raw_path.exists():
+                raise FileNotFoundError(f"Raw map bag '{raw_path}' does not exist.")
+
+            topic_base = request.topic_name or self.save_map_default_topic
+            fused_topic = self._resolve_topic_name(topic_base)
+            raw_topic = self._resolve_topic_name(f"{topic_base}_raw")
+
+            fused_msg = self._read_latest_grid_map(fused_path, fused_topic)
+            raw_msg = self._read_latest_grid_map(raw_path, raw_topic)
+
+            fused_layers, _ = self._grid_map_to_numpy(fused_msg)
+            raw_layers, geometry = self._grid_map_to_numpy(raw_msg)
+            raw_layers = self._restore_internal_layer_orientation(raw_layers)
+
+            self._map.set_full_map(fused_layers, raw_layers, geometry)
+
+            pose_position = raw_msg.info.pose.position
+            pose_orientation = raw_msg.info.pose.orientation
+            self._map_t = Vector3(x=pose_position.x, y=pose_position.y, z=pose_position.z)
+            self._map_q = Quaternion(
+                x=pose_orientation.x,
+                y=pose_orientation.y,
+                z=pose_orientation.z,
+                w=pose_orientation.w,
+            )
+            self._last_t = self.get_clock().now().to_msg()
+            self._republish_all_once()
+
+            response.success = True
+        except Exception as exc:
+            self.get_logger().error(f"load_map failed: {exc}")
+            response.success = False
+        return response
+
+    def _grid_map_to_numpy(self, grid_map_msg: GridMap):
+        if len(grid_map_msg.layers) != len(grid_map_msg.data):
+            raise ValueError("Mismatch between GridMap layers and data arrays.")
+
+        arrays: Dict[str, np.ndarray] = {}
+        for name, array_msg in zip(grid_map_msg.layers, grid_map_msg.data):
+            cols, rows = self._extract_layout_shape(array_msg)
+            data_np = np.asarray(array_msg.data, dtype=np.float32)
+            if data_np.size != rows * cols:
+                raise ValueError(f"Layer '{name}' has inconsistent layout metadata.")
+            arrays[name] = data_np.reshape((rows, cols))
+
+        center = np.array(
+            [
+                grid_map_msg.info.pose.position.x,
+                grid_map_msg.info.pose.position.y,
+                grid_map_msg.info.pose.position.z,
+            ],
+            dtype=np.float32,
+        )
+        orientation = np.array(
+            [
+                grid_map_msg.info.pose.orientation.x,
+                grid_map_msg.info.pose.orientation.y,
+                grid_map_msg.info.pose.orientation.z,
+                grid_map_msg.info.pose.orientation.w,
+            ],
+            dtype=np.float32,
+        )
+
+        geometry = GridGeometry(
+            length_x=grid_map_msg.info.length_x,
+            length_y=grid_map_msg.info.length_y,
+            resolution=grid_map_msg.info.resolution,
+            center=center,
+            orientation=orientation,
+        )
+        return arrays, geometry
+
+    def _restore_internal_layer_orientation(self, layers: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        """Undo the double-axis flip applied when exporting layers for GridMap messages."""
+        restored: Dict[str, np.ndarray] = {}
+        for name, array in layers.items():
+            if array.ndim >= 2:
+                flipped = np.flip(np.flip(array, axis=0), axis=1)
+                restored[name] = np.ascontiguousarray(flipped)
+            else:
+                restored[name] = np.ascontiguousarray(array)
+        return restored
+
+    def _extract_layout_shape(self, array_msg: Float32MultiArray) -> tuple:
+        if array_msg.layout.dim:
+            cols = array_msg.layout.dim[0].size or 1
+            rows = array_msg.layout.dim[1].size if len(array_msg.layout.dim) > 1 else (
+                len(array_msg.data) // cols if cols else len(array_msg.data)
+            )
+        else:
+            cols = int(math.sqrt(len(array_msg.data)))
+            rows = cols
+        return cols, rows
+
+    def _collect_fused_layer_names(self) -> List[str]:
+        fused: List[str] = []
+        for config in self.my_publishers.values():
+            fused.extend(config.get('layers', []))
+        if not fused:
+            fused = ['elevation']
+        ordered: List[str] = []
+        for name in fused:
+            if name not in ordered:
+                ordered.append(name)
+        return ordered
+
+    def _collect_basic_layers(self) -> List[str]:
+        basics: List[str] = []
+        for config in self.my_publishers.values():
+            basics.extend(config.get('basic_layers', []))
+        if not basics:
+            basics = ['elevation']
+        ordered: List[str] = []
+        for name in basics:
+            if name not in ordered:
+                ordered.append(name)
+        return ordered
+
+    def _build_grid_map_message(
+        self,
+        layer_names: List[str],
+        layer_data: Dict[str, np.ndarray],
+        basic_layers: List[str],
+    ) -> GridMap:
+        gm = GridMap()
+        gm.header.frame_id = self.map_frame
+        gm.header.stamp = self._last_t if self._last_t is not None else self.get_clock().now().to_msg()
+        gm.info.resolution = self._map.resolution
+        actual_map_length = (self._map.cell_n - 2) * self._map.resolution
+        gm.info.length_x = actual_map_length
+        gm.info.length_y = actual_map_length
+
+        center = self._get_map_center()
+        gm.info.pose.position.x = float(center[0])
+        gm.info.pose.position.y = float(center[1])
+        gm.info.pose.position.z = float(center[2])
+        if self._map_q is not None:
+            gm.info.pose.orientation.x = self._map_q.x
+            gm.info.pose.orientation.y = self._map_q.y
+            gm.info.pose.orientation.z = self._map_q.z
+            gm.info.pose.orientation.w = self._map_q.w
+        else:
+            gm.info.pose.orientation.w = 1.0
+
+        gm.layers = []
+        gm.basic_layers = basic_layers
+        for name in layer_names:
+            data = layer_data.get(name)
+            if data is None:
+                continue
+            gm.layers.append(name)
+            gm.data.append(self._numpy_to_multiarray(data))
+        gm.outer_start_index = 0
+        gm.inner_start_index = 0
+        return gm
+
+    def _numpy_to_multiarray(self, data: np.ndarray) -> Float32MultiArray:
+        array = np.asarray(data, dtype=np.float32)
+        msg = Float32MultiArray()
+        msg.layout = MAL()
+        msg.layout.dim.append(
+            MAD(label="column_index", size=array.shape[1], stride=array.shape[0] * array.shape[1])
+        )
+        msg.layout.dim.append(
+            MAD(label="row_index", size=array.shape[0], stride=array.shape[0])
+        )
+        msg.data = array.flatten().tolist()
+        return msg
+
+    def _resolve_service_name(self, suffix: str) -> str:
+        base = self.service_namespace
+        if not base:
+            base = f"/{self.get_name()}"
+        return f"{base}/{suffix}".replace('//', '/')
+
+    def _resolve_topic_name(self, topic: str) -> str:
+        topic = topic.strip('/') or self.save_map_default_topic
+        base = self.service_namespace
+        if not base:
+            base = f"/{self.get_name()}"
+        return f"{base}/{topic}".replace('//', '/')
+
+    def _prepare_bag_paths(self, file_path: str):
+        if not file_path:
+            raise ValueError("file_path must be provided.")
+        fused_path = Path(file_path).expanduser().resolve()
+        raw_path = Path(f"{fused_path}_raw")
+        if fused_path.exists():
+            raise FileExistsError(f"Bag path '{fused_path}' already exists.")
+        if raw_path.exists():
+            raise FileExistsError(f"Bag path '{raw_path}' already exists.")
+        fused_path.parent.mkdir(parents=True, exist_ok=True)
+        return fused_path, raw_path
+
+    def _write_grid_map_bag(self, path: Path, topic: str, grid_map_msg: GridMap) -> None:
+        writer = rosbag2_py.SequentialWriter()
+        storage_options = rosbag2_py.StorageOptions(uri=str(path), storage_id=self.save_map_storage_id)
+        converter_options = rosbag2_py.ConverterOptions('', '')
+        writer.open(storage_options, converter_options)
+        topic_metadata = rosbag2_py.TopicMetadata(0, topic, 'grid_map_msgs/msg/GridMap', 'cdr')
+        writer.create_topic(topic_metadata)
+        writer.write(topic, serialize_message(grid_map_msg), self.get_clock().now().nanoseconds)
+
+    def _read_latest_grid_map(self, path: Path, topic: str) -> GridMap:
+        reader = rosbag2_py.SequentialReader()
+        storage_options = rosbag2_py.StorageOptions(uri=str(path), storage_id=self.save_map_storage_id)
+        converter_options = rosbag2_py.ConverterOptions('', '')
+        reader.open(storage_options, converter_options)
+        latest = None
+        while reader.has_next():
+            current_topic, data, _ = reader.read_next()
+            if current_topic != topic:
+                continue
+            msg = deserialize_message(data, GridMap)
+            latest = msg
+        if latest is None:
+            raise ValueError(f"No messages for topic '{topic}' in bag '{path}'.")
+        return latest
+
+    def _get_map_center(self) -> np.ndarray:
+        center = np.zeros((1, 3), dtype=np.float32)
+        self._map.get_center_position(center)
+        return center[0]
+
+    def _republish_all_once(self) -> None:
+        if self._map_q is None:
+            return
+        for key in self._publishers_dict.keys():
+            self.publish_map(key)
+
+    def _normalize_namespace(self, value: str) -> str:
+        value = value.strip() if value else ''
+        if not value:
+            return ''
+        if not value.startswith('/'):
+            value = f'/{value}'
+        return value.rstrip('/')
 
     def safe_lookup_transform(self, target_frame, source_frame, time):
         try:

@@ -155,6 +155,11 @@ class PluginManager(object):
             names.append(obj.layer_name)
         return names
 
+    def reset_layers(self):
+        """Invalidate cached plugin layers so they will be recomputed on demand."""
+        if hasattr(self, "layers"):
+            self.layers[...] = cp.nan
+
     def get_plugin_names(self):
         names = []
         for obj in self.plugin_params:

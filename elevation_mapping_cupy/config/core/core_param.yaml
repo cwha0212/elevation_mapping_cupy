@@ -38,6 +38,11 @@ elevation_mapping_node:
     recordable_fps: 3.0                           # Recordable fps for pointcloud.
     enable_normal_arrow_publishing: false
 
+    masked_replace_service_mask_layer_name: 'mask'
+    save_map_default_topic: 'elevation_map'
+    save_map_storage_id: 'mcap'
+    service_namespace: '/elevation_mapping_cupy'
+
     max_ray_length: 10.0                            # maximum length for ray tracing.
     cleanup_step: 0.1                               # subtitute this value from validity layer at visibiltiy cleanup.
     cleanup_cos_thresh: 0.1                         # subtitute this value from validity layer at visibiltiy cleanup.
