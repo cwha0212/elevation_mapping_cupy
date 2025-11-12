@@ -11,7 +11,7 @@ def generate_launch_description():
         # Elevation Mapping Node
         Node(
             package='elevation_mapping_cupy',
-            executable='elevation_mapping_node',
+            executable='elevation_mapping_node.py',
             name='elevation_mapping',
             parameters=[
                 PathJoinSubstitution([

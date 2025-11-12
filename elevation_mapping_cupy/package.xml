@@ -6,30 +6,19 @@
     <maintainer email="takahiro.miki1992@gmail.com">Takahiro Miki</maintainer>
     <license>MIT</license>
 
-    <!-- Comment out these lines to build only with python -->
     <buildtool_depend>ament_cmake</buildtool_depend>
     <buildtool_depend>ament_cmake_python</buildtool_depend>
 
-    <!-- Comment in to build only with python -->
-    <!-- <buildtool_depend>ament_python</buildtool_depend> -->
-
     <!-- Core ROS2 dependencies -->
     <depend>rclpy</depend>
-    <!-- Comment out to build only with python -->
-    <depend>rclcpp</depend>
     <depend>std_msgs</depend>
     <depend>std_srvs</depend>    
     <depend>sensor_msgs</depend>
     <depend>geometry_msgs</depend>
-    <!-- Might need to remove point_cloud_transport if not used -->
-    <depend>point_cloud_transport</depend>
     <depend>message_filters</depend>
     <depend>elevation_map_msgs</depend>
     <depend>grid_map_msgs</depend>
-    <depend>grid_map_ros</depend>
     <depend>image_transport</depend>
-    <depend>pcl_ros</depend>
-    <depend>pybind11-dev</depend>
     <depend>ros2_numpy</depend>
     <depend>python3-scipy</depend>
     <!-- Numpy version needs to be <2.0.0 -->
@@ -49,7 +38,6 @@
     <depend>simple-parsing</depend>
     <depend>python3-shapely</depend>
     <depend>python3-ruamel.yaml</depend>
-    <depend>boost</depend>
     <depend>python3-transforms3d</depend>
 
     <!-- For turtlebot3 simulation -->
