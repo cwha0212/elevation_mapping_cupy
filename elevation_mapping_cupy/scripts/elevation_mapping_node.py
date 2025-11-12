@@ -383,8 +383,10 @@ class ElevationMappingNode(Node):
             self._map.apply_masked_replace(layer_arrays, mask, geometry)
             self._republish_all_once()
             self.get_logger().info(f"masked_replace updated {len(layer_arrays)} layer(s).")
+            response.success = True
         except Exception as exc:
             self.get_logger().error(f"masked_replace failed: {exc}")
+            response.success = False
         return response
 
     def handle_save_map(self, request, response):
@@ -630,12 +632,24 @@ class ElevationMappingNode(Node):
         fused_path.parent.mkdir(parents=True, exist_ok=True)
         return fused_path, raw_path
 
+    def _make_topic_metadata(self, topic: str) -> rosbag2_py.TopicMetadata:
+        """Build TopicMetadata compatible with both legacy and new rosbag2 Python signatures."""
+        msg_type = 'grid_map_msgs/msg/GridMap'
+        serialization_format = 'cdr'
+        try:
+            metadata = rosbag2_py.TopicMetadata(topic, msg_type, serialization_format, '')
+            if metadata.name == topic and metadata.type == msg_type:
+                return metadata
+        except TypeError:
+            pass
+        return rosbag2_py.TopicMetadata(0, topic, msg_type, serialization_format)
+
     def _write_grid_map_bag(self, path: Path, topic: str, grid_map_msg: GridMap) -> None:
         writer = rosbag2_py.SequentialWriter()
         storage_options = rosbag2_py.StorageOptions(uri=str(path), storage_id=self.save_map_storage_id)
         converter_options = rosbag2_py.ConverterOptions('', '')
         writer.open(storage_options, converter_options)
-        topic_metadata = rosbag2_py.TopicMetadata(0, topic, 'grid_map_msgs/msg/GridMap', 'cdr')
+        topic_metadata = self._make_topic_metadata(topic)
         writer.create_topic(topic_metadata)
         writer.write(topic, serialize_message(grid_map_msg), self.get_clock().now().nanoseconds)
 
