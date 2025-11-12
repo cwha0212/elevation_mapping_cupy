@@ -21,7 +21,6 @@
 
      Plugins <usage/plugins>
      Parameters <usage/parameters>
-     Plane Segmentation <usage/plane_segmentation>
      Semantics <usage/semantics>
 
 
@@ -31,7 +30,6 @@
     :caption: Library
 
      Python <python/index>
-
 
 
 

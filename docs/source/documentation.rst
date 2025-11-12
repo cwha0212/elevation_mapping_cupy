@@ -20,8 +20,8 @@ Index
 
 
 This is a ROS package for elevation mapping on GPU. The elevation mapping code is written in python and uses cupy for GPU computation. The
-plane segmentation is done independently and runs on CPU. When the plane segmentation is generated, local convex approximations of the
-terrain can be efficiently generated.
+legacy plane segmentation pipeline ran independently on the CPU to provide convex terrain approximations, but it has been removed from the
+current ROS 2 workspace until it is validated again.
 
 .. image:: ../media/main_repo.png
     :alt: Elevation map examples

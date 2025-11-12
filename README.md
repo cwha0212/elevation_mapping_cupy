@@ -105,8 +105,9 @@ Inside docker container.
 ```zsh
 cd $HOME/catkin_ws
 catkin build elevation_mapping_cupy
-catkin build convex_plane_decomposition_ros  # If you want to use plane segmentation
-catkin build semantic_sensor  # If you want to use semantic sensors
+
+> [!NOTE]
+> The ``plane_segmentation`` and ``sensor_processing`` stacks were removed from this workspace because they are not maintained on ROS 2.  Use an older commit if you still need them.
 ```
 
 ### Run turtlebot example
@@ -116,28 +117,6 @@ catkin build semantic_sensor  # If you want to use semantic sensors
 ```bash
 export TURTLEBOT3_MODEL=waffle
 roslaunch elevation_mapping_cupy turtlesim_simple_example.launch
-```
-
-For fusing semantics into the map such as rgb from a multi modal pointcloud:
-
-```bash
-export TURTLEBOT3_MODEL=waffle
-roslaunch elevation_mapping_cupy turtlesim_semantic_pointcloud_example.launch
-```
-
-For fusing semantics into the map such as rgb semantics or features from an image:
-
-```bash
-export TURTLEBOT3_MODEL=waffle
-roslaunch elevation_mapping_cupy turtlesim_semantic_image_example.launch
-```
-
-For plane segmentation:
-
-```bash
-catkin build convex_plane_decomposition_ros
-export TURTLEBOT3_MODEL=waffle
-roslaunch elevation_mapping_cupy turtlesim_plane_decomposition_example.launch
 ```
 
 To control the robot with a keyboard, a new terminal window needs to be opened.

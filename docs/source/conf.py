@@ -9,7 +9,6 @@
 import os, sys
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../../elevation_mapping_cupy/script'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '../../sensor_processing/semantic_sensor/script'))
 
 autodoc_mock_imports = [
     "cupy",

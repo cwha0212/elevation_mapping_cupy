@@ -2,8 +2,8 @@
 
 Tutorial
 ******************************************************************
-This tutorial will guide you through the basic usage of the elevation mapping cupy. 
-You will learn how to run the plane segmentation node, the sensor node, and the TurtleBot example. 
+This tutorial will guide you through the basic usage of elevation_mapping_cupy.
+You will learn how to run the core node and the TurtleBot example.
 
 If you want to use your own custom plugins, please refer to the :ref:`plugins`.
 
@@ -16,20 +16,6 @@ Basic usage.
 .. code-block:: bash
 
   roslaunch elevation_mapping_cupy elevation_mapping_cupy.launch
-
-
-For the plane segmentation node
-
-.. code-block:: bash
-
-  roslaunch convex_plane_decomposition_ros convex_plane_decomposition.launch
-
-For the sensor node
-
-.. code-block:: bash
-
-  roslaunch semantic_sensor semantic_pointcloud.launch
-  roslaunch semantic_sensor semantic_image.launch
 
 
 Run TurtleBot example
@@ -55,27 +41,6 @@ For fusing semantics into the map such as rgb from a multi modal pointcloud:
 .. image:: ../../media/turtlebot.png
     :alt: Elevation map examples
 
-.. code-block:: bash
-
-  export TURTLEBOT3_MODEL=waffle
-  roslaunch elevation_mapping_cupy turtlesim_semantic_pointcloud_example.launch
-
-For fusing semantics into the map such as rgb semantics or features from an image:
-
-.. code-block:: bash
-
-  export TURTLEBOT3_MODEL=waffle
-  roslaunch elevation_mapping_cupy turtlesim_semantic_image_example.launch
-
-Or, for the version including plane segmentation:
-
-.. code-block:: bash
-
-  catkin build convex_plane_decomposition_ros
-  export TURTLEBOT3_MODEL=waffle
-  roslaunch elevation_mapping_cupy turtlesim_plane_decomposition_example.launch
-
-
 To control the robot with a keyboard, a new terminal window needs to be opened.
 Then run
 
@@ -87,6 +52,8 @@ Then run
 
 Velocity inputs can be sent to the robot by pressing the keys `a`, `w`, `d`, `x`. To stop the robot completely, press `s`.
 
+.. note::
+   The previous semantic sensor and plane segmentation demos were removed from this workspace because they have not been validated on ROS 2.  Use a historical revision if you still need them.
 
 
 
@@ -122,6 +89,5 @@ Build with option.
 .. code-block:: bash
 
   catkin build elevation_mapping_cupy -DPYTHON_EXECUTABLE=$(which python3)
-
 
 

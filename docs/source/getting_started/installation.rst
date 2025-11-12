@@ -257,32 +257,6 @@ have the third-party libaries installed on you machine:
 
 Semantic Sensors
 ==================================================================
-Elevation mapping node can receive multi-modal point cloud and image topics.
-In this example, we use semantic segmentation models to process color images and publish those topics.
-
-Python dependencies
--------------------------------------------------------------------
-
-.. code-block:: bash
-
-  pip3 install scikit-learn
-
-Torchvision (for Jetson Orin on Ubuntu 20.04) 
-
-.. code-block:: bash
-
-  git clone --branch release/0.15 https://github.com/pytorch/vision torchvision
-  cd torchvision/
-  export BUILD_VERSION=0.15.1
-  python3 setup.py install --user
-
-Detectron
-
-.. code-block:: bash
-
-  python3 -m pip install 'git+https://github.com/facebookresearch/detectron2.git'
-
-
 Build
 ==================================================================
 After installing all the dependencies, you can build the packages.
@@ -293,5 +267,6 @@ Then, build the packages with catkin.
 
   cd <your_catkin_ws>
   catkin build elevation_mapping_cupy  # The core package
-  catkin build convex_plane_decomposition_ros  # If you want to use plane segmentation
-  catkin build semantic_sensor  # If you want to use semantic sensors
+
+.. note::
+   The legacy ``plane_segmentation`` and ``sensor_processing`` stacks have been removed from this workspace because they were untested on ROS 2.  Use an earlier revision if you rely on those packages.

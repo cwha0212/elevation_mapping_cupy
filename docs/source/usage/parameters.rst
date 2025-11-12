@@ -11,8 +11,6 @@ There are three parameter files:
 
 #. `Core Parameters`_
 
-#. `Sensor parameter`_
-
 
 Robot Setup Configurations
 ================================================
@@ -34,13 +32,3 @@ Core Parameters
 
 .. include:: ../../../elevation_mapping_cupy/config/core/core_param.yaml
   :code: yaml
-
-Sensor parameter
-================================================
-
-More informations on the sensor configurations can be found in :ref:`semantics`.
-
-.. include:: ../../../sensor_processing/semantic_sensor/config/sensor_parameter.yaml
-  :code: yaml
-
-

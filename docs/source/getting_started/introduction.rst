@@ -35,7 +35,7 @@ Key Features
 
 * **Learning-based Traversability Filter**: Assesses terrain traversability using local geometry, improving path planning and navigation.
 
-* **Versatile Locomotion Tools**: Incorporates smoothing filters and plane segmentation, optimizing movement across various terrains.
+* **Versatile Locomotion Tools**: Incorporates smoothing filters and, in legacy setups, plane segmentation to optimize movement across various terrains.
 
 * **Multi-Modal Elevation Map (MEM) Framework**: Allows seamless integration of diverse data like geometry, semantics, and RGB information, enhancing multi-modal robotic perception.
 
@@ -78,8 +78,6 @@ Example setup is in **elevation_mapping_cupy/config/core/example_setup.yaml**.
 
   The transformation tree.
 
-* The plane segmentation node subscribes to an elevation map topic ([grid_map_msg/GridMap]). This can be configured in
-  **convex_plane_decomposition_ros/config/core/parameters.yaml**
 
 Published Topics
 -------------------------------------------------------------------
@@ -110,23 +108,3 @@ Example setting in `config/parameters.yaml`.
 * **elevation_map_filter** ([grid_map_msg/GridMap])
 
   The filtered maps using plugins.
-
-The plane segmentation node publishes the following:
-
-* **planar_terrain**  ([convex_plane_decomposition_msgs/PlanarTerrain])
-
-  A custom message that contains the full segmentation as a map together with the boundary information.
-
-* **filtered_map**  ([grid_map_msg/GridMap])
-
-  A grid map message to visualize the segmentation and some intermediate results. This information is also part of **planar_terrain**.
-
-* **boundaries**  ([visualization_msgs/MarkerArray])
-
-  A set of polygons that trace the boundaries of the segmented region. Holes and boundaries of a single region are published as separate
-  markers with the same color.
-
-* **insets**  ([visualization_msgs/PolygonArray])
-
-  A set of polygons that are at a slight inward offset from **boundaries**. There might be more insets than boundaries since the inward
-  shift can cause a single region to break down into multiple when narrow passages exist.
