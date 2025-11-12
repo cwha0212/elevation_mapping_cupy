@@ -46,6 +46,7 @@
     <depend>robot_state_publisher</depend>
     <depend>python3-opencv</depend>
     <depend>cupy-cuda12x</depend>
+    <depend>rosbag2_py</depend>
     <depend>simple-parsing</depend>
     <depend>python3-shapely</depend>
     <depend>python3-ruamel.yaml</depend>

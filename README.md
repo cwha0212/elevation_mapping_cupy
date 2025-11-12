@@ -27,6 +27,22 @@ crucial for efficient and accurate robotic movement, particularly in legged robo
 
 - **GPU-Enhanced Efficiency**: Facilitates rapid processing of large data structures, crucial for real-time applications.
 
+## Map Editing & Persistence Services (ROS 2)
+
+- `/elevation_mapping_cupy/masked_replace` (`grid_map_msgs/srv/SetGridMap`): Patch specific regions of the live CuPy map. Provide one or more layers plus an optional `mask` layer; cells with non-NaN mask values are overwritten, NaNs are ignored.
+- `/elevation_mapping_cupy/save_map` (`grid_map_msgs/srv/ProcessFile`): Persist the current state to `<file_path>` (published layers) and `<file_path>_raw` (all internal layers) rosbag2 files. Bags are written with the configurable `save_map_storage_id` (defaults to `mcap`).
+- `/elevation_mapping_cupy/load_map` (`grid_map_msgs/srv/ProcessFile`): Restore a previously saved map by pointing at the fused bag path; the node reloads both fused/raw data, refreshes caches, and republishes immediately.
+
+Example usage:
+
+```bash
+ros2 service call /elevation_mapping_cupy/masked_replace grid_map_msgs/srv/SetGridMap "{map: ...}"
+ros2 service call /elevation_mapping_cupy/save_map grid_map_msgs/srv/ProcessFile "{file_path: '/tmp/em_map', topic_name: ''}"
+ros2 service call /elevation_mapping_cupy/load_map grid_map_msgs/srv/ProcessFile "{file_path: '/tmp/em_map', topic_name: ''}"
+```
+
+Parameters such as `masked_replace_service_mask_layer_name`, `save_map_default_topic`, `save_map_storage_id`, and `service_namespace` can be set via the usual ROS 2 parameter mechanisms to adapt the services to different deployments.
+
 ## Overview
 
 ![Overview of multi-modal elevation map structure](docs/media/overview.png)
