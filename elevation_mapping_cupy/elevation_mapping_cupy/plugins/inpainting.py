@@ -7,6 +7,9 @@ from typing import List
 import cupyx.scipy.ndimage as ndimage
 import numpy as np
 import cv2 as cv
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from .plugin_manager import PluginBase
 
@@ -50,10 +53,13 @@ class Inpainting(PluginBase):
         Returns:
             cupy._core.core.ndarray:
         """
-        mask_np = cp.asnumpy((elevation_map[2] < 0.5).astype("uint8"))
+        valid_layer = elevation_map[2]
+        mask_np = cp.asnumpy((valid_layer < 0.5).astype("uint8"))
+        elevation = elevation_map[0]
+        finite_elevation = cp.isfinite(elevation)
+        valid_mask = cp.logical_and(valid_layer > 0.5, finite_elevation)
+
         if (mask_np < 1).any():
-            elevation = elevation_map[0]
-            valid_mask = elevation_map[2] > 0.5
             if not cp.any(valid_mask):
                 return elevation
 
@@ -62,9 +68,16 @@ class Inpainting(PluginBase):
             h_min = float(cp.asnumpy(h_valid.min()))
             denom = h_max - h_min
             if denom <= 1e-6:
-                filled = elevation.copy()
+                _LOGGER.warning(
+                    "Inpainting detected near-flat terrain (h_min=%.3f, h_max=%.3f); broadcasting height.",
+                    h_min,
+                    h_max,
+                )
+                filled = cp.full(elevation.shape, h_max, dtype=cp.float32)
             else:
-                scaled = cp.asnumpy((elevation - h_min) * 255.0 / denom).astype("uint8")
+                # Replace NaNs with the minimum elevation value.
+                safe_elevation = cp.where(finite_elevation, elevation, h_min)
+                scaled = cp.asnumpy((safe_elevation - h_min) * 255.0 / denom).astype("uint8")
                 dst = cv.inpaint(scaled, mask_np, 1, self.method)
                 h_inpainted = dst.astype(np.float32) * denom / 255.0 + h_min
                 filled = cp.asarray(h_inpainted, dtype=cp.float32)

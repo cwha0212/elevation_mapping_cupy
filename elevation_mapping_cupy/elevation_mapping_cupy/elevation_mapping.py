@@ -4,12 +4,12 @@
 #
 import math
 import os
+import threading
+import subprocess
 from dataclasses import dataclass
 from typing import Dict, List, Any, Tuple, Union, Optional
 
 import numpy as np
-import threading
-import subprocess
 
 from elevation_mapping_cupy.traversability_filter import (
     get_filter_chainer,
@@ -1115,6 +1115,7 @@ class ElevationMap:
 
         center_np = np.asarray(geometry.center, dtype=np.float32)
         provided_plugin_layers = set()
+        total_plugin_layers = len(getattr(self.plugin_manager, "layer_names", []))
 
         with self.map_lock:
             self.center[:] = cp.asarray(center_np, dtype=self.data_type)
@@ -1130,10 +1131,11 @@ class ElevationMap:
                 if name in getattr(self.plugin_manager, "layer_names", []):
                     provided_plugin_layers.add(name)
 
-            if len(provided_plugin_layers) != len(getattr(self.plugin_manager, "layer_names", [])):
-                self.plugin_manager.reset_layers()
+            if total_plugin_layers > 0:
+                if len(provided_plugin_layers) != total_plugin_layers:
+                    self.plugin_manager.reset_layers()
 
-        self._invalidate_caches(reset_plugins=False)
+        self._invalidate_caches(reset_plugins=True)
 
     def _resolve_layer_target(self, name: str, allow_semantic_creation: bool = False):
         if name in BASE_LAYER_TO_INDEX:
@@ -1142,16 +1144,18 @@ class ElevationMap:
         if name in NORMAL_LAYER_TO_INDEX:
             idx = NORMAL_LAYER_TO_INDEX[name]
             return self.normal_map[idx, 1:-1, 1:-1]
+        if name in getattr(self.plugin_manager, "layer_names", []):
+            idx = self.plugin_manager.layer_names.index(name)
+            return self.plugin_manager.layers[idx, 1:-1, 1:-1]
         if name in getattr(self.semantic_map, "layer_names", []):
             idx = self.semantic_map.layer_names.index(name)
             return self.semantic_map.semantic_map[idx, 1:-1, 1:-1]
         if allow_semantic_creation and hasattr(self.semantic_map, "add_layer"):
+            if name in getattr(self.plugin_manager, "layer_names", []):
+                return None
             self.semantic_map.add_layer(name)
             idx = self.semantic_map.layer_names.index(name)
             return self.semantic_map.semantic_map[idx, 1:-1, 1:-1]
-        if name in getattr(self.plugin_manager, "layer_names", []):
-            idx = self.plugin_manager.layer_names.index(name)
-            return self.plugin_manager.layers[idx, 1:-1, 1:-1]
         return None
 
     def _validate_geometry_against_shape(self, shape: Tuple[int, int], geometry: GridGeometry) -> None:
