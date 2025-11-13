@@ -7,6 +7,9 @@ from typing import List
 import cupyx.scipy.ndimage as ndimage
 import numpy as np
 import cv2 as cv
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 from .plugin_manager import PluginBase
 
@@ -50,14 +53,37 @@ class Inpainting(PluginBase):
         Returns:
             cupy._core.core.ndarray:
         """
-        mask = cp.asnumpy((elevation_map[2] < 0.5).astype("uint8"))
-        if (mask < 1).any():
-            h = elevation_map[0]
-            h_max = float(h[mask < 1].max())
-            h_min = float(h[mask < 1].min())
-            h = cp.asnumpy((elevation_map[0] - h_min) * 255 / (h_max - h_min)).astype("uint8")
-            dst = np.array(cv.inpaint(h, mask, 1, self.method))
-            h_inpainted = dst.astype(np.float32) * (h_max - h_min) / 255 + h_min
-            return cp.asarray(h_inpainted).astype(np.float64)
+        valid_layer = elevation_map[2]
+        mask_np = cp.asnumpy((valid_layer < 0.5).astype("uint8"))
+        elevation = elevation_map[0]
+        finite_elevation = cp.isfinite(elevation)
+        valid_mask = cp.logical_and(valid_layer > 0.5, finite_elevation)
+
+        if (mask_np < 1).any():
+            if not cp.any(valid_mask):
+                return elevation
+
+            h_valid = elevation[valid_mask]
+            h_max = float(cp.asnumpy(h_valid.max()))
+            h_min = float(cp.asnumpy(h_valid.min()))
+            denom = h_max - h_min
+            if denom <= 1e-6:
+                _LOGGER.warning(
+                    "Inpainting detected near-flat terrain (h_min=%.3f, h_max=%.3f); broadcasting height.",
+                    h_min,
+                    h_max,
+                )
+                filled = cp.full(elevation.shape, h_max, dtype=cp.float32)
+            else:
+                # Replace NaNs with the minimum elevation value.
+                safe_elevation = cp.where(finite_elevation, elevation, h_min)
+                scaled = cp.asnumpy((safe_elevation - h_min) * 255.0 / denom).astype("uint8")
+                dst = cv.inpaint(scaled, mask_np, 1, self.method)
+                h_inpainted = dst.astype(np.float32) * denom / 255.0 + h_min
+                filled = cp.asarray(h_inpainted, dtype=cp.float32)
+
+            # Ensure already-valid cells mirror the authoritative elevation layer.
+            filled = cp.where(valid_mask, elevation, filled)
+            return filled.astype(cp.float64)
         else:
             return elevation_map[0]

@@ -2,12 +2,14 @@
 # Copyright (c) 2022, Takahiro Miki. All rights reserved.
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
+import math
 import os
-from typing import List, Any, Tuple, Union
-
-import numpy as np
 import threading
 import subprocess
+from dataclasses import dataclass
+from typing import Dict, List, Any, Tuple, Union, Optional
+
+import numpy as np
 
 from elevation_mapping_cupy.traversability_filter import (
     get_filter_chainer,
@@ -46,6 +48,50 @@ import rclpy  # Import rclpy for ROS 2 logging
 xp = cp
 pool = cp.cuda.MemoryPool(cp.cuda.malloc_managed)
 cp.cuda.set_allocator(pool.malloc)
+
+
+@dataclass
+class GridGeometry:
+    """Lightweight holder describing a GridMap's geometry."""
+
+    length_x: float
+    length_y: float
+    resolution: float
+    center: np.ndarray
+    orientation: np.ndarray
+
+    @property
+    def bounds_x(self) -> Tuple[float, float]:
+        half = self.length_x / 2.0
+        return self.center[0] - half, self.center[0] + half
+
+    @property
+    def bounds_y(self) -> Tuple[float, float]:
+        half = self.length_y / 2.0
+        return self.center[1] - half, self.center[1] + half
+
+    @property
+    def shape(self) -> Tuple[int, int]:
+        cols = int(round(self.length_x / self.resolution))
+        rows = int(round(self.length_y / self.resolution))
+        return rows, cols
+
+
+BASE_LAYER_TO_INDEX = {
+    "elevation": 0,
+    "variance": 1,
+    "is_valid": 2,
+    "traversability": 3,
+    "time": 4,
+    "upper_bound": 5,
+    "is_upper_bound": 6,
+}
+
+NORMAL_LAYER_TO_INDEX = {
+    "normal_x": 0,
+    "normal_y": 1,
+    "normal_z": 2,
+}
 
 
 class ElevationMap:
@@ -752,6 +798,8 @@ class ElevationMap:
                 use_stream = False
             elif name == "variance":
                 m = self.get_variance()
+            elif name == "is_valid":
+                m = self.elevation_map[2].copy()[1:-1, 1:-1]
             elif name == "traversability":
                 m = self.get_traversability()
             elif name == "time":
@@ -959,6 +1007,248 @@ class ElevationMap:
                         size=(self.cell_n * self.cell_n),
                     )
             self.update_upper_bound_with_valid_elevation()
+
+    def list_layers(self) -> List[str]:
+        ordered: List[str] = []
+        for container in (
+            self.layer_names,
+            getattr(self.semantic_map, "layer_names", []),
+            getattr(self.plugin_manager, "layer_names", []),
+        ):
+            for name in container:
+                if name and name not in ordered:
+                    ordered.append(name)
+        return ordered
+
+    def export_layers(self, layer_names: List[str]) -> Dict[str, np.ndarray]:
+        exported: Dict[str, np.ndarray] = {}
+        buffer = np.zeros((self.cell_n - 2, self.cell_n - 2), dtype=np.float32)
+        for name in layer_names:
+            if not self.exists_layer(name):
+                continue
+            self.get_map_with_name_ref(name, buffer)
+            exported[name] = buffer.copy()
+        return exported
+
+    def apply_masked_replace(
+        self,
+        layer_data: Dict[str, np.ndarray],
+        mask: Optional[np.ndarray],
+        geometry: GridGeometry,
+    ) -> None:
+        if not layer_data:
+            raise ValueError("No layer data provided for masked replace.")
+
+        sample_shape: Optional[Tuple[int, int]] = None
+        for array in layer_data.values():
+            if sample_shape is None:
+                sample_shape = array.shape
+            elif sample_shape != array.shape:
+                raise ValueError("All incoming layers must share the same shape.")
+
+        if sample_shape is None:
+            raise ValueError("Unable to infer incoming layer shape.")
+
+        if mask is None:
+            mask = np.ones(sample_shape, dtype=np.float32)
+        if mask.shape != sample_shape:
+            raise ValueError("Mask shape does not match provided layers.")
+
+        self._validate_geometry_against_shape(sample_shape, geometry)
+        overlap = self._compute_overlap_indices(sample_shape, geometry)
+        if overlap is None:
+            raise ValueError("Incoming grid does not overlap with the active map.")
+
+        map_rows = overlap["map"][0]
+        map_cols = overlap["map"][1]
+        patch_rows = overlap["patch"][0]
+        patch_cols = overlap["patch"][1]
+
+        mask_slice = mask[patch_rows, patch_cols]
+        valid_mask = np.isfinite(mask_slice)
+        if not np.any(valid_mask):
+            return
+
+        cp_mask = cp.asarray(valid_mask)
+        center_z = float(cp.asnumpy(self.center)[2])
+
+        with self.map_lock:
+            for name, array in layer_data.items():
+                target = self._resolve_layer_target(name)
+                if target is None:
+                    raise ValueError(f"Layer '{name}' does not exist in the map.")
+                incoming_slice = array[patch_rows, patch_cols]
+                if incoming_slice.shape != mask_slice.shape:
+                    raise ValueError("Mismatch between mask and incoming slice dimensions.")
+                if name in ("elevation", "upper_bound"):
+                    incoming_slice = incoming_slice - center_z
+                incoming_cp = cp.asarray(incoming_slice, dtype=self.data_type)
+                target_region = target[map_rows, map_cols]
+                before = target_region[cp_mask].copy()
+                target_region[cp_mask] = incoming_cp[cp_mask]
+                written = int(cp_mask.sum())
+                # Debug diagnostics for field coverage
+                min_max = None
+                if np.any(valid_mask):
+                    vals = incoming_slice[valid_mask]
+                    min_max = (float(np.nanmin(vals)), float(np.nanmax(vals)))
+                map_extent = self._map_extent_from_slices(map_rows, map_cols)
+                print(
+                    f"[ElevationMap] masked_replace layer '{name}': wrote {written} cells, "
+                    f"X∈[{map_extent['x_min']:.2f},{map_extent['x_max']:.2f}], "
+                    f"Y∈[{map_extent['y_min']:.2f},{map_extent['y_max']:.2f}], "
+                    f"values {min_max if min_max else 'n/a'}"
+                )
+
+        self._invalidate_caches()
+
+    def set_full_map(
+        self,
+        fused_layers: Dict[str, np.ndarray],
+        raw_layers: Dict[str, np.ndarray],
+        geometry: GridGeometry,
+    ) -> None:
+        if not raw_layers:
+            raise ValueError("Raw layer data required to restore the map.")
+        sample_shape = next(iter(raw_layers.values())).shape
+        self._validate_geometry_against_shape(sample_shape, geometry)
+
+        center_np = np.asarray(geometry.center, dtype=np.float32)
+        provided_plugin_layers = set()
+        total_plugin_layers = len(getattr(self.plugin_manager, "layer_names", []))
+
+        with self.map_lock:
+            self.center[:] = cp.asarray(center_np, dtype=self.data_type)
+            for name, data in raw_layers.items():
+                target = self._resolve_layer_target(name, allow_semantic_creation=True)
+                if target is None:
+                    continue
+                incoming = data
+                if name in ("elevation", "upper_bound"):
+                    incoming = incoming - center_np[2]
+                incoming_cp = cp.asarray(incoming, dtype=self.data_type)
+                target[...] = incoming_cp
+                if name in getattr(self.plugin_manager, "layer_names", []):
+                    provided_plugin_layers.add(name)
+
+            if total_plugin_layers > 0:
+                if len(provided_plugin_layers) != total_plugin_layers:
+                    self.plugin_manager.reset_layers()
+
+        self._invalidate_caches(reset_plugins=True)
+
+    def _resolve_layer_target(self, name: str, allow_semantic_creation: bool = False):
+        if name in BASE_LAYER_TO_INDEX:
+            idx = BASE_LAYER_TO_INDEX[name]
+            return self.elevation_map[idx, 1:-1, 1:-1]
+        if name in NORMAL_LAYER_TO_INDEX:
+            idx = NORMAL_LAYER_TO_INDEX[name]
+            return self.normal_map[idx, 1:-1, 1:-1]
+        if name in getattr(self.plugin_manager, "layer_names", []):
+            idx = self.plugin_manager.layer_names.index(name)
+            return self.plugin_manager.layers[idx, 1:-1, 1:-1]
+        if name in getattr(self.semantic_map, "layer_names", []):
+            idx = self.semantic_map.layer_names.index(name)
+            return self.semantic_map.semantic_map[idx, 1:-1, 1:-1]
+        if allow_semantic_creation and hasattr(self.semantic_map, "add_layer"):
+            if name in getattr(self.plugin_manager, "layer_names", []):
+                return None
+            self.semantic_map.add_layer(name)
+            idx = self.semantic_map.layer_names.index(name)
+            return self.semantic_map.semantic_map[idx, 1:-1, 1:-1]
+        return None
+
+    def _validate_geometry_against_shape(self, shape: Tuple[int, int], geometry: GridGeometry) -> None:
+        expected_shape = geometry.shape
+        if shape != expected_shape:
+            raise ValueError(
+                f"Grid shape mismatch: expected {expected_shape}, received {shape}."
+            )
+        if not math.isclose(float(geometry.resolution), float(self.resolution), rel_tol=1e-6, abs_tol=1e-6):
+            raise ValueError(
+                f"Resolution mismatch: map uses {self.resolution}, incoming grid uses {geometry.resolution}."
+            )
+
+    def _compute_overlap_indices(
+        self, incoming_shape: Tuple[int, int], geometry: GridGeometry
+    ) -> Optional[Dict[str, Tuple[slice, slice]]]:
+        map_length = (self.cell_n - 2) * self.resolution
+        center_cpu = np.asarray(cp.asnumpy(self.center))
+        map_min_x = center_cpu[0] - map_length / 2.0
+        map_max_x = center_cpu[0] + map_length / 2.0
+        map_min_y = center_cpu[1] - map_length / 2.0
+        map_max_y = center_cpu[1] + map_length / 2.0
+
+        patch_min_x, patch_max_x = geometry.bounds_x
+        patch_min_y, patch_max_y = geometry.bounds_y
+
+        overlap_min_x = max(map_min_x, patch_min_x)
+        overlap_max_x = min(map_max_x, patch_max_x)
+        overlap_min_y = max(map_min_y, patch_min_y)
+        overlap_max_y = min(map_max_y, patch_max_y)
+
+        if overlap_max_x <= overlap_min_x or overlap_max_y <= overlap_min_y:
+            return None
+
+        map_width = self.cell_n - 2
+        patch_rows, patch_cols = incoming_shape
+
+        map_origin_x = map_min_x
+        map_origin_y = map_min_y
+        patch_origin_x = patch_min_x
+        patch_origin_y = patch_min_y
+
+        map_start_x = int(np.clip(np.floor((overlap_min_x - map_origin_x) / self.resolution), 0, map_width))
+        map_end_x = int(
+            np.clip(np.ceil((overlap_max_x - map_origin_x) / self.resolution), 0, map_width)
+        )
+        map_start_y = int(np.clip(np.floor((overlap_min_y - map_origin_y) / self.resolution), 0, map_width))
+        map_end_y = int(
+            np.clip(np.ceil((overlap_max_y - map_origin_y) / self.resolution), 0, map_width)
+        )
+
+        patch_start_x = int(
+            np.clip(np.floor((overlap_min_x - patch_origin_x) / geometry.resolution), 0, patch_cols)
+        )
+        patch_end_x = int(
+            np.clip(np.ceil((overlap_max_x - patch_origin_x) / geometry.resolution), 0, patch_cols)
+        )
+        patch_start_y = int(
+            np.clip(np.floor((overlap_min_y - patch_origin_y) / geometry.resolution), 0, patch_rows)
+        )
+        patch_end_y = int(
+            np.clip(np.ceil((overlap_max_y - patch_origin_y) / geometry.resolution), 0, patch_rows)
+        )
+
+        width = min(map_end_x - map_start_x, patch_end_x - patch_start_x)
+        height = min(map_end_y - map_start_y, patch_end_y - patch_start_y)
+
+        if width <= 0 or height <= 0:
+            return None
+
+        return {
+            "map": (slice(map_start_y, map_start_y + height), slice(map_start_x, map_start_x + width)),
+            "patch": (
+                slice(patch_start_y, patch_start_y + height),
+                slice(patch_start_x, patch_start_x + width),
+            ),
+        }
+
+    def _map_extent_from_slices(self, rows: slice, cols: slice) -> Dict[str, float]:
+        map_length = (self.cell_n - 2) * self.resolution
+        center_cpu = np.asarray(cp.asnumpy(self.center))
+        map_min_x = center_cpu[0] - map_length / 2.0
+        map_min_y = center_cpu[1] - map_length / 2.0
+        x_min = map_min_x + (cols.start + 0.5) * self.resolution
+        x_max = map_min_x + (cols.stop - 0.5) * self.resolution
+        y_min = map_min_y + (rows.start + 0.5) * self.resolution
+        y_max = map_min_y + (rows.stop - 0.5) * self.resolution
+        return {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
+
+    def _invalidate_caches(self, reset_plugins: bool = True):
+        self.traversability_buffer[...] = cp.nan
+        if reset_plugins:
+            self.plugin_manager.reset_layers()
 
 
 if __name__ == "__main__":
