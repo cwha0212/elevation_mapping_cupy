@@ -1092,12 +1092,13 @@ class ElevationMap:
                 if np.any(valid_mask):
                     vals = incoming_slice[valid_mask]
                     min_max = (float(np.nanmin(vals)), float(np.nanmax(vals)))
-                map_extent = self._map_extent_from_slices(map_rows, map_cols)
+                map_extent = self._map_extent_from_mask(map_rows, map_cols, valid_mask) or self._map_extent_from_slices(map_rows, map_cols)
                 print(
                     f"[ElevationMap] masked_replace layer '{name}': wrote {written} cells, "
                     f"X∈[{map_extent['x_min']:.2f},{map_extent['x_max']:.2f}], "
                     f"Y∈[{map_extent['y_min']:.2f},{map_extent['y_max']:.2f}], "
-                    f"values {min_max if min_max else 'n/a'}"
+                    f"values {min_max if min_max else 'n/a'}",
+                    flush=True
                 )
 
         self._invalidate_caches()
@@ -1243,6 +1244,27 @@ class ElevationMap:
         x_max = map_min_x + (cols.stop - 0.5) * self.resolution
         y_min = map_min_y + (rows.start + 0.5) * self.resolution
         y_max = map_min_y + (rows.stop - 0.5) * self.resolution
+        return {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
+
+    def _map_extent_from_mask(self, rows: slice, cols: slice, valid_mask: np.ndarray) -> Optional[Dict[str, float]]:
+        """Compute extent based on the actual mask footprint; returns None if mask is empty."""
+        if valid_mask is None or not np.any(valid_mask):
+            return None
+        row_idx, col_idx = np.nonzero(valid_mask)
+        row_min = rows.start + int(row_idx.min())
+        row_max = rows.start + int(row_idx.max())
+        col_min = cols.start + int(col_idx.min())
+        col_max = cols.start + int(col_idx.max())
+
+        map_length = (self.cell_n - 2) * self.resolution
+        center_cpu = np.asarray(cp.asnumpy(self.center))
+        map_min_x = center_cpu[0] - map_length / 2.0
+        map_min_y = center_cpu[1] - map_length / 2.0
+
+        x_min = map_min_x + (col_min + 0.5) * self.resolution
+        x_max = map_min_x + (col_max + 0.5) * self.resolution
+        y_min = map_min_y + (row_min + 0.5) * self.resolution
+        y_max = map_min_y + (row_max + 0.5) * self.resolution
         return {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
 
     def _invalidate_caches(self, reset_plugins: bool = True):

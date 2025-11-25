@@ -469,17 +469,51 @@ class ElevationMappingNode(Node):
             response.success = False
         return response
 
+    def _float32_multiarray_to_numpy(self, name: str, array_msg: Float32MultiArray) -> np.ndarray:
+        """Convert a Float32MultiArray to a numpy array according to the layout labels."""
+        data_np = np.asarray(array_msg.data, dtype=np.float32)
+        dims = array_msg.layout.dim
+
+        if len(dims) >= 2 and dims[0].label and dims[1].label:
+            label0 = dims[0].label
+            label1 = dims[1].label
+            # self.get_logger().info(f"Layer '{name}' has labels: {label0} and {label1}")
+            if label0 == "row_index" and label1 == "column_index":
+                # Data is in row-major order
+                rows = dims[0].size or 1
+                cols = dims[1].size or (len(data_np) // rows if rows else 0)
+                expected = rows * cols
+                if expected != data_np.size:
+                    raise ValueError(f"Layer '{name}' has inconsistent layout metadata.")
+                return data_np.reshape((rows, cols), order="C")
+            if label0 == "column_index" and label1 == "row_index":
+                # Data is in column-major order
+                # We need to flip both axes, then transpose to swap X/Y into our row-major (row=Y, col=X) expectation.
+                cols = dims[0].size or 1
+                rows = dims[1].size or (len(data_np) // cols if cols else 0)
+                expected = rows * cols
+                if expected != data_np.size:
+                    raise ValueError(f"Layer '{name}' has inconsistent layout metadata.")
+                array = data_np.reshape((rows, cols), order="F")
+                # Align to internal row-major convention:
+                # Flip both axes, then transpose to swap X/Y into our row-major (row=Y, col=X) expectation.
+                array = np.flip(array, axis=0)
+                array = np.flip(array, axis=1)
+                array = array.T
+                return array
+
+        cols, rows = self._extract_layout_shape(array_msg)
+        if data_np.size != rows * cols:
+            raise ValueError(f"Layer '{name}' has inconsistent layout metadata.")
+        return data_np.reshape((rows, cols))
+
     def _grid_map_to_numpy(self, grid_map_msg: GridMap):
         if len(grid_map_msg.layers) != len(grid_map_msg.data):
             raise ValueError("Mismatch between GridMap layers and data arrays.")
 
         arrays: Dict[str, np.ndarray] = {}
         for name, array_msg in zip(grid_map_msg.layers, grid_map_msg.data):
-            cols, rows = self._extract_layout_shape(array_msg)
-            data_np = np.asarray(array_msg.data, dtype=np.float32)
-            if data_np.size != rows * cols:
-                raise ValueError(f"Layer '{name}' has inconsistent layout metadata.")
-            arrays[name] = data_np.reshape((rows, cols))
+            arrays[name] = self._float32_multiarray_to_numpy(name, array_msg)
 
         center = np.array(
             [
@@ -593,16 +627,15 @@ class ElevationMappingNode(Node):
         return gm
 
     def _numpy_to_multiarray(self, data: np.ndarray) -> Float32MultiArray:
+        """Convert a 2D numpy array to Float32MultiArray honoring row-major layout labels."""
         array = np.asarray(data, dtype=np.float32)
+        rows, cols = array.shape
         msg = Float32MultiArray()
         msg.layout = MAL()
-        msg.layout.dim.append(
-            MAD(label="column_index", size=array.shape[1], stride=array.shape[0] * array.shape[1])
-        )
-        msg.layout.dim.append(
-            MAD(label="row_index", size=array.shape[0], stride=array.shape[0])
-        )
-        msg.data = array.flatten().tolist()
+        # Internal representation is always row-major: first dim is row_index, second is column_index.
+        msg.layout.dim.append(MAD(label="row_index", size=rows, stride=rows * cols))
+        msg.layout.dim.append(MAD(label="column_index", size=cols, stride=cols))
+        msg.data = array.flatten(order="C").tolist()
         return msg
 
     def _resolve_service_name(self, suffix: str) -> str:

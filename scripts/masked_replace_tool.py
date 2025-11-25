@@ -46,6 +46,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--center-z", type=float, default=0.0, help="Patch center Z coordinate (meters).")
     parser.add_argument("--size-x", type=positive_float, default=1.0, help="Patch length in X (meters).")
     parser.add_argument("--size-y", type=positive_float, default=1.0, help="Patch length in Y (meters).")
+    parser.add_argument(
+        "--full-length-x",
+        type=positive_float,
+        default=None,
+        help="Optional total GridMap length in X (meters). If set, a full-size map is sent and only the patch region is marked in the mask."
+    )
+    parser.add_argument(
+        "--full-length-y",
+        type=positive_float,
+        default=None,
+        help="Optional total GridMap length in Y (meters). If set, a full-size map is sent and only the patch region is marked in the mask."
+    )
+    parser.add_argument(
+        "--full-center-x",
+        type=float,
+        default=0.0,
+        help="GridMap center X (meters) to use when sending a full-size map. Defaults to 0."
+    )
+    parser.add_argument(
+        "--full-center-y",
+        type=float,
+        default=0.0,
+        help="GridMap center Y (meters) to use when sending a full-size map. Defaults to 0."
+    )
     parser.add_argument("--resolution", type=positive_float, default=0.1, help="Grid resolution (meters per cell).")
     parser.add_argument("--elevation", type=float, default=0.1, help="Elevation value to set (meters).")
     parser.add_argument("--variance", type=non_negative_float, default=0.05, help="Variance value to set.")
@@ -84,6 +108,10 @@ class PatchConfig:
     mask_value: float
     add_valid_layer: bool
     invalidate_first: bool
+    full_length_x: Optional[float] = None
+    full_length_y: Optional[float] = None
+    full_center_x: float = 0.0
+    full_center_y: float = 0.0
 
     @property
     def shape(self) -> Dict[str, int]:
@@ -139,10 +167,17 @@ class MaskedReplaceClient(Node):
         gm.header.frame_id = cfg.frame_id
         gm.header.stamp = self.get_clock().now().to_msg()
         gm.info.resolution = cfg.resolution
-        gm.info.length_x = cfg.actual_length_x
-        gm.info.length_y = cfg.actual_length_y
-        gm.info.pose.position.x = cfg.center_x
-        gm.info.pose.position.y = cfg.center_y
+        # If full map was requested, use the full lengths and center the GridMap at the full-map center.
+        if cfg.full_length_x or cfg.full_length_y:
+            gm.info.length_x = cfg.full_length_x or cfg.actual_length_x
+            gm.info.length_y = cfg.full_length_y or cfg.actual_length_y
+            gm.info.pose.position.x = cfg.full_center_x
+            gm.info.pose.position.y = cfg.full_center_y
+        else:
+            gm.info.length_x = cfg.actual_length_x
+            gm.info.length_y = cfg.actual_length_y
+            gm.info.pose.position.x = cfg.center_x
+            gm.info.pose.position.y = cfg.center_y
         gm.info.pose.position.z = cfg.center_z
         gm.info.pose.orientation.w = 1.0
         gm.basic_layers = ["elevation"]
@@ -157,45 +192,116 @@ class MaskedReplaceClient(Node):
             mask_value = 1.0
         return np.full((rows, cols), mask_value, dtype=np.float32)
 
+    def _make_full_arrays(self) -> Dict[str, np.ndarray]:
+        """Create full-size arrays (possibly larger than the patch) and place the patch in them."""
+        cfg = self._config
+        length_x = cfg.full_length_x or cfg.length_x
+        length_y = cfg.full_length_y or cfg.length_y
+        cols_full = max(1, ceil(length_x / cfg.resolution))
+        rows_full = max(1, ceil(length_y / cfg.resolution))
+
+        # Base arrays
+        mask_full = np.full((rows_full, cols_full), np.nan, dtype=np.float32)
+        elev_full = np.full((rows_full, cols_full), np.nan, dtype=np.float32)
+        var_full = np.full((rows_full, cols_full), np.nan, dtype=np.float32)
+        valid_full = np.zeros((rows_full, cols_full), dtype=np.float32)
+
+        # Patch arrays
+        patch_rows = cfg.shape["rows"]
+        patch_cols = cfg.shape["cols"]
+        row_offset = int(round(cfg.center_y / cfg.resolution))
+        col_offset = int(round(cfg.center_x / cfg.resolution))
+        row_start = rows_full // 2 + row_offset - patch_rows // 2
+        col_start = cols_full // 2 + col_offset - patch_cols // 2
+        row_end = row_start + patch_rows
+        col_end = col_start + patch_cols
+
+        # Safety: clamp if window would exceed bounds
+        if row_start < 0 or col_start < 0 or row_end > rows_full or col_end > cols_full:
+            raise ValueError("Patch exceeds full map bounds; adjust center/size or full map length.")
+
+        mask_val = cfg.mask_value
+        if np.isnan(mask_val):
+            mask_val = 1.0
+        mask_full[row_start:row_end, col_start:col_end] = mask_val
+        elev_full[row_start:row_end, col_start:col_end] = cfg.elevation
+        var_full[row_start:row_end, col_start:col_end] = cfg.variance
+        if cfg.add_valid_layer:
+            valid_full[row_start:row_end, col_start:col_end] = 1.0
+
+        return {
+            "mask": mask_full,
+            "elevation": elev_full,
+            "variance": var_full,
+            "is_valid": valid_full,
+            "rows_full": rows_full,
+            "cols_full": cols_full,
+        }
+
     def _build_validity_message(self, value: float) -> GridMap:
         gm = self._base_grid_map()
-        mask = self._mask_array()
-        rows, cols = mask.shape
-        gm.layers = [self._config.mask_layer, "is_valid"]
-        arrays = {
-            self._config.mask_layer: mask,
-            "is_valid": np.full((rows, cols), value, dtype=np.float32),
-        }
+        if self._config.full_length_x or self._config.full_length_y:
+            arrays_full = self._make_full_arrays()
+            gm.info.length_x = self._config.full_length_x or self._config.length_x
+            gm.info.length_y = self._config.full_length_y or self._config.length_y
+            gm.layers = [self._config.mask_layer, "is_valid"]
+            arrays = {
+                self._config.mask_layer: arrays_full["mask"],
+                "is_valid": np.full((arrays_full["rows_full"], arrays_full["cols_full"]), value, dtype=np.float32),
+            }
+        else:
+            mask = self._mask_array()
+            rows, cols = mask.shape
+            gm.layers = [self._config.mask_layer, "is_valid"]
+            arrays = {
+                self._config.mask_layer: mask,
+                "is_valid": np.full((rows, cols), value, dtype=np.float32),
+            }
         for layer in gm.layers:
             gm.data.append(self._numpy_to_multiarray(arrays[layer]))
         return gm
 
     def _build_data_message(self, valid_value: Optional[float]) -> GridMap:
         gm = self._base_grid_map()
-        mask = self._mask_array()
-        rows, cols = mask.shape
-        gm.layers = [self._config.mask_layer, "elevation", "variance"]
-        arrays = {
-            self._config.mask_layer: mask,
-            "elevation": np.full((rows, cols), self._config.elevation, dtype=np.float32),
-            "variance": np.full((rows, cols), self._config.variance, dtype=np.float32),
-        }
-        if valid_value is not None:
-            gm.layers.append("is_valid")
-            arrays["is_valid"] = np.full((rows, cols), valid_value, dtype=np.float32)
+        if self._config.full_length_x or self._config.full_length_y:
+            arrays_full = self._make_full_arrays()
+            gm.info.length_x = self._config.full_length_x or self._config.length_x
+            gm.info.length_y = self._config.full_length_y or self._config.length_y
+            gm.layers = [self._config.mask_layer, "elevation", "variance"]
+            arrays = {
+                self._config.mask_layer: arrays_full["mask"],
+                "elevation": arrays_full["elevation"],
+                "variance": arrays_full["variance"],
+            }
+            if valid_value is not None:
+                gm.layers.append("is_valid")
+                arrays["is_valid"] = arrays_full["is_valid"]
+        else:
+            mask = self._mask_array()
+            rows, cols = mask.shape
+            gm.layers = [self._config.mask_layer, "elevation", "variance"]
+            arrays = {
+                self._config.mask_layer: mask,
+                "elevation": np.full((rows, cols), self._config.elevation, dtype=np.float32),
+                "variance": np.full((rows, cols), self._config.variance, dtype=np.float32),
+            }
+            if valid_value is not None:
+                gm.layers.append("is_valid")
+                arrays["is_valid"] = np.full((rows, cols), valid_value, dtype=np.float32)
         for layer in gm.layers:
             gm.data.append(self._numpy_to_multiarray(arrays[layer]))
         return gm
 
     @staticmethod
     def _numpy_to_multiarray(array: np.ndarray) -> Float32MultiArray:
+        """Build a Float32MultiArray with explicit row-major layout labels."""
         msg = Float32MultiArray()
         layout = MultiArrayLayout()
         rows, cols = array.shape
-        layout.dim.append(MultiArrayDimension(label="column_index", size=cols, stride=rows * cols))
-        layout.dim.append(MultiArrayDimension(label="row_index", size=rows, stride=rows))
+        layout.dim.append(MultiArrayDimension(label="row_index", size=rows, stride=rows * cols))
+        layout.dim.append(MultiArrayDimension(label="column_index", size=cols, stride=cols))
         msg.layout = layout
-        msg.data = array.flatten().tolist()
+        msg.data = array.flatten(order="C").tolist()
         return msg
 
 
@@ -216,6 +322,10 @@ def main() -> None:
         mask_value=args.mask_value,
         add_valid_layer=args.valid_layer,
         invalidate_first=args.invalidate_first,
+        full_length_x=args.full_length_x,
+        full_length_y=args.full_length_y,
+        full_center_x=args.full_center_x,
+        full_center_y=args.full_center_y,
     )
 
     rclpy.init()
