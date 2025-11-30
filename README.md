@@ -1,5 +1,15 @@
-# ROS2 Elevation Mapping Cupy 
- 
+# ROS2 Elevation Mapping Cupy (C++ Bindings)
+
+> **⚠️ WARNING: Work In Progress**
+>
+> This branch (`ros2_cpp`) contains C++ bindings contributed by an external lab.
+> It is currently **not running** and is not actively maintained.
+>
+> **For a working ROS2 implementation, please use the [`ros2`](https://github.com/leggedrobotics/elevation_mapping_cupy/tree/ros2) branch**
+> which contains actively maintained Python bindings.
+
+---
+
 ![python tests](https://github.com/leggedrobotics/elevation_mapping_cupy/actions/workflows/python-tests.yml/badge.svg)
 
 [Documentation](https://leggedrobotics.github.io/elevation_mapping_cupy/)
