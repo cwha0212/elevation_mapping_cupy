@@ -250,10 +250,17 @@ class ElevationMap:
         """Shift the map along the horizontal axes according to the input.
 
         Args:
-            delta_pixel (cupy._core.core.ndarray):
+            delta_pixel (cupy._core.core.ndarray): Shift in [x, y] order (world coordinates).
+                x corresponds to columns (axis 2), y corresponds to rows (axis 1).
 
+        Note:
+            The map array has shape (layers, height, width) = (layers, rows, cols).
+            In row-major convention: axis 1 = rows = Y, axis 2 = cols = X.
+            cp.roll with axis=(1, 2) expects [row_shift, col_shift] = [y_shift, x_shift].
+            Since delta_pixel is [x, y], we swap to [y, x] for correct axis mapping.
         """
-        shift_value = delta_pixel.astype(cp.int32)
+        # Swap [x, y] to [y, x] to match axis=(1, 2) = (rows=Y, cols=X)
+        shift_value = cp.array([delta_pixel[1], delta_pixel[0]], dtype=cp.int32)
         if cp.abs(shift_value).sum() == 0:
             return
         with self.map_lock:
