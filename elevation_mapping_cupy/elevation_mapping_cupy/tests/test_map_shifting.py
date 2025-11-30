@@ -11,7 +11,12 @@ where forward robot movement (X) was incorrectly causing sideways map shift (Y).
 import pytest
 import numpy as np
 import cupy as cp
+from pathlib import Path
 from elevation_mapping_cupy import parameter, elevation_mapping
+
+# Get absolute paths to config files
+_TEST_DIR = Path(__file__).parent
+_CONFIG_DIR = _TEST_DIR.parent.parent / "config" / "core"
 
 
 @pytest.fixture
@@ -19,8 +24,8 @@ def elmap_shift():
     """Create a minimal elevation map for shift testing."""
     p = parameter.Parameter(
         use_chainer=False,
-        weight_file="../../../config/core/weights.dat",
-        plugin_config_file="../../../config/core/plugin_config.yaml",
+        weight_file=str(_CONFIG_DIR / "weights.dat"),
+        plugin_config_file=str(_CONFIG_DIR / "plugin_config.yaml"),
     )
     # Use default resolution (0.1m) and map_length (20m) -> ~200x200 cells
     p.update()
