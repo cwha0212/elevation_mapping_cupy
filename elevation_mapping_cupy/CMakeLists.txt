@@ -39,5 +39,50 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+# Install test files for integration tests
+install(
+  DIRECTORY test
+  DESTINATION share/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  find_package(ament_cmake_ros REQUIRED)
+  find_package(launch_testing_ament_cmake REQUIRED)
+
+  # Unit tests (run via pytest, no ROS dependencies)
+  # These are the PRIMARY regression tests for the axis-swap bug
+  # Note: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 disables the launch_testing pytest plugin
+  # which would otherwise try to import the package (triggering cupy import errors)
+  ament_add_pytest_test(test_map_shifting
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_map_shifting.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_map_services
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_map_services.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+
+  # Define isolated launch test function for unique ROS_DOMAIN_ID per test
+  # See: https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Testing/Integration.html
+  function(add_ros_isolated_launch_test path)
+    set(RUNNER "${ament_cmake_ros_DIR}/run_test_isolated.py")
+    add_launch_test("${path}" RUNNER "${RUNNER}" ${ARGN})
+  endfunction()
+
+  # Integration test (launches ROS nodes)
+  # DDS fixes:
+  #   FASTDDS_BUILTIN_TRANSPORTS=UDPv4: Avoid FastDDS shared memory discovery issues
+  #   See: https://answers.ros.org/question/407025/
+  # SKIP_DDS_FLAKES=1: In CI, skip (not fail) on known DDS discovery issues.
+  # Locally, tests fail loudly to catch real regressions.
+  add_ros_isolated_launch_test(test/test_tf_gridmap_integration.py
+    TIMEOUT 180
+    ENV SKIP_DDS_FLAKES=1 FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+  )
+endif()
+
 ament_export_dependencies(${dependencies})
 ament_package()
