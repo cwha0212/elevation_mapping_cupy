@@ -29,6 +29,7 @@ from std_msgs.msg import MultiArrayDimension as MAD
 import rosbag2_py
 from elevation_mapping_cupy import ElevationMap, Parameter
 from elevation_mapping_cupy.elevation_mapping import GridGeometry
+from elevation_mapping_cupy.gridmap_utils import encode_layer_to_multiarray, decode_multiarray_to_rows_cols
 
 PDC_DATATYPE = {
     "1": np.int8,
@@ -362,13 +363,7 @@ class ElevationMappingNode(Node):
             self._map.get_map_with_name_ref(layer, self._map_data)
             # After fixing CUDA kernels and removing flips in elevation_mapping.py, no flip needed here
             map_data_for_gridmap = self._map_data
-            arr = Float32MultiArray()
-            arr.layout = MAL()
-            # Keep original dimension order but fix strides
-            arr.layout.dim.append(MAD(label="column_index", size=map_data_for_gridmap.shape[1], stride=map_data_for_gridmap.shape[0] * map_data_for_gridmap.shape[1]))
-            arr.layout.dim.append(MAD(label="row_index", size=map_data_for_gridmap.shape[0], stride=map_data_for_gridmap.shape[0]))
-            arr.data = map_data_for_gridmap.flatten().tolist()
-            gm.data.append(arr)
+            gm.data.append(self._numpy_to_multiarray(map_data_for_gridmap, layout="gridmap_column"))
 
         gm.outer_start_index = 0
         gm.inner_start_index = 0
@@ -475,11 +470,7 @@ class ElevationMappingNode(Node):
 
         arrays: Dict[str, np.ndarray] = {}
         for name, array_msg in zip(grid_map_msg.layers, grid_map_msg.data):
-            cols, rows = self._extract_layout_shape(array_msg)
-            data_np = np.asarray(array_msg.data, dtype=np.float32)
-            if data_np.size != rows * cols:
-                raise ValueError(f"Layer '{name}' has inconsistent layout metadata.")
-            arrays[name] = data_np.reshape((rows, cols))
+            arrays[name] = decode_multiarray_to_rows_cols(name, array_msg)
 
         center = np.array(
             [
@@ -592,18 +583,8 @@ class ElevationMappingNode(Node):
         gm.inner_start_index = 0
         return gm
 
-    def _numpy_to_multiarray(self, data: np.ndarray) -> Float32MultiArray:
-        array = np.asarray(data, dtype=np.float32)
-        msg = Float32MultiArray()
-        msg.layout = MAL()
-        msg.layout.dim.append(
-            MAD(label="column_index", size=array.shape[1], stride=array.shape[0] * array.shape[1])
-        )
-        msg.layout.dim.append(
-            MAD(label="row_index", size=array.shape[0], stride=array.shape[0])
-        )
-        msg.data = array.flatten().tolist()
-        return msg
+    def _numpy_to_multiarray(self, data: np.ndarray, layout: str = "gridmap_column") -> Float32MultiArray:
+        return encode_layer_to_multiarray(data, layout=layout)
 
     def _resolve_service_name(self, suffix: str) -> str:
         base = self.service_namespace

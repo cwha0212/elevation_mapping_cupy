@@ -195,7 +195,7 @@ class MaskedReplaceClient(Node):
         layout.dim.append(MultiArrayDimension(label="column_index", size=cols, stride=rows * cols))
         layout.dim.append(MultiArrayDimension(label="row_index", size=rows, stride=rows))
         msg.layout = layout
-        msg.data = array.flatten().tolist()
+        msg.data = array.flatten(order="F").tolist()
         return msg
 
 
