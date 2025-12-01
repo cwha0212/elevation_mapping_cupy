@@ -4,9 +4,9 @@ name: Python testing
 
 on:
   push:
-    branches: [ "feature/2_semantic_python", "feature/**","dev/**" ]
-#  pull_request:
-#    branches: [ "main" ]
+    branches: [ "feature/2_semantic_python", "feature/**", "dev/**", "fix/**" ]
+  pull_request:
+    branches: [ "main", "ros2" ]
 
 permissions:
   contents: read
