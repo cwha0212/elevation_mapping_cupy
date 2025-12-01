@@ -32,8 +32,8 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
       - name: Test elevation mapping with pytest
         run: |
-          cd elevation_mapping_cupy/script/elevation_mapping_cupy/tests/
-          pytest
+          cd elevation_mapping_cupy/elevation_mapping_cupy/tests/
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -v
       - name: Test semantic_sensor with pytest
         run: |
           cd sensor_processing/semantic_sensor/script/semantic_sensor/tests
