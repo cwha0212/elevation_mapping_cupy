@@ -1,3 +1,65 @@
+# Testing Guide for elevation_mapping_cupy
+
+## Running Tests Locally
+
+### Prerequisites
+
+```bash
+# Source ROS2
+source /opt/ros/jazzy/setup.bash
+
+# Build the package
+colcon build --packages-select elevation_mapping_cupy
+
+# Source the workspace
+source install/setup.bash
+```
+
+### Run All Tests via colcon
+
+```bash
+colcon test --packages-select elevation_mapping_cupy --event-handlers console_direct+
+```
+
+### Run Unit Tests Only (pytest)
+
+These are the primary regression tests for the axis-swap bug. They don't require ROS nodes to be running.
+
+```bash
+# Run all unit tests
+cd elevation_mapping_cupy/elevation_mapping_cupy/tests/
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest -v
+
+# Run specific test file
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest test_map_shifting.py -v
+
+# Run specific test
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest test_map_shifting.py::TestShiftMapXY::test_shift_x_only_affects_columns -v
+```
+
+### Run Integration Tests Only (launch_testing)
+
+These test the full TF → GridMap pipeline with actual ROS nodes.
+
+```bash
+# Stop daemon first to avoid DDS issues
+ros2 daemon stop
+
+# Run with DDS fixes
+FASTDDS_BUILTIN_TRANSPORTS=UDPv4 python3 -m launch_testing.launch_test \
+    src/elevation_mapping_cupy/elevation_mapping_cupy/test/test_tf_gridmap_integration.py
+```
+
+### Test Summary
+
+| Test File | Type | What it tests |
+|-----------|------|---------------|
+| `test_map_shifting.py` | Unit (pytest) | Axis-swap bug regression - `shift_map_xy()` function |
+| `test_map_services.py` | Unit (pytest) | Map service handlers |
+| `test_tf_gridmap_integration.py` | Integration (launch_testing) | Full TF → GridMap pipeline |
+
+---
+
 # ROS2 Integration Testing: DDS Discovery Fixes
 
 This document captures lessons learned from fixing DDS discovery issues in `launch_testing` integration tests.
