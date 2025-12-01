@@ -859,7 +859,23 @@ class ElevationMap:
             else:
                 print("Layer {} is not in the map".format(name))
                 return
-        # Need 180 degree rotation to match coordinate system
+        # Transform to align elevation_mapping_cupy with grid_map coordinate convention.
+        #
+        # elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
+        # grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
+        #   transformBufferOrderToMapFrame returns {-index[0], -index[1]})
+        #
+        # Required transformation:
+        #   1. Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
+        #   2. Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
+        #   3. Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
+        #
+        # This is equivalent to: rot90(m.T, k=2) or flip(flip(m.T, 0), 1)
+        #
+        # Old 180° rotation (incorrect - missing transpose, caused 90° CCW error in RViz):
+        # m = xp.flip(m, 0)
+        # m = xp.flip(m, 1)
+        m = m.T
         m = xp.flip(m, 0)
         m = xp.flip(m, 1)
         if use_stream:
