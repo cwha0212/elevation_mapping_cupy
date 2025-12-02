@@ -297,6 +297,7 @@ class MaskedReplaceClient(Node):
         msg = Float32MultiArray()
         layout = MultiArrayLayout()
         rows, cols = array.shape
+        # numpy
         layout.dim.append(MultiArrayDimension(label="column_index", size=cols, stride=rows * cols))
         layout.dim.append(MultiArrayDimension(label="row_index", size=rows, stride=rows))
         msg.layout = layout

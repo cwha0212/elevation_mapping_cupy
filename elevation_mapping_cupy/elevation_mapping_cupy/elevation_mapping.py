@@ -875,14 +875,59 @@ class ElevationMap:
         # Old 180° rotation (incorrect - missing transpose, caused 90° CCW error in RViz):
         # m = xp.flip(m, 0)
         # m = xp.flip(m, 1)
-        m = m.T
-        m = xp.flip(m, 0)
-        m = xp.flip(m, 1)
+        m = self._transform_to_grid_map_coordinate_convention(m)
         if use_stream:
             stream = cp.cuda.Stream(non_blocking=False)
         else:
             stream = None
         self.copy_to_cpu(m, data, stream=stream)
+
+    def _transform_to_grid_map_coordinate_convention(self, m):
+        """Transform the map to the grid_map coordinate convention.
+
+        elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
+        grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
+        transformBufferOrderToMapFrame returns {-index[0], -index[1]})
+        Required transformation:
+           1. Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
+           2. Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
+           3. Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
+
+        This is equivalent to: rot90(m.T, k=2) or flip(flip(m.T, 0), 1)
+
+        Args:
+            m (cupy._core.core.ndarray):
+
+        Returns:
+            cupy._core.core.ndarray:
+        """
+        m = m.T
+        m = xp.flip(m, 0)
+        m = xp.flip(m, 1)
+        return m
+
+    def _transform_to_elevation_mapping_coordinate_convention(self, m):
+        """Transform the map to the grid_map coordinate convention.
+
+        elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
+        grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
+        transformBufferOrderToMapFrame returns {-index[0], -index[1]})
+        To transform back to a normal array, we need to apply the inverse transformation:
+        Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
+        Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
+        Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
+        This is equivalent to: flip(flip(m, 0), 1).T
+
+        Args:
+            m (cupy._core.core.ndarray):
+
+        Returns:
+            cupy._core.core.ndarray:
+        """
+        m = xp.flip(m, 0)
+        m = xp.flip(m, 1)
+        m = m.T
+        return m
 
     def get_normal_maps(self):
         """Get the normal maps.
@@ -1062,6 +1107,12 @@ class ElevationMap:
         if not layer_data:
             raise ValueError("No layer data provided for masked replace.")
 
+        # Transform the layer data from grid_map coordinate convention to the elevation_mapping_cupy coordinate convention
+        for name, array in layer_data.items():
+            layer_data[name] = self._transform_to_elevation_mapping_coordinate_convention(array)
+        if mask is not None:
+            mask = self._transform_to_elevation_mapping_coordinate_convention(mask)
+
         sample_shape: Optional[Tuple[int, int]] = None
         for array in layer_data.values():
             if sample_shape is None:
@@ -1134,6 +1185,11 @@ class ElevationMap:
     ) -> None:
         if not raw_layers:
             raise ValueError("Raw layer data required to restore the map.")
+
+        # Transform the raw layer data from grid_map coordinate convention to the elevation_mapping_cupy coordinate convention
+        for name, array in raw_layers.items():
+            raw_layers[name] = self._transform_to_elevation_mapping_coordinate_convention(array)
+
         sample_shape = next(iter(raw_layers.values())).shape
         self._validate_geometry_against_shape(sample_shape, geometry)
 

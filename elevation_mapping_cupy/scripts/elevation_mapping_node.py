@@ -442,7 +442,6 @@ class ElevationMappingNode(Node):
 
             fused_layers, _ = self._grid_map_to_numpy(fused_msg)
             raw_layers, geometry = self._grid_map_to_numpy(raw_msg)
-            raw_layers = self._restore_internal_layer_orientation(raw_layers)
 
             self._map.set_full_map(fused_layers, raw_layers, geometry)
 
@@ -498,17 +497,6 @@ class ElevationMappingNode(Node):
             orientation=orientation,
         )
         return arrays, geometry
-
-    def _restore_internal_layer_orientation(self, layers: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-        """Undo the double-axis flip applied when exporting layers for GridMap messages."""
-        restored: Dict[str, np.ndarray] = {}
-        for name, array in layers.items():
-            if array.ndim >= 2:
-                flipped = np.flip(np.flip(array, axis=0), axis=1)
-                restored[name] = np.ascontiguousarray(flipped)
-            else:
-                restored[name] = np.ascontiguousarray(array)
-        return restored
 
     def _extract_layout_shape(self, array_msg: Float32MultiArray) -> tuple:
         if array_msg.layout.dim:
