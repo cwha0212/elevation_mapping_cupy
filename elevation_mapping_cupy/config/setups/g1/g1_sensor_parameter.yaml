@@ -41,3 +41,8 @@ subscribers:
   realsense_depth:
     topic_name: /camera/depth/color/points
     data_type: pointcloud
+
+  realsense_color:
+    topic_name: /camera/color/image_raw/compressed
+    camera_info_topic_name: /camera/color/camera_info
+    data_type: image
