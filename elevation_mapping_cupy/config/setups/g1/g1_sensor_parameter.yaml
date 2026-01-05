@@ -37,3 +37,7 @@ subscribers:
   livox:
     topic_name: /cloud_registered_body_1
     data_type: pointcloud
+
+  realsense_depth:
+    topic_name: /camera/depth/color/points
+    data_type: pointcloud
