@@ -34,4 +34,14 @@ inpainting:
   is_height_layer: True
   layer_name: "inpaint"
   extra_params:
-    method: "telea"                           # telea or ns
+    method: "telea"                        # telea or ns
+
+# Apply min filter to smoothened map
+min_smooth_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: True
+  layer_name: "min_smooth_filter"
+  extra_params:
+    input_layer_name: "min_filter"
+    size: 5
