@@ -1,26 +1,34 @@
 <?xml version="1.0"?>
-<package format="2">
-    <name>convex_plane_decomposition_ros</name>
-    <version>0.0.0</version>
-    <description>The convex_plane_decomposition_ros package</description>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>convex_plane_decomposition_ros</name>
+  <version>0.0.0</version>
+  <description>The convex_plane_decomposition_ros package</description>
+  <maintainer email="rgrandia@ethz.ch">Ruben Grandia</maintainer>
+  <license>MIT</license>
 
-    <maintainer email="rgrandia@ethz.ch">Ruben Grandia</maintainer>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-    <license>MIT</license>
+  <depend>rclcpp</depend>
+  <depend>grid_map_core</depend>
+  <depend>grid_map_ros</depend>
+  <depend>grid_map_cv</depend>
+  <depend>grid_map_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>convex_plane_decomposition</depend>
+  <depend>convex_plane_decomposition_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>visualization_msgs</depend>
+  <depend>libopencv-dev</depend>
+  <depend>eigen</depend>
+  <depend>grid_map_filters_rsl</depend>
 
-    <buildtool_depend>catkin</buildtool_depend>
+  <exec_depend>grid_map_demos</exec_depend>
 
-    <depend>roscpp</depend>
-    <depend>grid_map_core</depend>
-    <depend>grid_map_ros</depend>
-    <depend>grid_map_cv</depend>
-    <depend>grid_map_msgs</depend>
-    <depend>geometry_msgs</depend>
-    <depend>convex_plane_decomposition</depend>
-    <depend>convex_plane_decomposition_msgs</depend>
-    <depend>tf2_ros</depend>
-    <depend>visualization_msgs</depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
-    <exec_depend>grid_map_demos</exec_depend>
-
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
 </package>

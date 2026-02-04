@@ -7,21 +7,30 @@
 #include <pybind11/embed.h>  // everything needed for embedding
 
 // ROS
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include "elevation_mapping_cupy/elevation_mapping_ros.hpp"
 
 int main(int argc, char** argv) {
-  ros::init(argc, argv, "elevation_mapping");
-  ros::NodeHandle nh("~");
-
+  rclcpp::init(argc, argv);
+  
   py::scoped_interpreter guard{};  // start the interpreter and keep it alive
-  elevation_mapping_cupy::ElevationMappingNode mapNode(nh);
+  
+  rclcpp::NodeOptions options;
+  // Automatically declare parameters from overrides to handle complex dictionary parameters if we used the generic way, 
+  // but we implemented manual parsing. Still good practice.
+  options.automatically_declare_parameters_from_overrides(true);
+
+  auto node = std::make_shared<elevation_mapping_cupy::ElevationMappingNode>(options);
+  
   py::gil_scoped_release release;
 
   // Spin
-  ros::AsyncSpinner spinner(1);  // Use n threads
-  spinner.start();
-  ros::waitForShutdown();
+  // Use MultiThreadedExecutor to allow concurrent callback processing if needed (e.g. services and timers)
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node);
+  executor.spin();
+  
+  rclcpp::shutdown();
   return 0;
 }

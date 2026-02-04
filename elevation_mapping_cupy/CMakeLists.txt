@@ -1,80 +1,95 @@
-# %Tag(FULLTEXT)%
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(elevation_mapping_cupy)
 
-find_package(PythonInterp 3 REQUIRED)
-find_package(PythonLibs 3 REQUIRED)
-find_package(OpenCV REQUIRED)
-
-if(PYTHONLIBS_FOUND)
-  message(STATUS "Using Python Libraries at: " ${PYTHON_LIBRARIES})
-  message(STATUS "Using Python include directories at: " ${PYTHON_INCLUDE_DIRS})
-else()
-  message(WARNING "Could not find Python Libraries")
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclpy REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(elevation_map_msgs REQUIRED)
+find_package(grid_map_msgs REQUIRED)
+find_package(grid_map_ros REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(pcl_ros REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(pybind11_vendor REQUIRED)
+find_package(pybind11 REQUIRED) # Usually brought in by vendor, but good to be explicit
+find_package(OpenCV REQUIRED)
+find_package(cv_bridge REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(Python3 COMPONENTS Development REQUIRED)
 
-find_package(catkin REQUIRED
-  roscpp
-  rospy
-  tf
-  tf_conversions
+include_directories(include)
+
+add_library(elevation_mapping_ros
+  src/elevation_mapping_wrapper.cpp
+  src/elevation_mapping_ros.cpp
+)
+target_include_directories(elevation_mapping_ros PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${Eigen3_INCLUDE_DIRS}
+)
+target_link_libraries(elevation_mapping_ros 
+  ${OpenCV_LIBRARIES}
+  pybind11::embed
+  Python3::Python
+)
+ament_target_dependencies(elevation_mapping_ros
+  rclcpp
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
   sensor_msgs
   std_msgs
+  std_srvs
   geometry_msgs
+  visualization_msgs
   elevation_map_msgs
   grid_map_msgs
   grid_map_ros
   image_transport
   pcl_ros
-  pybind11_catkin
+  pcl_conversions
+  cv_bridge
 )
-
-catkin_package(
-  INCLUDE_DIRS
-    include
-    ${EIGEN3_INCLUDE_DIRS}
-  CATKIN_DEPENDS
-    roscpp
-    rospy
-    tf
-    tf_conversions
-    sensor_msgs
-    std_msgs
-    geometry_msgs
-    elevation_map_msgs
-    grid_map_ros
-    image_transport
-    pcl_ros
-    pybind11_catkin
-)
-
-include_directories(
-  include
-  ${PYTHON_INCLUDE_DIRS}
-  ${catkin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIRS}
-  ${OpenCV_INCLUDE_DIRS}
-)
-
-add_library(elevation_mapping_ros
-    src/elevation_mapping_wrapper.cpp
-    src/elevation_mapping_ros.cpp)
-
-target_link_libraries(elevation_mapping_ros ${PYTHON_LIBRARIES} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 add_executable(elevation_mapping_node src/elevation_mapping_node.cpp)
 target_link_libraries(elevation_mapping_node elevation_mapping_ros)
+ament_target_dependencies(elevation_mapping_node rclcpp)
 
-catkin_python_setup()
+# Install Python modules
+ament_python_install_package(${PROJECT_NAME})
 
 install(
   TARGETS elevation_mapping_ros elevation_mapping_node
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 
 install(
   DIRECTORY launch config
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_export_include_directories(include)
+ament_export_libraries(elevation_mapping_ros)
+ament_export_dependencies(
+  rclcpp
+  elevation_map_msgs
+  grid_map_ros
+)
+
+ament_package()

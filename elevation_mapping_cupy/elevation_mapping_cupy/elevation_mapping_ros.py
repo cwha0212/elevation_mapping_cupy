@@ -10,7 +10,8 @@ import rospy
 import ros_numpy
 from tf.transformations import quaternion_matrix
 import tf2_ros
-import rospkg
+
+from ament_index_python.packages import get_package_share_directory
 import message_filters
 from cv_bridge import CvBridge
 
@@ -37,8 +38,7 @@ PDC_DATATYPE = {
 
 class ElevationMapWrapper:
     def __init__(self):
-        rospack = rospkg.RosPack()
-        self.root = rospack.get_path("elevation_mapping_cupy")
+        self.root = get_package_share_directory("elevation_mapping_cupy")
         weight_file = os.path.join(self.root, "config/core/weights.dat")
         plugin_config_file = os.path.join(self.root, "config/core/plugin_config.yaml")
         self.param = Parameter(use_chainer=False, weight_file=weight_file, plugin_config_file=plugin_config_file)

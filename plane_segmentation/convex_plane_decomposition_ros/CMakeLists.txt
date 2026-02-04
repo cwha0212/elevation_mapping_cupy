@@ -1,9 +1,41 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.8)
 project(convex_plane_decomposition_ros)
 
-# Catkin dependencies
-set(CATKIN_PACKAGE_DEPENDENCIES
-  roscpp
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(grid_map_core REQUIRED)
+find_package(grid_map_ros REQUIRED)
+find_package(grid_map_cv REQUIRED)
+find_package(grid_map_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(convex_plane_decomposition REQUIRED)
+find_package(convex_plane_decomposition_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS imgproc imgcodecs core)
+find_package(Eigen3 REQUIRED)
+find_package(grid_map_filters_rsl REQUIRED)
+
+include_directories(include)
+
+add_library(${PROJECT_NAME}
+  src/ConvexPlaneDecompositionRos.cpp
+  src/MessageConversion.cpp
+  src/ParameterLoading.cpp
+  src/RosVisualizations.cpp
+)
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${Eigen3_INCLUDE_DIRS}
+)
+target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBRARIES})
+ament_target_dependencies(${PROJECT_NAME}
+  rclcpp
   grid_map_core
   grid_map_ros
   grid_map_cv
@@ -13,117 +45,93 @@ set(CATKIN_PACKAGE_DEPENDENCIES
   convex_plane_decomposition_msgs
   tf2_ros
   visualization_msgs
+  OpenCV
+  grid_map_filters_rsl
 )
-
-find_package(catkin REQUIRED COMPONENTS
-  ${CATKIN_PACKAGE_DEPENDENCIES}
-)
-
-# OpenCv
-find_package(OpenCV REQUIRED)
-
-# Eigen
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
-
-# Cpp standard version
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-###################################
-## catkin specific configuration ##
-###################################
-catkin_package(
-  INCLUDE_DIRS include ${EIGEN3_INCLUDE_DIRS}
-  LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS ${CATKIN_PACKAGE_DEPENDENCIES}
-  DEPENDS OpenCV
-)
-
-###########
-## Build ##
-###########
-
-include_directories(
-  include
-  ${EIGEN3_INCLUDE_DIRS}
-  ${catkin_INCLUDE_DIRS}
-)
-
-add_library(${PROJECT_NAME}
-  src/ConvexPlaneDecompositionRos.cpp
-  src/MessageConversion.cpp
-  src/ParameterLoading.cpp
-  src/RosVisualizations.cpp
-  )
-add_dependencies(${PROJECT_NAME}
-  ${catkin_EXPORTED_TARGETS}
-  )
-target_link_libraries(${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  )
+target_link_libraries(${PROJECT_NAME} gmp mpfr ${OpenCV_LIBRARIES})
 
 add_executable(${PROJECT_NAME}_node
   src/ConvexPlaneDecompositionNode.cpp
 )
-target_link_libraries(${PROJECT_NAME}_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME}_node ${PROJECT_NAME} gmp mpfr ${OpenCV_LIBRARIES})
+ament_target_dependencies(${PROJECT_NAME}_node 
+  rclcpp 
+  grid_map_core 
+  grid_map_ros 
+  grid_map_msgs
+  OpenCV
 )
 
 add_executable(${PROJECT_NAME}_add_noise
   src/noiseNode.cpp
 )
-target_link_libraries(${PROJECT_NAME}_add_noise
-  ${catkin_LIBRARIES}
+ament_target_dependencies(${PROJECT_NAME}_add_noise 
+  rclcpp 
+  grid_map_core 
+  grid_map_ros 
+  grid_map_msgs
+  grid_map_filters_rsl
 )
 
 add_executable(${PROJECT_NAME}_save_elevationmap
   src/SaveElevationMapAsImageNode.cpp
-  )
-target_link_libraries(${PROJECT_NAME}_save_elevationmap
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  )
+)
+target_link_libraries(${PROJECT_NAME}_save_elevationmap ${OpenCV_LIBRARIES})
+ament_target_dependencies(${PROJECT_NAME}_save_elevationmap 
+  rclcpp 
+  grid_map_core 
+  grid_map_ros 
+  grid_map_cv 
+  grid_map_msgs 
+  OpenCV
+)
 
 add_executable(${PROJECT_NAME}_approximation_demo_node
   src/ConvexApproximationDemoNode.cpp
-  )
-target_link_libraries(${PROJECT_NAME}_approximation_demo_node
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
+)
+target_link_libraries(${PROJECT_NAME}_approximation_demo_node ${PROJECT_NAME} gmp mpfr ${OpenCV_LIBRARIES})
+ament_target_dependencies(${PROJECT_NAME}_approximation_demo_node 
+  rclcpp 
+  grid_map_core 
+  grid_map_ros 
+  grid_map_msgs
+  OpenCV
+)
+
+# Testing
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+  
+  # Add other tests here if needed
+  # add_executable(${PROJECT_NAME}_TestShapeGrowing test/TestShapeGrowing.cpp)
+endif()
+
+install(TARGETS 
   ${PROJECT_NAME}
-  )
+  ${PROJECT_NAME}_node
+  ${PROJECT_NAME}_add_noise
+  ${PROJECT_NAME}_save_elevationmap
+  ${PROJECT_NAME}_approximation_demo_node
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
 
-#############
-## Install ##
-#############
-
-install(TARGETS ${PROJECT_NAME}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-  )
 install(DIRECTORY include/${PROJECT_NAME}/
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-  )
-
-install(TARGETS ${PROJECT_NAME}_node
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  DESTINATION include/${PROJECT_NAME}
 )
 
 install(DIRECTORY config data launch rviz
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+  DESTINATION share/${PROJECT_NAME}
 )
 
-#############
-## Testing ##
-#############
-add_executable(${PROJECT_NAME}_TestShapeGrowing
-  test/TestShapeGrowing.cpp
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+ament_export_dependencies(
+  rclcpp
+  convex_plane_decomposition
+  convex_plane_decomposition_msgs
 )
-target_link_libraries(${PROJECT_NAME}_TestShapeGrowing
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-)
+
+ament_package()

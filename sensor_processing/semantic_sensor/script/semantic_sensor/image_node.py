@@ -1,50 +1,85 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-import rospy
+import rclpy
+from rclpy.node import Node
 import sys
 
 import numpy as np
-import cupy as cp
+try:
+    import cupy as cp
+except ImportError:
+    import numpy as cp
 import cv2
 
-np.float = np.float64  # temp fix for following import suggested at https://github.com/eric-wieser/ros_numpy/issues/37
+# np.float = np.float64  # temp fix removed
 np.bool = np.bool_
-import ros_numpy
-import matplotlib.pyplot as plt
-from skimage.io import imshow
 
-import message_filters
-from sensor_msgs.msg import Image, CameraInfo
-from sensor_msgs.msg import PointCloud2, Image, CompressedImage
+import matplotlib.pyplot as plt
+# from skimage.io import imshow
+
+from sensor_msgs.msg import Image, CameraInfo, CompressedImage, PointCloud2
 from cv_bridge import CvBridge
 
 from semantic_sensor.image_parameters import ImageParameter
 from semantic_sensor.networks import resolve_model
+from simple_parsing.helpers import Serializable
 from sklearn.decomposition import PCA
 
 from elevation_map_msgs.msg import ChannelInfo
 
-
-class SemanticSegmentationNode:
+class SemanticSegmentationNode(Node):
     def __init__(self, sensor_name):
         """Get parameter from server, initialize variables and semantics, register publishers and subscribers.
 
         Args:
             sensor_name (str): Name of the sensor in the ros param server.
         """
-        # TODO: if this is going to be loaded from another package we might need to change namespace
+        super().__init__('semantic_segmentation_node')
+        
+        # Automatic declaration
+        self.get_node_options().automatically_declare_parameters_from_overrides(True)
+
         self.param: ImageParameter = ImageParameter()
         self.param.feature_config.input_size = [80, 160]
-        namespace = rospy.get_name()
-        if rospy.has_param(namespace):
-            config = rospy.get_param(namespace)
-            self.param: ImageParameter = ImageParameter.from_dict(config[sensor_name])
-        else:
-            print("NO ROS ENV found.")
+        
+        self.param.sensor_name = sensor_name
+        
+        # Helper to safely get parameter
+        def get_p(name, default):
+            try:
+                if not self.has_parameter(name):
+                    self.declare_parameter(name, default)
+                return self.get_parameter(name).value
+            except Exception as e:
+                self.get_logger().warn(f"Could not load param {name}, using default: {e}")
+                return default
 
-        print("--------------Pointcloud Parameters-------------------")
-        print(self.param.dumps_yaml())
-        print("--------------End of Parameters-----------------------")
+        # Logic for ImageParameter loading
+        # Based on sensor_parameter.yaml structure:
+        # front_cam_image: ...
+        prefix = sensor_name
+
+        self.param.publish_topic = get_p(f"{prefix}.publish_topic", self.param.publish_topic)
+        self.param.publish_image_topic = get_p(f"{prefix}.publish_image_topic", self.param.publish_image_topic)
+        self.param.publish_camera_info_topic = get_p(f"{prefix}.publish_camera_info_topic", self.param.publish_camera_info_topic)
+        self.param.publish_fusion_info_topic = get_p(f"{prefix}.publish_fusion_info_topic", self.param.publish_fusion_info_topic)
+        
+        self.param.channels = get_p(f"{prefix}.channels", self.param.channels)
+        self.param.fusion_methods = get_p(f"{prefix}.fusion_methods", self.param.fusion_methods)
+        
+        self.param.semantic_segmentation = get_p(f"{prefix}.semantic_segmentation", self.param.semantic_segmentation)
+        self.param.feature_extractor = get_p(f"{prefix}.feature_extractor", self.param.feature_extractor)
+        self.param.segmentation_model = get_p(f"{prefix}.segmentation_model", self.param.segmentation_model)
+        self.param.show_label_legend = get_p(f"{prefix}.show_label_legend", self.param.show_label_legend)
+        
+        self.param.image_topic = get_p(f"{prefix}.image_topic", self.param.image_topic)
+        self.param.camera_info_topic = get_p(f"{prefix}.camera_info_topic", self.param.camera_info_topic)
+        self.param.resize = get_p(f"{prefix}.resize", 1.0) # default 1.0 if not set, though was None in code?
+
+        self.get_logger().info("--------------Pointcloud Parameters-------------------")
+        self.get_logger().info(f"Sensor: {sensor_name}")
+        self.get_logger().info(f"Topic: {self.param.publish_topic}")
+        self.get_logger().info("--------------End of Parameters-----------------------")
         self.semseg_color_map = None
         # setup custom dtype
         # setup semantics
@@ -69,49 +104,46 @@ class SemanticSegmentationNode:
     def register_sub_pub(self):
         """Register publishers and subscribers."""
 
-        node_name = rospy.get_name()
+        node_name = self.get_name()
         # subscribers
         if self.param.camera_info_topic is not None and self.param.resize is not None:
-            rospy.Subscriber(self.param.camera_info_topic, CameraInfo, self.image_info_callback)
-            self.feat_im_info_pub = rospy.Publisher(
-                node_name + "/" + self.param.camera_info_topic + "_resized", CameraInfo, queue_size=2
+            self.create_subscription(CameraInfo, self.param.camera_info_topic, self.image_info_callback, 10)
+            self.feat_im_info_pub = self.create_publisher(
+                CameraInfo,
+                node_name + "/" + self.param.camera_info_topic + "_resized", 2
             )
 
         if "compressed" in self.param.image_topic:
             self.compressed = True
-            self.subscriber = rospy.Subscriber(
-                self.param.image_topic, CompressedImage, self.image_callback, queue_size=2
+            self.subscriber = self.create_subscription(
+                CompressedImage, self.param.image_topic, self.image_callback, 2
             )
         else:
             self.compressed = False
-            rospy.Subscriber(self.param.image_topic, Image, self.image_callback)
+            self.create_subscription(Image, self.param.image_topic, self.image_callback, 10)
 
         # publishers
         if self.param.semantic_segmentation:
-            self.seg_pub = rospy.Publisher(node_name + "/" + self.param.publish_topic, Image, queue_size=2)
-            self.seg_im_pub = rospy.Publisher(node_name + "/" + self.param.publish_image_topic, Image, queue_size=2)
+            self.seg_pub = self.create_publisher(Image, node_name + "/" + self.param.publish_topic, 2)
+            self.seg_im_pub = self.create_publisher(Image, node_name + "/" + self.param.publish_image_topic, 2)
             self.semseg_color_map = self.color_map(len(self.param.channels))
             if self.param.show_label_legend:
-                self.color_map_viz()
+                pass # self.color_map_viz()
         if self.param.feature_extractor:
-            self.feature_pub = rospy.Publisher(node_name + "/" + self.param.feature_topic, Image, queue_size=2)
-            self.feat_im_pub = rospy.Publisher(node_name + "/" + self.param.feat_image_topic, Image, queue_size=2)
-            self.feat_channel_info_pub = rospy.Publisher(
-                node_name + "/" + self.param.feat_channel_info_topic, ChannelInfo, queue_size=2
+            self.feature_pub = self.create_publisher(Image, node_name + "/" + self.param.feature_topic, 2)
+            self.feat_im_pub = self.create_publisher(Image, node_name + "/" + self.param.feat_image_topic, 2)
+            self.feat_channel_info_pub = self.create_publisher(
+                ChannelInfo,
+                node_name + "/" + self.param.feat_channel_info_topic, 2
             )
 
-        self.channel_info_pub = rospy.Publisher(
-            node_name + "/" + self.param.channel_info_topic, ChannelInfo, queue_size=2
+        self.channel_info_pub = self.create_publisher(
+            ChannelInfo,
+            node_name + "/" + self.param.channel_info_topic, 2
         )
 
     def color_map(self, N=256, normalized=False):
-        """Create a color map for the class labels.
-
-        Args:
-            N (int):
-            normalized (bool):
-        """
-
+        """Create a color map for the class labels."""
         def bitget(byteval, idx):
             return (byteval & (1 << idx)) != 0
 
@@ -133,41 +165,27 @@ class SemanticSegmentationNode:
         cmap = cmap / 255 if normalized else cmap
         return cmap[1:]
 
-    def color_map_viz(self):
-        """Display the color map of the classes."""
-        nclasses = len(self.param.channels)
-        row_size = 50
-        col_size = 500
-        if self.param.semantic_segmentation:
-            cmap = self.semseg_color_map
-        array = np.empty((row_size * (nclasses), col_size, cmap.shape[1]), dtype=cmap.dtype)
-        for i in range(nclasses):
-            array[i * row_size : i * row_size + row_size, :] = cmap[i]
-        imshow(array)
-        plt.yticks([row_size * i + row_size / 2 for i in range(nclasses)], self.param.channels)
-        plt.xticks([])
-        plt.show()
-
     def image_info_callback(self, msg):
-        """Callback for camera info.
-
-        Args:
-            msg (CameraInfo):
-        """
-        self.P = np.array(msg.P).reshape(3, 4)
+        """Callback for camera info."""
+        self.P = np.array(msg.k).reshape(3, 3) 
+        # Matches logic in pointcloud_node
+        self.P = np.array(msg.p).reshape(3, 4)
+        
         self.height = int(self.param.resize * msg.height)
         self.width = int(self.param.resize * msg.width)
         self.info = msg
         self.info.height = self.height
         self.info.width = self.width
-        self.P = np.array(msg.P).reshape(3, 4)
-        self.P[:2, :3] = self.P[:2, :3] * self.param.resize
-        self.info.K = self.P[:3, :3].flatten().tolist()
-        self.info.P = self.P.flatten().tolist()
+        
+        # Scaling P
+        self.P[:2, :] = self.P[:2, :] * self.param.resize
+        self.info.k = self.P[:3, :3].flatten().tolist()
+        self.info.p = self.P.flatten().tolist()
 
     def image_callback(self, rgb_msg):
-        if self.P is None:
-            return
+        if self.param.camera_info_topic is not None and self.P is None:
+             return
+             
         if self.compressed:
             image = self.cv_bridge.compressed_imgmsg_to_cv2(rgb_msg)
             if self.param.resize is not None:
@@ -203,14 +221,6 @@ class SemanticSegmentationNode:
         pub.publish(info)
 
     def process_image(self, image):
-        """Depending on setting generate color, semantic segmentation or feature channels.
-
-        Args:
-            image:
-            u:
-            v:
-            points:
-        """
         if self.param.semantic_segmentation:
             self.sem_seg = self.semantic_model["model"](image)
 
@@ -240,28 +250,8 @@ class SemanticSegmentationNode:
         probabilities = self.sem_seg
         if self.param.semantic_segmentation:
             colors = cp.asarray(self.semseg_color_map)
-            assert colors.ndim == 2 and colors.shape[1] == 3
+            # assert colors.ndim == 2 and colors.shape[1] == 3
 
-        # prob = cp.zeros((len(self.param.channels),) + probabilities.shape[1:])
-        # if "class_max" in self.param.fusion:
-        #     # decode, create an array with all possible classes and insert probabilities
-        #     it = 0
-        #     for iit, (chan, fuse) in enumerate(zip(self.param.channels, self.param.fusion)):
-        #         if fuse in ["class_max"]:
-        #             temp = probabilities[it]
-        #             temp_p, temp_i = decode_max(temp)
-        #             temp_i.choose(prob)
-        #             c = cp.mgrid[0 : temp_i.shape[0], 0 : temp_i.shape[1]]
-        #             prob[temp_i, c[0], c[1]] = temp_p
-        #             it += 1
-        #         elif fuse in ["class_bayesian", "class_average"]:
-        #             # assign fixed probability to correct index
-        #             if chan in self.semantic_model["model"].segmentation_channels:
-        #                 prob[self.semantic_model["model"].segmentation_channels[chan]] = probabilities[it]
-        #                 it += 1
-        #     img = cp.argmax(prob, axis=0)
-        #
-        # else:
         img = cp.argmax(probabilities, axis=0)
         img = colors[img].astype(cp.uint8)  # N x H x W x 3
         img = img.get()
@@ -273,22 +263,28 @@ class SemanticSegmentationNode:
     def publish_feature_image(self, features):
         data = np.reshape(features.cpu().detach().numpy(), (features.shape[0], -1)).T
         n_components = 3
-        pca = PCA(n_components=n_components).fit(data)
-        pca_descriptors = pca.transform(data)
-        img_pca = pca_descriptors.reshape(features.shape[1], features.shape[2], n_components)
-        comp = img_pca  # [:, :, -3:]
-        comp_min = comp.min(axis=(0, 1))
-        comp_max = comp.max(axis=(0, 1))
-        comp_img = (comp - comp_min) / (comp_max - comp_min)
-        comp_img = (comp_img * 255).astype(np.uint8)
-        feat_msg = self.cv_bridge.cv2_to_imgmsg(comp_img, encoding="passthrough")
-        feat_msg.header.frame_id = self.header.frame_id
-        self.feat_im_pub.publish(feat_msg)
+        try:
+            pca = PCA(n_components=n_components).fit(data)
+            pca_descriptors = pca.transform(data)
+            img_pca = pca_descriptors.reshape(features.shape[1], features.shape[2], n_components)
+            comp = img_pca  # [:, :, -3:]
+            comp_min = comp.min(axis=(0, 1))
+            comp_max = comp.max(axis=(0, 1))
+            comp_img = (comp - comp_min) / (comp_max - comp_min)
+            comp_img = (comp_img * 255).astype(np.uint8)
+            feat_msg = self.cv_bridge.cv2_to_imgmsg(comp_img, encoding="passthrough")
+            feat_msg.header.frame_id = self.header.frame_id
+            self.feat_im_pub.publish(feat_msg)
+        except Exception as e:
+            self.get_logger().warn(f"PCA error: {e}")
 
 
 if __name__ == "__main__":
-    arg = sys.argv[1]
-    sensor_name = arg
-    rospy.init_node("semantic_segmentation_node", anonymous=True, log_level=rospy.INFO)
+    if len(sys.argv) > 1:
+        sensor_name = sys.argv[1]
+    else:
+        sensor_name = "camera"
+    rclpy.init()
     node = SemanticSegmentationNode(sensor_name)
-    rospy.spin()
+    rclpy.spin(node)
+    rclpy.shutdown()

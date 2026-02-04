@@ -8,6 +8,7 @@
 // STL
 #include <iostream>
 #include <mutex>
+#include <memory>
 
 // Eigen
 #include <Eigen/Dense>
@@ -16,26 +17,28 @@
 #include <pybind11/embed.h>  // everything needed for embedding
 
 // ROS
-#include <geometry_msgs/PolygonStamped.h>
-#include <image_transport/image_transport.h>
-#include <image_transport/subscriber_filter.h>
+#include <geometry_msgs/msg/polygon_stamped.hpp>
+#include <image_transport/image_transport.hpp>
+#include <image_transport/subscriber_filter.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/synchronizer.h>
-#include <ros/ros.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <std_srvs/Empty.h>
-#include <std_srvs/SetBool.h>
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/MarkerArray.h>
+#include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/empty.hpp>
+#include <std_srvs/srv/empty.hpp>
+#include <std_srvs/srv/set_bool.hpp>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/buffer.h>
+#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 // Grid Map
-#include <grid_map_msgs/GetGridMap.h>
-#include <grid_map_msgs/GridMap.h>
+#include <grid_map_msgs/srv/get_grid_map.hpp>
+#include <grid_map_msgs/msg/grid_map.hpp>
 #include <grid_map_ros/grid_map_ros.hpp>
 
 // PCL
@@ -47,9 +50,10 @@
 #include <opencv2/core.hpp>
 #include <opencv2/core/eigen.hpp>
 
-#include <elevation_map_msgs/CheckSafety.h>
-#include <elevation_map_msgs/Initialize.h>
-#include <elevation_map_msgs/ChannelInfo.h>
+#include <elevation_map_msgs/srv/check_safety.hpp>
+#include <elevation_map_msgs/srv/initialize.hpp>
+#include <elevation_map_msgs/msg/channel_info.hpp>
+#include <elevation_map_msgs/msg/statistics.hpp>
 
 #include "elevation_mapping_cupy/elevation_mapping_wrapper.hpp"
 
@@ -57,9 +61,9 @@ namespace py = pybind11;
 
 namespace elevation_mapping_cupy {
 
-class ElevationMappingNode {
+class ElevationMappingNode : public rclcpp::Node {
  public:
-  ElevationMappingNode(ros::NodeHandle& nh);
+  ElevationMappingNode(const rclcpp::NodeOptions& options);
   using RowMatrixXd = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
   using ColMatrixXf = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>;
 
@@ -67,83 +71,87 @@ class ElevationMappingNode {
   using ImageSubscriberPtr = std::shared_ptr<ImageSubscriber>;
 
   // Subscriber and Synchronizer for CameraInfo messages
-  using CameraInfoSubscriber = message_filters::Subscriber<sensor_msgs::CameraInfo>;
+  using CameraInfoSubscriber = message_filters::Subscriber<sensor_msgs::msg::CameraInfo>;
   using CameraInfoSubscriberPtr = std::shared_ptr<CameraInfoSubscriber>;
-  using CameraPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo>;
+  using CameraPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo>;
   using CameraSync = message_filters::Synchronizer<CameraPolicy>;
   using CameraSyncPtr = std::shared_ptr<CameraSync>;
 
   // Subscriber and Synchronizer for ChannelInfo messages
-  using ChannelInfoSubscriber = message_filters::Subscriber<elevation_map_msgs::ChannelInfo>;
+  using ChannelInfoSubscriber = message_filters::Subscriber<elevation_map_msgs::msg::ChannelInfo>;
   using ChannelInfoSubscriberPtr = std::shared_ptr<ChannelInfoSubscriber>;
-  using CameraChannelPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::CameraInfo, elevation_map_msgs::ChannelInfo>;
+  using CameraChannelPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo, elevation_map_msgs::msg::ChannelInfo>;
   using CameraChannelSync = message_filters::Synchronizer<CameraChannelPolicy>;
   using CameraChannelSyncPtr = std::shared_ptr<CameraChannelSync>;
 
   // Subscriber and Synchronizer for Pointcloud messages
-  using PointCloudSubscriber = message_filters::Subscriber<sensor_msgs::PointCloud2>;
+  using PointCloudSubscriber = message_filters::Subscriber<sensor_msgs::msg::PointCloud2>;
   using PointCloudSubscriberPtr = std::shared_ptr<PointCloudSubscriber>;
-  using PointCloudPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, elevation_map_msgs::ChannelInfo>;
+  using PointCloudPolicy = message_filters::sync_policies::ApproximateTime<sensor_msgs::msg::PointCloud2, elevation_map_msgs::msg::ChannelInfo>;
   using PointCloudSync = message_filters::Synchronizer<PointCloudPolicy>;
   using PointCloudSyncPtr = std::shared_ptr<PointCloudSync>;
 
  private:
-  void readParameters();
+  void readParameters(); // Note: kept but implementation will change to use declare_parameter
   void setupMapPublishers();
-  void pointcloudCallback(const sensor_msgs::PointCloud2& cloud, const std::string& key);
-  void inputPointCloud(const sensor_msgs::PointCloud2& cloud, const std::vector<std::string>& channels);
-  void inputImage(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg, const std::vector<std::string>& channels);
-  void imageCallback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg, const std::string& key);
-  void imageChannelCallback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg, const elevation_map_msgs::ChannelInfoConstPtr& channel_info_msg);
-  void pointCloudChannelCallback(const sensor_msgs::PointCloud2& cloud, const elevation_map_msgs::ChannelInfoConstPtr& channel_info_msg);
-  // void multiLayerImageCallback(const elevation_map_msgs::MultiLayerImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg);
+  void pointcloudCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& cloud, const std::string& key);
+  void inputPointCloud(const sensor_msgs::msg::PointCloud2& cloud, const std::vector<std::string>& channels);
+  void inputImage(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info_msg, const std::vector<std::string>& channels);
+  void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info_msg, const std::string& key);
+  void imageChannelCallback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg, const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info_msg, const elevation_map_msgs::msg::ChannelInfo::ConstSharedPtr& channel_info_msg);
+  // void pointCloudChannelCallback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& cloud, const elevation_map_msgs::msg::ChannelInfo::ConstSharedPtr& channel_info_msg);
+  
   void publishAsPointCloud(const grid_map::GridMap& map) const;
-  bool getSubmap(grid_map_msgs::GetGridMap::Request& request, grid_map_msgs::GetGridMap::Response& response);
-  bool checkSafety(elevation_map_msgs::CheckSafety::Request& request, elevation_map_msgs::CheckSafety::Response& response);
-  bool initializeMap(elevation_map_msgs::Initialize::Request& request, elevation_map_msgs::Initialize::Response& response);
-  bool clearMap(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
-  bool clearMapWithInitializer(std_srvs::Empty::Request& request, std_srvs::Empty::Response& response);
-  bool setPublishPoint(std_srvs::SetBool::Request& request, std_srvs::SetBool::Response& response);
-  void updatePose(const ros::TimerEvent&);
-  void updateVariance(const ros::TimerEvent&);
-  void updateTime(const ros::TimerEvent&);
-  void updateGridMap(const ros::TimerEvent&);
+  void getSubmap(const std::shared_ptr<grid_map_msgs::srv::GetGridMap::Request> request, std::shared_ptr<grid_map_msgs::srv::GetGridMap::Response> response);
+  void checkSafety(const std::shared_ptr<elevation_map_msgs::srv::CheckSafety::Request> request, std::shared_ptr<elevation_map_msgs::srv::CheckSafety::Response> response);
+  void initializeMap(const std::shared_ptr<elevation_map_msgs::srv::Initialize::Request> request, std::shared_ptr<elevation_map_msgs::srv::Initialize::Response> response);
+  void clearMap(const std::shared_ptr<std_srvs::srv::Empty::Request> request, std::shared_ptr<std_srvs::srv::Empty::Response> response);
+  void clearMapWithInitializer(const std::shared_ptr<std_srvs::srv::Empty::Request> request, std::shared_ptr<std_srvs::srv::Empty::Response> response);
+  void setPublishPoint(const std::shared_ptr<std_srvs::srv::SetBool::Request> request, std::shared_ptr<std_srvs::srv::SetBool::Response> response);
+  
+  void updatePose();
+  void updateVariance();
+  void updateTime();
+  void updateGridMap();
   void publishNormalAsArrow(const grid_map::GridMap& map) const;
   void initializeWithTF();
   void publishMapToOdom(double error);
-  void publishStatistics(const ros::TimerEvent&);
+  void publishStatistics();
   void publishMapOfIndex(int index);
 
-  visualization_msgs::Marker vectorToArrowMarker(const Eigen::Vector3d& start, const Eigen::Vector3d& end, const int id) const;
+  visualization_msgs::msg::Marker vectorToArrowMarker(const Eigen::Vector3d& start, const Eigen::Vector3d& end, const int id) const;
 
-  ros::NodeHandle nh_;
-  image_transport::ImageTransport it_;
-  std::vector<ros::Subscriber> pointcloudSubs_;
+  std::vector<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr> pointcloudSubs_;
   std::vector<ImageSubscriberPtr> imageSubs_;
   std::vector<CameraInfoSubscriberPtr> cameraInfoSubs_;
   std::vector<ChannelInfoSubscriberPtr> channelInfoSubs_;
   std::vector<CameraSyncPtr> cameraSyncs_;
   std::vector<CameraChannelSyncPtr> cameraChannelSyncs_;
   std::vector<PointCloudSyncPtr> pointCloudSyncs_;
-  std::vector<ros::Publisher> mapPubs_;
-  tf::TransformBroadcaster tfBroadcaster_;
-  ros::Publisher alivePub_;
-  ros::Publisher pointPub_;
-  ros::Publisher normalPub_;
-  ros::Publisher statisticsPub_;
-  ros::ServiceServer rawSubmapService_;
-  ros::ServiceServer clearMapService_;
-  ros::ServiceServer clearMapWithInitializerService_;
-  ros::ServiceServer initializeMapService_;
-  ros::ServiceServer setPublishPointService_;
-  ros::ServiceServer checkSafetyService_;
-  ros::Timer updateVarianceTimer_;
-  ros::Timer updateTimeTimer_;
-  ros::Timer updatePoseTimer_;
-  ros::Timer updateGridMapTimer_;
-  ros::Timer publishStatisticsTimer_;
-  ros::Time lastStatisticsPublishedTime_;
-  tf::TransformListener transformListener_;
+  std::vector<rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr> mapPubs_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tfBroadcaster_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr alivePub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pointPub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr normalPub_;
+  rclcpp::Publisher<elevation_map_msgs::msg::Statistics>::SharedPtr statisticsPub_;
+  
+  rclcpp::Service<grid_map_msgs::srv::GetGridMap>::SharedPtr rawSubmapService_;
+  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr clearMapService_;
+  rclcpp::Service<std_srvs::srv::Empty>::SharedPtr clearMapWithInitializerService_;
+  rclcpp::Service<elevation_map_msgs::srv::Initialize>::SharedPtr initializeMapService_;
+  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr setPublishPointService_;
+  rclcpp::Service<elevation_map_msgs::srv::CheckSafety>::SharedPtr checkSafetyService_;
+  
+  rclcpp::TimerBase::SharedPtr updateVarianceTimer_;
+  rclcpp::TimerBase::SharedPtr updateTimeTimer_;
+  rclcpp::TimerBase::SharedPtr updatePoseTimer_;
+  rclcpp::TimerBase::SharedPtr updateGridMapTimer_;
+  rclcpp::TimerBase::SharedPtr publishStatisticsTimer_;
+  rclcpp::Time lastStatisticsPublishedTime_;
+  
+  std::shared_ptr<tf2_ros::Buffer> tfBuffer_;
+  std::shared_ptr<tf2_ros::TransformListener> transformListener_;
+  
   ElevationMappingWrapper map_;
   std::string mapFrameId_;
   std::string correctedMapFrameId_;
@@ -157,7 +165,7 @@ class ElevationMappingNode {
   std::set<std::string> map_layers_sync_;
   std::vector<double> map_fps_;
   std::set<double> map_fps_unique_;
-  std::vector<ros::Timer> mapTimers_;
+  std::vector<rclcpp::TimerBase::SharedPtr> mapTimers_;
   std::map<std::string, std::vector<std::string>> channels_;
 
   std::vector<std::string> initialize_frame_id_;

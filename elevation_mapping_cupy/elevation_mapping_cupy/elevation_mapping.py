@@ -4,10 +4,11 @@
 #
 import os
 from typing import List, Any, Tuple, Union
+import re
+from ament_index_python.packages import get_package_share_directory
 
 import numpy as np
 import threading
-import subprocess
 
 from elevation_mapping_cupy.traversability_filter import (
     get_filter_chainer,
@@ -100,7 +101,8 @@ class ElevationMap:
 
         self.semantic_map.initialize_fusion()
 
-        weight_file = subprocess.getoutput('echo "' + param.weight_file + '"')
+
+        weight_file = self.resolve_path(param.weight_file)
         param.load_weights(weight_file)
 
         if param.use_chainer:
@@ -111,10 +113,24 @@ class ElevationMap:
 
         # Plugins
         self.plugin_manager = PluginManager(cell_n=self.cell_n)
-        plugin_config_file = subprocess.getoutput('echo "' + param.plugin_config_file + '"')
+        plugin_config_file = self.resolve_path(param.plugin_config_file)
         self.plugin_manager.load_plugin_settings(plugin_config_file)
 
         self.map_initializer = MapInitializer(self.initial_variance, param.initialized_variance, xp=cp, method="points")
+
+    def resolve_path(self, path):
+        if not path:
+            return path
+        # Look for $(rospack find package_name)
+        match = re.search(r'\$\(rospack find ([^)]+)\)', path)
+        if match:
+            package_name = match.group(1)
+            try:
+                package_path = get_package_share_directory(package_name)
+                path = path.replace(match.group(0), package_path)
+            except Exception as e:
+                print(f"Error finding package {package_name}: {e}")
+        return os.path.expandvars(os.path.expanduser(path))
 
     def clear(self):
         """Reset all the layers of the elevation & the semantic map."""

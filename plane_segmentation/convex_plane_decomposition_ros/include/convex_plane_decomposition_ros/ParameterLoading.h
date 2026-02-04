@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include <ros/node_handle.h>
+#include <rclcpp/rclcpp.hpp>
 
 #include <convex_plane_decomposition/GridMapPreprocessing.h>
 #include <convex_plane_decomposition/Postprocessing.h>
@@ -14,17 +14,17 @@
 
 namespace convex_plane_decomposition {
 
-PreprocessingParameters loadPreprocessingParameters(const ros::NodeHandle& nodeHandle, const std::string& prefix);
+PreprocessingParameters loadPreprocessingParameters(const rclcpp::Node* node, const std::string& prefix);
 
-contour_extraction::ContourExtractionParameters loadContourExtractionParameters(const ros::NodeHandle& nodeHandle,
+contour_extraction::ContourExtractionParameters loadContourExtractionParameters(const rclcpp::Node* node,
                                                                                 const std::string& prefix);
 
-ransac_plane_extractor::RansacPlaneExtractorParameters loadRansacPlaneExtractorParameters(const ros::NodeHandle& nodeHandle,
+ransac_plane_extractor::RansacPlaneExtractorParameters loadRansacPlaneExtractorParameters(const rclcpp::Node* node,
                                                                                           const std::string& prefix);
 
 sliding_window_plane_extractor::SlidingWindowPlaneExtractorParameters loadSlidingWindowPlaneExtractorParameters(
-    const ros::NodeHandle& nodeHandle, const std::string& prefix);
+    const rclcpp::Node* node, const std::string& prefix);
 
-PostprocessingParameters loadPostprocessingParameters(const ros::NodeHandle& nodeHandle, const std::string& prefix);
+PostprocessingParameters loadPostprocessingParameters(const rclcpp::Node* node, const std::string& prefix);
 
 }  // namespace convex_plane_decomposition

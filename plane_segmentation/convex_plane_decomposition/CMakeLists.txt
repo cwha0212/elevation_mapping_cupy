@@ -1,59 +1,22 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.8)
 project(convex_plane_decomposition)
 
-# Catkin dependencies
-set(CATKIN_PACKAGE_DEPENDENCIES
-  cgal5_catkin
-  grid_map_core
-  grid_map_cv
-  grid_map_filters_rsl
-)
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
 
-find_package(catkin REQUIRED COMPONENTS
-  ${CATKIN_PACKAGE_DEPENDENCIES}
-)
-
-# CGAL dependencies (QUIET because they cannot be found by Clion)
-find_package(GMP 4.2 QUIET)
-find_package(MPFR 2.2.1 QUIET)
-find_package(Boost 1.57 QUIET)
-
-# OpenCv
+find_package(ament_cmake REQUIRED)
+find_package(CGAL REQUIRED)
+find_package(grid_map_core REQUIRED)
+find_package(grid_map_cv REQUIRED)
+find_package(grid_map_filters_rsl REQUIRED)
 find_package(OpenCV REQUIRED)
+find_package(Eigen3 REQUIRED NO_MODULE)
+find_package(Boost REQUIRED COMPONENTS filesystem)
 
-# Eigen
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+include_directories(include)
 
-# Cpp standard version
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-###################################
-## catkin specific configuration ##
-###################################
-catkin_package(
-  INCLUDE_DIRS
-    include
-    ${EIGEN3_INCLUDE_DIRS}
-  LIBRARIES
-    ${PROJECT_NAME}
-  CATKIN_DEPENDS
-    ${CATKIN_PACKAGE_DEPENDENCIES}
-  DEPENDS
-    OpenCV GMP MPFR Boost
-)
-
-###########
-## Build ##
-###########
-
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIR}
-)
-
-add_library(${PROJECT_NAME}
+add_library(${PROJECT_NAME} SHARED
   src/contour_extraction/ContourExtraction.cpp
   src/contour_extraction/Upsampling.cpp
   src/ransac/RansacPlaneExtractor.cpp
@@ -67,48 +30,62 @@ add_library(${PROJECT_NAME}
   src/Postprocessing.cpp
   src/SegmentedPlaneProjection.cpp
 )
-add_dependencies(${PROJECT_NAME}
-  ${catkin_EXPORTED_TARGETS}
-)
-target_link_libraries(${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  gmp
-  mpfr
-)
-target_compile_options(${PROJECT_NAME}
-  PUBLIC -DCGAL_HAS_THREADS
+
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${Eigen3_INCLUDE_DIRS}
 )
 
-#############
-## Install ##
-#############
+# CGAL flags
+target_compile_options(${PROJECT_NAME} PUBLIC -DCGAL_HAS_THREADS)
+target_link_libraries(${PROJECT_NAME} CGAL::CGAL Boost::filesystem)
 
-install(TARGETS ${PROJECT_NAME}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-install(DIRECTORY include/${PROJECT_NAME}/
-  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+ament_target_dependencies(${PROJECT_NAME}
+  grid_map_core
+  grid_map_cv
+  grid_map_filters_rsl
+  OpenCV
+  Eigen3
 )
 
-#############
-## Testing ##
-#############
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
 
-catkin_add_gtest(test_${PROJECT_NAME}
-  test/testConvexApproximation.cpp
-  test/testPipeline.cpp
-  test/testPlanarRegion.cpp
-  test/testRegionGrowing.cpp
-  test/testUpsampling.cpp
+  find_package(ament_cmake_gtest REQUIRED)
+
+  ament_add_gtest(test_${PROJECT_NAME}
+    test/testConvexApproximation.cpp
+    test/testPipeline.cpp
+    test/testPlanarRegion.cpp
+    test/testRegionGrowing.cpp
+    test/testUpsampling.cpp
+  )
+  target_link_libraries(test_${PROJECT_NAME} ${PROJECT_NAME} CGAL::CGAL Boost::filesystem)
+  ament_target_dependencies(test_${PROJECT_NAME} grid_map_core grid_map_cv grid_map_filters_rsl OpenCV Eigen3)
+endif()
+
+ament_export_dependencies(
+  grid_map_core
+  grid_map_cv
+  grid_map_filters_rsl
+  OpenCV
+  CGAL
 )
-target_link_libraries(test_${PROJECT_NAME}
-  ${PROJECT_NAME}
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  gmp
-  mpfr
-  gtest_main
+ament_export_include_directories(include)
+ament_export_libraries(${PROJECT_NAME})
+
+install(
+  TARGETS ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
+
+install(
+  DIRECTORY include/
+  DESTINATION include
+)
+
+ament_package()

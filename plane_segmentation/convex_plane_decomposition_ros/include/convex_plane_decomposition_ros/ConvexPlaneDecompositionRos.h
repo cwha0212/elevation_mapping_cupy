@@ -3,13 +3,17 @@
 #include <memory>
 #include <string>
 
-#include <geometry_msgs/TransformStamped.h>
-#include <ros/ros.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/polygon_stamped.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
 #include <Eigen/Geometry>
 
-#include <grid_map_msgs/GridMap.h>
+#include <grid_map_msgs/msg/grid_map.hpp>
+#include <convex_plane_decomposition_msgs/msg/planar_terrain.hpp>
 
 #include <convex_plane_decomposition/Timer.h>
 
@@ -20,20 +24,20 @@ class PlaneDecompositionPipeline;
 
 class ConvexPlaneExtractionROS {
  public:
-  ConvexPlaneExtractionROS(ros::NodeHandle& nodeHandle);
+  ConvexPlaneExtractionROS(rclcpp::Node* node);
 
   ~ConvexPlaneExtractionROS();
 
  private:
-  bool loadParameters(const ros::NodeHandle& nodeHandle);
+  bool loadParameters(const rclcpp::Node* node);
 
   /**
    * Callback method for the incoming grid map message.
    * @param message the incoming message.
    */
-  void callback(const grid_map_msgs::GridMap& message);
+  void callback(const grid_map_msgs::msg::GridMap::ConstSharedPtr message);
 
-  Eigen::Isometry3d getTransformToTargetFrame(const std::string& sourceFrame, const ros::Time& time);
+  Eigen::Isometry3d getTransformToTargetFrame(const std::string& sourceFrame, const rclcpp::Time& time);
 
   // Parameters
   std::string elevationMapTopic_;
@@ -44,13 +48,14 @@ class ConvexPlaneExtractionROS {
   bool publishToController_;
 
   // ROS communication
-  ros::Subscriber elevationMapSubscriber_;
-  ros::Publisher filteredmapPublisher_;
-  ros::Publisher boundaryPublisher_;
-  ros::Publisher insetPublisher_;
-  ros::Publisher regionPublisher_;
-  tf2_ros::Buffer tfBuffer_;
-  tf2_ros::TransformListener tfListener_;
+  rclcpp::Node* node_;
+  rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr elevationMapSubscriber_;
+  rclcpp::Publisher<grid_map_msgs::msg::GridMap>::SharedPtr filteredmapPublisher_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr boundaryPublisher_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr insetPublisher_;
+  rclcpp::Publisher<convex_plane_decomposition_msgs::msg::PlanarTerrain>::SharedPtr regionPublisher_;
+  std::unique_ptr<tf2_ros::Buffer> tfBuffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tfListener_;
 
   // Pipeline
   std::unique_ptr<PlaneDecompositionPipeline> planeDecompositionPipeline_;
