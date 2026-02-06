@@ -1,4 +1,4 @@
-elevation_mapping:
+/**:
   ros__parameters:
     #### Basic parameters ########
     resolution: 0.04                                # resolution in m.

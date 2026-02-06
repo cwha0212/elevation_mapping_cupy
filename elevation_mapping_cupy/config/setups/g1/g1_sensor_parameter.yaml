@@ -1,4 +1,4 @@
-elevation_mapping:
+/**:
   ros__parameters:
     plugin_config_file: '$(rospack find elevation_mapping_cupy)/config/setups/g1/g1_plugin_config.yaml'
     

@@ -14,6 +14,7 @@ def generate_launch_description():
             package='elevation_mapping_cupy',
             executable='elevation_mapping_node',
             name='elevation_mapping',
+            namespace='elevation_mapping',
             output='screen',
             parameters=[config_g1, config_g1_sensor]
         )
