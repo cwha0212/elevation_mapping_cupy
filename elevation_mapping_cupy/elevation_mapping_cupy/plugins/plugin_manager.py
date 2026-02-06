@@ -132,7 +132,7 @@ class PluginManager(object):
         self.plugin_names = self.get_plugin_names()
 
     def load_plugin_settings(self, file_path: str):
-        print("Start loading plugins...")
+        print("Start loading plugins...", flush=True)
         cfg = YAML().load(open(file_path, "r"))
         plugin_params = []
         extra_params = []
@@ -148,7 +148,7 @@ class PluginManager(object):
                 )
                 extra_params.append(v["extra_params"])
         self.init(plugin_params, extra_params)
-        print("Loaded plugins are ", *self.plugin_names)
+        print("Loaded plugins are ", *self.plugin_names, flush=True)
 
     def get_layer_names(self):
         names = []

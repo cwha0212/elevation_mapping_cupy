@@ -156,14 +156,14 @@ class SemanticMap:
                     if "default" in channel_fusions:
                         default_fusion = channel_fusions["default"]
                         print(
-                            f"[WARNING] Layer {channel} not found in layer_specs. Using {default_fusion} algorithm as default."
+                            f"[WARNING] Layer {channel} not found in layer_specs. Using {default_fusion} algorithm as default.", flush=True
                         )
                         layer_specs[channel] = default_fusion
                         self.update_fusion_setting()
                     # If there's no default fusion algorithm, we skip this channel
                     else:
                         print(
-                            f"[WARNING] Layer {channel} not found in layer_specs ({layer_specs}) and no default fusion is configured. Skipping."
+                            f"[WARNING] Layer {channel} not found in layer_specs ({layer_specs}) and no default fusion is configured. Skipping.", flush=True
                         )
                         continue
                 else:
@@ -192,7 +192,7 @@ class SemanticMap:
         """
         layer_indices = cp.array([], dtype=cp.int32)
         for it, (key, val) in enumerate(layer_specs.items()):
-            if key in val == fusion_alg:
+            if val == fusion_alg:
                 layer_indices = cp.append(layer_indices, it).astype(cp.int32)
         return layer_indices
 
@@ -236,7 +236,7 @@ class SemanticMap:
         # If channels has a new layer that is not in the semantic map, add it
         for channel in process_channels:
             if channel not in self.layer_names:
-                print(f"Layer {channel} not found, adding it to the semantic map")
+                print(f"Layer {channel} not found, adding it to the semantic map", flush=True)
                 self.add_layer(channel)
 
         # Resetting new_map for the layers that are to be deleted
@@ -286,7 +286,7 @@ class SemanticMap:
         self.new_map[self.delete_new_layers] = 0.0
         for j, (fusion, channel) in enumerate(zip(fusion_methods, process_channels)):
             if channel not in self.layer_names:
-                print(f"Layer {channel} not found, adding it to the semantic map")
+                print(f"Layer {channel} not found, adding it to the semantic map", flush=True)
                 self.add_layer(channel)
             sem_map_idx = self.get_index(channel)
 

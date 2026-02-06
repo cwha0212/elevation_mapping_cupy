@@ -109,6 +109,10 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions& options)
     }
   }
   subscriber_keys.assign(keys_set.begin(), keys_set.end());
+  if (subscriber_keys.empty()) {
+    RCLCPP_FATAL(this->get_logger(), "There aren't any subscribers to be configured, the elevation mapping cannot be configured. Exit");
+    throw std::runtime_error("No subscribers configured");
+  }
 
   for (const auto& key : subscriber_keys) {
     std::string prefix = "subscribers." + key;
@@ -216,6 +220,10 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions& options)
         publisher_keys.insert(rest);
       }
     }
+  }
+  if (publisher_keys.empty()) {
+    RCLCPP_FATAL(this->get_logger(), "There aren't any publishers to be configured, the elevation mapping cannot be configured. Exit");
+    throw std::runtime_error("No publishers configured");
   }
 
   for (const auto& key : publisher_keys) {

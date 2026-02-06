@@ -123,8 +123,10 @@ void ElevationMappingWrapper::setParameters(rclcpp::Node* node) {
       if (name.find("pointcloud_channel_fusions.") == 0) {
           std::string key = name.substr(27); // length of prefix
           std::string val = node->get_parameter(name).as_string();
+          pointcloud_channel_fusion_dict[key.c_str()] = val;
       }
   }
+  RCLCPP_INFO_STREAM(node->get_logger(), "pointcloud_channel_fusions_dict: " << py::str(pointcloud_channel_fusion_dict));
   param_.attr("pointcloud_channel_fusions") = pointcloud_channel_fusion_dict;
 
   // Image channel fusion
@@ -137,6 +139,7 @@ void ElevationMappingWrapper::setParameters(rclcpp::Node* node) {
           image_channel_fusion_dict[key.c_str()] = val;
       }
   }
+  RCLCPP_INFO_STREAM(node->get_logger(), "image_channel_fusions_dict: " << py::str(image_channel_fusion_dict));
   param_.attr("image_channel_fusions") = image_channel_fusion_dict;
 
 
