@@ -262,12 +262,14 @@ ElevationMappingNode::ElevationMappingNode(const rclcpp::NodeOptions& options)
 
   gridMap_.setFrameId(mapFrameId_);
   
-  rawSubmapService_ = this->create_service<grid_map_msgs::srv::GetGridMap>("get_raw_submap", std::bind(&ElevationMappingNode::getSubmap, this, std::placeholders::_1, std::placeholders::_2));
-  clearMapService_ = this->create_service<std_srvs::srv::Empty>("clear_map", std::bind(&ElevationMappingNode::clearMap, this, std::placeholders::_1, std::placeholders::_2));
-  initializeMapService_ = this->create_service<elevation_map_msgs::srv::Initialize>("initialize", std::bind(&ElevationMappingNode::initializeMap, this, std::placeholders::_1, std::placeholders::_2));
-  clearMapWithInitializerService_ = this->create_service<std_srvs::srv::Empty>("clear_map_with_initializer", std::bind(&ElevationMappingNode::clearMapWithInitializer, this, std::placeholders::_1, std::placeholders::_2));
-  setPublishPointService_ = this->create_service<std_srvs::srv::SetBool>("set_publish_points", std::bind(&ElevationMappingNode::setPublishPoint, this, std::placeholders::_1, std::placeholders::_2));
-  checkSafetyService_ = this->create_service<elevation_map_msgs::srv::CheckSafety>("check_safety", std::bind(&ElevationMappingNode::checkSafety, this, std::placeholders::_1, std::placeholders::_2));
+  servicesCallbackGroup_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  
+  rawSubmapService_ = this->create_service<grid_map_msgs::srv::GetGridMap>("get_raw_submap", std::bind(&ElevationMappingNode::getSubmap, this, std::placeholders::_1, std::placeholders::_2), rmw_qos_profile_services_default, servicesCallbackGroup_);
+  clearMapService_ = this->create_service<std_srvs::srv::Empty>("clear_map", std::bind(&ElevationMappingNode::clearMap, this, std::placeholders::_1, std::placeholders::_2), rmw_qos_profile_services_default, servicesCallbackGroup_);
+  initializeMapService_ = this->create_service<elevation_map_msgs::srv::Initialize>("initialize", std::bind(&ElevationMappingNode::initializeMap, this, std::placeholders::_1, std::placeholders::_2), rmw_qos_profile_services_default, servicesCallbackGroup_);
+  clearMapWithInitializerService_ = this->create_service<std_srvs::srv::Empty>("clear_map_with_initializer", std::bind(&ElevationMappingNode::clearMapWithInitializer, this, std::placeholders::_1, std::placeholders::_2), rmw_qos_profile_services_default, servicesCallbackGroup_);
+  setPublishPointService_ = this->create_service<std_srvs::srv::SetBool>("set_publish_points", std::bind(&ElevationMappingNode::setPublishPoint, this, std::placeholders::_1, std::placeholders::_2), rmw_qos_profile_services_default, servicesCallbackGroup_);
+  checkSafetyService_ = this->create_service<elevation_map_msgs::srv::CheckSafety>("check_safety", std::bind(&ElevationMappingNode::checkSafety, this, std::placeholders::_1, std::placeholders::_2), rmw_qos_profile_services_default, servicesCallbackGroup_);
 
   if (updateVarianceFps > 0) {
     updateVarianceTimer_ = this->create_wall_timer(std::chrono::duration<double>(1.0 / (updateVarianceFps + 0.00001)), std::bind(&ElevationMappingNode::updateVariance, this));

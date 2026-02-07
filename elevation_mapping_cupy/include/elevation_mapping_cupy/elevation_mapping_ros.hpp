@@ -141,6 +141,8 @@ class ElevationMappingNode : public rclcpp::Node {
   rclcpp::Service<elevation_map_msgs::srv::Initialize>::SharedPtr initializeMapService_;
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr setPublishPointService_;
   rclcpp::Service<elevation_map_msgs::srv::CheckSafety>::SharedPtr checkSafetyService_;
+
+  rclcpp::CallbackGroup::SharedPtr servicesCallbackGroup_;
   
   rclcpp::TimerBase::SharedPtr updateVarianceTimer_;
   rclcpp::TimerBase::SharedPtr updateTimeTimer_;
