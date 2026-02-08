@@ -671,7 +671,7 @@ class ElevationMappingNode(Node):
                     source_frame,
                     rclpy.time.Time()
                 )
-            except (tf2.LookupException, tf2.ConnectivityException) as e:
+            except (tf2.LookupException, tf2.ConnectivityException, tf2_ros.ExtrapolationException) as e:
                 self.get_logger().warning(
                     f"Transform from '{source_frame}' to '{target_frame}' not available: {e}",
                     throttle_duration_sec=5.0
