@@ -339,22 +339,20 @@ class ElevationMappingNode(Node):
         if self._map_t is not None:
             gm.info.pose.position.x = self._map_t.x
             gm.info.pose.position.y = self._map_t.y
-            gm.info.pose.position.z = self._map_t.z
+            # grid_map_ros (and our RViz usage) treats GridMap as a horizontal 2.5D surface and ignores pose.z and
+            # pose.orientation. Foxglove's GridMap renderer *does* apply them, which can make the map appear tilted
+            # and shifted in Z when we embed the robot pose here. Keep pose.x/y as the map center in `map_frame`,
+            # but publish a neutral pose for visualization sanity.
+            gm.info.pose.position.z = 0.0
         else:
             gm.info.pose.position.x = float(center[0])
             gm.info.pose.position.y = float(center[1])
-            gm.info.pose.position.z = float(center[2])
+            gm.info.pose.position.z = 0.0
 
-        if self._map_q is not None:
-            gm.info.pose.orientation.x = self._map_q.x
-            gm.info.pose.orientation.y = self._map_q.y
-            gm.info.pose.orientation.z = self._map_q.z
-            gm.info.pose.orientation.w = self._map_q.w
-        else:
-            gm.info.pose.orientation.w = 1.0
-            gm.info.pose.orientation.x = 0.0
-            gm.info.pose.orientation.y = 0.0
-            gm.info.pose.orientation.z = 0.0
+        gm.info.pose.orientation.x = 0.0
+        gm.info.pose.orientation.y = 0.0
+        gm.info.pose.orientation.z = 0.0
+        gm.info.pose.orientation.w = 1.0
         gm.layers = []
         gm.basic_layers = self.my_publishers[key]["basic_layers"]
 
