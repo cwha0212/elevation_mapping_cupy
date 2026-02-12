@@ -61,10 +61,14 @@ class ElevationMappingNode(Node):
             plugin_config_file=plugin_config_file
         )
 
-        self.declare_parameter('masked_replace_service_mask_layer_name', 'mask')
-        self.declare_parameter('save_map_default_topic', 'elevation_map')
-        self.declare_parameter('save_map_storage_id', 'mcap')
-        self.declare_parameter('service_namespace', '/elevation_mapping_cupy')
+        if not self.has_parameter('masked_replace_service_mask_layer_name'):
+            self.declare_parameter('masked_replace_service_mask_layer_name', 'mask')
+        if not self.has_parameter('save_map_default_topic'):
+            self.declare_parameter('save_map_default_topic', 'elevation_map')
+        if not self.has_parameter('save_map_storage_id'):   
+            self.declare_parameter('save_map_storage_id', 'mcap')
+        if not self.has_parameter('service_namespace'):
+            self.declare_parameter('service_namespace', '/elevation_mapping_cupy')
 
         # Read ROS parameters (including YAML)
         self.initialize_ros()
