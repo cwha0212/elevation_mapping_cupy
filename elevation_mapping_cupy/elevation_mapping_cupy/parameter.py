@@ -284,10 +284,44 @@ class Parameter(Serializable):
 
 if __name__ == "__main__":
     param = Parameter()
-    print(param)
-    print(param.resolution)
-    param.set_value("resolution", 0.1)
-    print(param.resolution)
 
-    print("names ", param.get_names())
-    print("types ", param.get_types())
+    print("\n" + "=" * 80)
+    print("[INIT] Created Parameter() instance")
+    print("=" * 80)
+    print(f"[INIT] Full dataclass dump:\n{param!r}")
+
+    print("\n" + "-" * 80)
+    print("[BEFORE UPDATE] Parameter 'resolution'")
+    print("-" * 80)
+    print(f"[BEFORE UPDATE] resolution value: {param.resolution}")
+    print(f"[BEFORE UPDATE] resolution type : {type(param.resolution).__name__}")
+
+    print("\n" + "-" * 80)
+    print("[ACTION] Updating 'resolution' via set_value('resolution', 0.1)")
+    print("-" * 80)
+    param.set_value("resolution", 0.1)
+
+    print("\n" + "-" * 80)
+    print("[AFTER UPDATE] Parameter 'resolution'")
+    print("-" * 80)
+    print(f"[AFTER UPDATE] resolution value: {param.resolution}")
+    print(f"[AFTER UPDATE] resolution type : {type(param.resolution).__name__}")
+
+    print("\n" + "=" * 80)
+    print("[INTROSPECTION] Parameter metadata")
+    print("=" * 80)
+    names = param.get_names()
+    types = param.get_types()
+
+    print(f"[INTROSPECTION] Total number of parameters: {len(names)}")
+    print("[INTROSPECTION] Parameter names:")
+    for i, name in enumerate(names, start=1):
+        print(f"  {i:02d}. {name}")
+
+    print("\n[INTROSPECTION] Parameter declared types:")
+    for i, (name, ptype) in enumerate(zip(names, types), start=1):
+        print(f"  {i:02d}. {name}: {ptype}")
+
+    print("\n" + "=" * 80)
+    print("[DONE] Verbose printout complete")
+    print("=" * 80)

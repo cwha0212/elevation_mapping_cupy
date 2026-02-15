@@ -26,7 +26,7 @@ def generate_launch_description():
 
     launch_rviz_arg = DeclareLaunchArgument(
         'launch_rviz',
-        default_value='false',
+        default_value='true',
         description='Whether to launch RViz'
     )
 
@@ -38,7 +38,7 @@ def generate_launch_description():
 
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='false',
+        default_value='true',
         description='Use simulation clock if true'
     )
 
@@ -61,6 +61,8 @@ def generate_launch_description():
         executable='elevation_mapping_node.py',
         name='elevation_mapping_node',
         output='screen',
+        emulate_tty=True,
+        additional_env={'PYTHONUNBUFFERED': '1'},
         parameters=[
             core_param_path,
             robot_param_path,

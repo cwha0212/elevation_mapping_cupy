@@ -14,6 +14,7 @@ def generate_launch_description():
             executable='elevation_mapping_node.py',
             name='elevation_mapping',
             parameters=[
+                {'use_sim_time': True},
                 PathJoinSubstitution([
                     elevation_mapping_cupy_dir,
                     'config',
@@ -29,4 +30,4 @@ def generate_launch_description():
             ],
             output='screen'
         )
-    ]) 
+    ])
