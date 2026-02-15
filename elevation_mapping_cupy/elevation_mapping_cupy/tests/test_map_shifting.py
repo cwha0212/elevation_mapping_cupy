@@ -255,31 +255,6 @@ class TestPadValue:
             "Bottom side should still have data after positive Y shift"
 
 
-class TestSemanticMapShiftConsistency:
-    """Tests for semantic map shift consistency with elevation map."""
-
-    def test_semantic_map_shifts_with_elevation_map(self, elmap_shift):
-        """Semantic map should shift identically to elevation map."""
-        # Add a semantic layer if not present
-        if len(elmap_shift.semantic_map.layer_names) == 0:
-            elmap_shift.semantic_map.add_layer("test_layer")
-
-        if len(elmap_shift.semantic_map.layer_names) > 0:
-            center_idx = elmap_shift.cell_n // 2
-
-            # Place markers in both maps
-            elmap_shift.elevation_map[0, center_idx, center_idx] = 1.0
-            elmap_shift.semantic_map.semantic_map[0, center_idx, center_idx] = 1.0
-
-            # Shift
-            shift_x, shift_y = 5, 3
-            elmap_shift.shift_map_xy(cp.array([shift_x, shift_y], dtype=cp.float32))
-
-            # Both markers should be at the same new position
-            expected_row = center_idx + shift_y
-            expected_col = center_idx + shift_x
-
-            assert float(elmap_shift.elevation_map[0, expected_row, expected_col]) == 1.0, \
-                "Elevation map marker should be at new position"
-            assert float(elmap_shift.semantic_map.semantic_map[0, expected_row, expected_col]) == 1.0, \
-                "Semantic map marker should be at same new position as elevation map"
+#
+# Semantic/image fusion was intentionally removed from the supported surface of this repo.
+# Keep map-shift tests focused on the elevation map core.

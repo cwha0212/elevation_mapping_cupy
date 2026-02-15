@@ -10,14 +10,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from ament_index_python.packages import get_package_share_directory
-import ros2_numpy as rnp
-from sensor_msgs.msg import PointCloud2, Image, CameraInfo
-from sensor_msgs_py import point_cloud2
+from sensor_msgs.msg import PointCloud2, PointField
 from tf_transformations import quaternion_matrix
 import tf2_ros
 import tf2_py as tf2
-import message_filters
-from cv_bridge import CvBridge
 from rclpy.duration import Duration
 from rclpy.serialization import serialize_message, deserialize_message
 from grid_map_msgs.msg import GridMap
@@ -42,12 +38,54 @@ PDC_DATATYPE = {
     "8": np.float64,
 }
 
+def _pointcloud2_xyz_f32(msg: PointCloud2) -> np.ndarray:
+    """
+    Convert a PointCloud2 into an (N,3) float32 numpy array for fields (x,y,z).
+
+    Supported (fail-loudly):
+      - little-endian clouds
+      - fields x,y,z present and FLOAT32
+
+    This intentionally does not support arbitrary field layouts or RGB/semantic channels.
+    """
+    if msg.is_bigendian:
+        raise ValueError("PointCloud2 big-endian is not supported.")
+
+    want = {"x", "y", "z"}
+    fields = {f.name: f for f in msg.fields}
+    missing = want.difference(fields.keys())
+    if missing:
+        raise ValueError(f"PointCloud2 is missing required fields: {sorted(missing)}")
+
+    for name in ("x", "y", "z"):
+        f = fields[name]
+        if f.datatype != PointField.FLOAT32 or f.count != 1:
+            raise ValueError(
+                f"PointCloud2 field '{name}' must be FLOAT32 count=1, got datatype={f.datatype} count={f.count}"
+            )
+
+    dtype = np.dtype(
+        {
+            "names": ("x", "y", "z"),
+            "formats": (np.float32, np.float32, np.float32),
+            "offsets": (fields["x"].offset, fields["y"].offset, fields["z"].offset),
+            "itemsize": msg.point_step,
+        }
+    )
+    arr = np.frombuffer(msg.data, dtype=dtype)
+    pts = np.stack((arr["x"], arr["y"], arr["z"]), axis=-1).astype(np.float32, copy=False)
+
+    if not msg.is_dense:
+        good = np.isfinite(pts).all(axis=1)
+        pts = pts[good]
+    return pts
+
 class ElevationMappingNode(Node):
     def __init__(self):
         super().__init__(
             'elevation_mapping_node',
             automatically_declare_parameters_from_overrides=True,
-            allow_undeclared_parameters=True
+            allow_undeclared_parameters=False
         )
 
         self.root = get_package_share_directory("elevation_mapping_cupy")
@@ -60,11 +98,6 @@ class ElevationMappingNode(Node):
             weight_file=weight_file,
             plugin_config_file=plugin_config_file
         )
-
-        self.declare_parameter('masked_replace_service_mask_layer_name', 'mask')
-        self.declare_parameter('save_map_default_topic', 'elevation_map')
-        self.declare_parameter('save_map_storage_id', 'mcap')
-        self.declare_parameter('service_namespace', '/elevation_mapping_cupy')
 
         # Read ROS parameters (including YAML)
         self.initialize_ros()
@@ -100,9 +133,9 @@ class ElevationMappingNode(Node):
 
     def get_ros_params(self) -> None:
         self.use_chainer = self.get_parameter('use_chainer').get_parameter_value().bool_value
-        self.weight_file = self.get_parameter('weight_file').get_parameter_value().string_value
-        self.plugin_config_file = self.get_parameter('plugin_config_file').get_parameter_value().string_value
-        self.initialize_frame_id = self.get_parameter('initialize_frame_id').get_parameter_value().string_value
+        self.initialize_frame_id = self.get_parameter(
+            'initialize_frame_id'
+        ).get_parameter_value().string_array_value
         self.initialize_tf_offset = self.get_parameter('initialize_tf_offset').get_parameter_value().double_array_value
         self.map_frame = self.get_parameter('map_frame').get_parameter_value().string_value
         self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
@@ -142,137 +175,136 @@ class ElevationMappingNode(Node):
 
 
     def set_param_values_from_ros(self):
-        # Assign to self.param so it won't use defaults
-        # Use try/except so missing params won't cause errors
-        try: self.param.resolution = self.get_parameter('resolution').get_parameter_value().double_value
-        except: pass
-        try: self.param.map_length = self.get_parameter('map_length').get_parameter_value().double_value
-        except: pass
-        try: self.param.sensor_noise_factor = self.get_parameter('sensor_noise_factor').get_parameter_value().double_value
-        except: pass
-        try: self.param.mahalanobis_thresh = self.get_parameter('mahalanobis_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.outlier_variance = self.get_parameter('outlier_variance').get_parameter_value().double_value
-        except: pass
-        try: 
-            # The YAML has 'drift_compensation_variance_inler', but our param is 'drift_compensation_variance_inlier'
-            self.param.drift_compensation_variance_inlier = self.get_parameter('drift_compensation_variance_inler').get_parameter_value().double_value
-        except: pass
-        try: self.param.max_drift = self.get_parameter('max_drift').get_parameter_value().double_value
-        except: pass
-        try: self.param.drift_compensation_alpha = self.get_parameter('drift_compensation_alpha').get_parameter_value().double_value
-        except: pass
-        try: self.param.time_variance = self.get_parameter('time_variance').get_parameter_value().double_value
-        except: pass
-        try: self.param.max_variance = self.get_parameter('max_variance').get_parameter_value().double_value
-        except: pass
-        try: self.param.initial_variance = self.get_parameter('initial_variance').get_parameter_value().double_value
-        except: pass
-        try: self.param.traversability_inlier = self.get_parameter('traversability_inlier').get_parameter_value().double_value
-        except: pass
-        try: self.param.dilation_size = self.get_parameter('dilation_size').get_parameter_value().integer_value
-        except: pass
-        try: self.param.wall_num_thresh = self.get_parameter('wall_num_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.min_height_drift_cnt = self.get_parameter('min_height_drift_cnt').get_parameter_value().double_value
-        except: pass
-        try: self.param.position_noise_thresh = self.get_parameter('position_noise_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.orientation_noise_thresh = self.get_parameter('orientation_noise_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.min_valid_distance = self.get_parameter('min_valid_distance').get_parameter_value().double_value
-        except: pass
-        try: self.param.max_height_range = self.get_parameter('max_height_range').get_parameter_value().double_value
-        except: pass
-        try: self.param.ramped_height_range_a = self.get_parameter('ramped_height_range_a').get_parameter_value().double_value
-        except: pass
-        try: self.param.ramped_height_range_b = self.get_parameter('ramped_height_range_b').get_parameter_value().double_value
-        except: pass
-        try: self.param.ramped_height_range_c = self.get_parameter('ramped_height_range_c').get_parameter_value().double_value
-        except: pass
-        try: self.param.max_ray_length = self.get_parameter('max_ray_length').get_parameter_value().double_value
-        except: pass
-        try: self.param.cleanup_step = self.get_parameter('cleanup_step').get_parameter_value().double_value
-        except: pass
-        try: self.param.cleanup_cos_thresh = self.get_parameter('cleanup_cos_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.safe_thresh = self.get_parameter('safe_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.safe_min_thresh = self.get_parameter('safe_min_thresh').get_parameter_value().double_value
-        except: pass
-        try: self.param.max_unsafe_n = self.get_parameter('max_unsafe_n').get_parameter_value().integer_value
-        except: pass
-        try: self.param.overlap_clear_range_xy = self.get_parameter('overlap_clear_range_xy').get_parameter_value().double_value
-        except: pass
-        try: self.param.overlap_clear_range_z = self.get_parameter('overlap_clear_range_z').get_parameter_value().double_value
-        except: pass
-        try: self.param.enable_edge_sharpen = self.get_parameter('enable_edge_sharpen').get_parameter_value().bool_value
-        except: pass
-        try: self.param.enable_visibility_cleanup = self.get_parameter('enable_visibility_cleanup').get_parameter_value().bool_value
-        except: pass
-        try: self.param.enable_drift_compensation = self.get_parameter('enable_drift_compensation').get_parameter_value().bool_value
-        except: pass
-        try: self.param.enable_overlap_clearance = self.get_parameter('enable_overlap_clearance').get_parameter_value().bool_value
-        except: pass
-        try: self.param.use_only_above_for_upper_bound = self.get_parameter('use_only_above_for_upper_bound').get_parameter_value().bool_value
-        except: pass
+        # Assign to self.param so it won't use defaults. This is research code: crash loudly if
+        # a required parameter is missing or mistyped.
+        self.param.use_chainer = self.use_chainer
+        self.param.resolution = self.get_parameter('resolution').get_parameter_value().double_value
+        self.param.map_length = self.get_parameter('map_length').get_parameter_value().double_value
+        self.param.sensor_noise_factor = self.get_parameter('sensor_noise_factor').get_parameter_value().double_value
+        self.param.mahalanobis_thresh = self.get_parameter('mahalanobis_thresh').get_parameter_value().double_value
+        self.param.outlier_variance = self.get_parameter('outlier_variance').get_parameter_value().double_value
+        self.param.drift_compensation_variance_inlier = self.get_parameter(
+            'drift_compensation_variance_inlier'
+        ).get_parameter_value().double_value
+        self.param.checker_layer = self.get_parameter('checker_layer').get_parameter_value().string_value
+        self.param.max_drift = self.get_parameter('max_drift').get_parameter_value().double_value
+        self.param.drift_compensation_alpha = self.get_parameter(
+            'drift_compensation_alpha'
+        ).get_parameter_value().double_value
+        self.param.time_variance = self.get_parameter('time_variance').get_parameter_value().double_value
+        self.param.max_variance = self.get_parameter('max_variance').get_parameter_value().double_value
+        self.param.initial_variance = self.get_parameter('initial_variance').get_parameter_value().double_value
+        self.param.initialized_variance = self.get_parameter(
+            'initialized_variance'
+        ).get_parameter_value().double_value
+        self.param.traversability_inlier = self.get_parameter(
+            'traversability_inlier'
+        ).get_parameter_value().double_value
+        self.param.dilation_size = self.get_parameter('dilation_size').get_parameter_value().integer_value
+        self.param.dilation_size_initialize = self.get_parameter(
+            'dilation_size_initialize'
+        ).get_parameter_value().integer_value
+        self.param.wall_num_thresh = self.get_parameter('wall_num_thresh').get_parameter_value().integer_value
+        self.param.min_height_drift_cnt = self.get_parameter(
+            'min_height_drift_cnt'
+        ).get_parameter_value().integer_value
+        self.param.position_noise_thresh = self.get_parameter(
+            'position_noise_thresh'
+        ).get_parameter_value().double_value
+        self.param.orientation_noise_thresh = self.get_parameter(
+            'orientation_noise_thresh'
+        ).get_parameter_value().double_value
+        self.param.min_valid_distance = self.get_parameter(
+            'min_valid_distance'
+        ).get_parameter_value().double_value
+        self.param.max_height_range = self.get_parameter(
+            'max_height_range'
+        ).get_parameter_value().double_value
+        self.param.ramped_height_range_a = self.get_parameter(
+            'ramped_height_range_a'
+        ).get_parameter_value().double_value
+        self.param.ramped_height_range_b = self.get_parameter(
+            'ramped_height_range_b'
+        ).get_parameter_value().double_value
+        self.param.ramped_height_range_c = self.get_parameter(
+            'ramped_height_range_c'
+        ).get_parameter_value().double_value
+        self.param.max_ray_length = self.get_parameter('max_ray_length').get_parameter_value().double_value
+        self.param.cleanup_step = self.get_parameter('cleanup_step').get_parameter_value().double_value
+        self.param.cleanup_cos_thresh = self.get_parameter(
+            'cleanup_cos_thresh'
+        ).get_parameter_value().double_value
+        self.param.safe_thresh = self.get_parameter('safe_thresh').get_parameter_value().double_value
+        self.param.safe_min_thresh = self.get_parameter('safe_min_thresh').get_parameter_value().double_value
+        self.param.max_unsafe_n = self.get_parameter('max_unsafe_n').get_parameter_value().integer_value
+        self.param.overlap_clear_range_xy = self.get_parameter(
+            'overlap_clear_range_xy'
+        ).get_parameter_value().double_value
+        self.param.overlap_clear_range_z = self.get_parameter(
+            'overlap_clear_range_z'
+        ).get_parameter_value().double_value
+        self.param.enable_edge_sharpen = self.get_parameter(
+            'enable_edge_sharpen'
+        ).get_parameter_value().bool_value
+        self.param.enable_visibility_cleanup = self.get_parameter(
+            'enable_visibility_cleanup'
+        ).get_parameter_value().bool_value
+        self.param.enable_drift_compensation = self.get_parameter(
+            'enable_drift_compensation'
+        ).get_parameter_value().bool_value
+        self.param.enable_overlap_clearance = self.get_parameter(
+            'enable_overlap_clearance'
+        ).get_parameter_value().bool_value
+        self.param.use_only_above_for_upper_bound = self.get_parameter(
+            'use_only_above_for_upper_bound'
+        ).get_parameter_value().bool_value
 
         mask_param = self.get_parameter('masked_replace_service_mask_layer_name').get_parameter_value().string_value
         topic_param = self.get_parameter('save_map_default_topic').get_parameter_value().string_value
         storage_param = self.get_parameter('save_map_storage_id').get_parameter_value().string_value
         service_ns_param = self.get_parameter('service_namespace').get_parameter_value().string_value
 
-        self.masked_replace_mask_layer_name = mask_param or 'mask'
-        self.save_map_default_topic = topic_param or 'elevation_map'
-        self.save_map_storage_id = storage_param or 'mcap'
-        self.service_namespace = self._normalize_namespace(service_ns_param or '/elevation_mapping_cupy')
+        if not mask_param:
+            raise ValueError("masked_replace_service_mask_layer_name must be a non-empty string")
+        if not topic_param:
+            raise ValueError("save_map_default_topic must be a non-empty string")
+        if not storage_param:
+            raise ValueError("save_map_storage_id must be a non-empty string")
+        if not service_ns_param:
+            raise ValueError("service_namespace must be a non-empty string")
+
+        self.masked_replace_mask_layer_name = mask_param
+        self.save_map_default_topic = topic_param
+        self.save_map_storage_id = storage_param
+        self.service_namespace = self._normalize_namespace(service_ns_param)
 
     def register_subscribers(self) -> None:
-        if any(config.get("data_type") == "image" for config in self.my_subscribers.values()):
-            self.cv_bridge = CvBridge()
-
-        pointcloud_subs = {}
-        image_subs = {}
-
+        self._pointcloud_subs = {}
         for key, config in self.my_subscribers.items():
             data_type = config.get("data_type")
-            if data_type == "image":
-                topic_name_camera = config.get("topic_name_camera", "/camera/image")
-                topic_name_camera_info = config.get("topic_name_camera_info", "/camera/camera_info")
-                camera_sub = message_filters.Subscriber(
-                    self,
-                    Image,
-                    topic_name_camera
+            if data_type != "pointcloud":
+                raise ValueError(
+                    f"Unsupported subscriber data_type='{data_type}' for '{key}'. "
+                    "Supported: pointcloud only."
                 )
-                camera_info_sub = message_filters.Subscriber(
-                    self,
-                    CameraInfo,
-                    topic_name_camera_info
+            if config.get("channels"):
+                raise ValueError(
+                    f"Subscriber '{key}' sets 'channels', but semantic/rgb channels are not supported "
+                    "in the supported surface. Remove 'channels' from the config."
                 )
-                image_sync = message_filters.ApproximateTimeSynchronizer(
-                    [camera_sub, camera_info_sub], queue_size=10, slop=0.5
-                )
-                image_sync.registerCallback(partial(self.image_callback, sub_key=key))
-                image_subs[key] = image_sync
-            elif data_type == "pointcloud":
-                topic_name = config.get("topic_name", "/pointcloud")
-                # qos_profile = rclpy.qos.QoSProfile(
-                #     depth=10,
-                #     reliability=rclpy.qos.ReliabilityPolicy.BEST_EFFORT,
-                #     durability=rclpy.qos.DurabilityPolicy.VOLATILE,
-                #     history=rclpy.qos.HistoryPolicy.KEEP_LAST
-                # )
-                # qos_profile = QoSPresetProfiles.get_from_short_key("sensor_data")
-                # qos_profile = rclpy.qos.QoSProfile(depth=10)
-                # Use sensor data QoS (BEST_EFFORT) for point clouds
-                qos_profile = QoSPresetProfiles.get_from_short_key("sensor_data")
-                subscription = self.create_subscription(
-                    PointCloud2,
-                    topic_name,
-                    partial(self.pointcloud_callback, sub_key=key),
-                    qos_profile
-                )
-                pointcloud_subs[key] = subscription
+
+            topic_name = config.get("topic_name")
+            if not topic_name:
+                raise ValueError(f"Subscriber '{key}' is missing required key 'topic_name'.")
+
+            # Use sensor data QoS (BEST_EFFORT) for point clouds
+            qos_profile = QoSPresetProfiles.get_from_short_key("sensor_data")
+            self._pointcloud_subs[key] = self.create_subscription(
+                PointCloud2,
+                topic_name,
+                partial(self.pointcloud_callback, sub_key=key),
+                qos_profile,
+            )
 
     def register_publishers(self) -> None:
         self._publishers_dict = {}
@@ -398,6 +430,12 @@ class ElevationMappingNode(Node):
             self.get_logger().info(
                 f"Exported raw layer keys: {list(raw_layers.keys())}"
             )
+            if "elevation" in fused_layers:
+                n_finite = int(np.isfinite(fused_layers["elevation"]).sum())
+                self.get_logger().info(f"save_map: fused 'elevation' finite cells={n_finite}")
+            if "is_valid" in raw_layers:
+                n_valid = int((raw_layers["is_valid"] > 0.5).sum())
+                self.get_logger().info(f"save_map: raw 'is_valid' valid cells={n_valid}")
 
             gm_fused = self._build_grid_map_message(
                 fused_layer_names,
@@ -454,6 +492,11 @@ class ElevationMappingNode(Node):
             )
             self._last_t = self.get_clock().now().to_msg()
             self._republish_all_once()
+            # Quick sanity: the restored elevation should contain at least some finite values.
+            tmp = np.zeros((self._map.cell_n - 2, self._map.cell_n - 2), dtype=np.float32)
+            self._map.get_map_with_name_ref("elevation", tmp)
+            n_finite = int(np.isfinite(tmp).sum())
+            self.get_logger().info(f"load_map: restored 'elevation' finite cells={n_finite}")
 
             response.success = True
         except Exception as exc:
@@ -598,16 +641,8 @@ class ElevationMappingNode(Node):
         return fused_path, raw_path
 
     def _make_topic_metadata(self, topic: str) -> rosbag2_py.TopicMetadata:
-        """Build TopicMetadata compatible with both legacy and new rosbag2 Python signatures."""
-        msg_type = 'grid_map_msgs/msg/GridMap'
-        serialization_format = 'cdr'
-        try:
-            metadata = rosbag2_py.TopicMetadata(topic, msg_type, serialization_format, '')
-            if metadata.name == topic and metadata.type == msg_type:
-                return metadata
-        except TypeError:
-            # Older rosbag2 versions expect the reader-count placeholder as the first argument
-            pass
+        msg_type = "grid_map_msgs/msg/GridMap"
+        serialization_format = "cdr"
         return rosbag2_py.TopicMetadata(0, topic, msg_type, serialization_format)
 
     def _write_grid_map_bag(self, path: Path, topic: str, grid_map_msg: GridMap) -> None:
@@ -669,7 +704,14 @@ class ElevationMappingNode(Node):
                     source_frame,
                     rclpy.time.Time()
                 )
-            except (tf2.LookupException, tf2.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            # NOTE: The second lookup can also throw ExtrapolationException (e.g., TF buffer not populated yet,
+            # or timestamps are discontinuous during sim resets). If we don't catch it here the whole node dies.
+            except (
+                tf2.LookupException,
+                tf2.ConnectivityException,
+                tf2.ExtrapolationException,
+                tf2_ros.ExtrapolationException,
+            ) as e:
                 self.get_logger().warning(
                     f"Transform from '{source_frame}' to '{target_frame}' not available: {e}",
                     throttle_duration_sec=5.0
@@ -697,133 +739,36 @@ class ElevationMappingNode(Node):
             )
             return None
 
-    def image_callback(self, camera_msg: Image, camera_info_msg: CameraInfo, sub_key: str) -> None:
-        self._last_t = camera_msg.header.stamp
-        try:
-            semantic_img = self.cv_bridge.imgmsg_to_cv2(camera_msg, desired_encoding="passthrough")
-        except:
-            return
-        if len(semantic_img.shape) != 2:
-            semantic_img = [semantic_img[:, :, k] for k in range(semantic_img.shape[2])]
-        else:
-            semantic_img = [semantic_img]
-
-        K = np.array(camera_info_msg.k, dtype=np.float32).reshape(3, 3)
-        D = np.array(camera_info_msg.d, dtype=np.float32).reshape(-1, 1)
-
-        transform_camera_to_map = self.safe_lookup_transform(
-            self.map_frame,
-            camera_msg.header.frame_id,
-            camera_msg.header.stamp
-        )
-        if transform_camera_to_map is None:
-            # Transform not available, skip this image
-            return
-        t = transform_camera_to_map.transform.translation
-        q = transform_camera_to_map.transform.rotation
-        t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
-        R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
-        self._map.input_image(
-            sub_key, semantic_img, R, t_np, K, D,
-            camera_info_msg.height, camera_info_msg.width
-        )
-        self._image_process_counter += 1
-
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
         self._last_t = msg.header.stamp
         # self.get_logger().info(f"Received pointcloud with {msg.width} points")
-        additional_channels = self.param.subscriber_cfg[sub_key].get("channels", [])
-        channels = ["x", "y", "z"] + additional_channels
-        try:
-            points = rnp.numpify(msg)
-        except Exception as e:
-            self.get_logger().warn(f"Failed to numpify point cloud: {e}")
+
+        pts = _pointcloud2_xyz_f32(msg)
+        if pts.size == 0:
             return
-        
-        # Check if points is empty - handle both structured array and dict cases
-        if points is None:
-            return
-        
-        # Handle different data structures from rnp.numpify
-        if isinstance(points, dict):
-            # If it's a dict, check if it has data
-            if not points or (len(points) == 0):
-                return
-            # Check for x,y,z keys or xyz field in dict
-            if 'xyz' in points:
-                # Handle combined xyz field (common in Livox lidars)
-                xyz_data = points['xyz']
-                if len(xyz_data) == 0:
-                    return
-            elif 'x' in points:
-                # Handle separate x,y,z fields
-                if len(points['x']) == 0:
-                    return
-            else:
-                self.get_logger().warn(f"Point cloud dict missing 'x' or 'xyz' field. Available fields: {list(points.keys())}")
-                return
-        else:
-            # It's a structured numpy array
-            if points.size == 0:
-                return
+
         frame_sensor_id = msg.header.frame_id
-        transform_sensor_to_map = self.safe_lookup_transform(
-            self.map_frame,
-            frame_sensor_id,
-            msg.header.stamp
-        )
-        if transform_sensor_to_map is None:
-            # Transform not available, skip this pointcloud
-            return
-        t = transform_sensor_to_map.transform.translation
-        q = transform_sensor_to_map.transform.rotation
-        t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
-        R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
-        
-        # Extract xyz points based on data structure
-        if isinstance(points, dict):
-            # If points is a dict, manually construct xyz array
-            if 'xyz' in points:
-                # Handle combined xyz field (common in Livox lidars)
-                xyz_array = np.array(points['xyz'])
-                if xyz_array.ndim == 2 and xyz_array.shape[1] == 3:
-                    pts = xyz_array
-                elif xyz_array.ndim == 1:
-                    # Reshape if flattened
-                    pts = xyz_array.reshape(-1, 3)
-                else:
-                    # Try to extract x, y, z from the structure
-                    pts = xyz_array[:, :3] if xyz_array.shape[1] >= 3 else xyz_array
-            elif 'x' in points and 'y' in points and 'z' in points:
-                # Handle separate x,y,z fields
-                x = np.array(points['x']).flatten()
-                y = np.array(points['y']).flatten()
-                z = np.array(points['z']).flatten()
-                pts = np.column_stack((x, y, z))
-            else:
-                # Fallback: try to use any available method
-                self.get_logger().warn(f"Unexpected point cloud structure, attempting fallback")
-                return
-            
-            # Append additional channels
-            for channel in additional_channels:
-                if channel in points:
-                    data = np.array(points[channel]).flatten()
-                    if data.ndim == 1:
-                        data = data[:, np.newaxis]
-                    pts = np.hstack((pts, data))
+        if not frame_sensor_id:
+            raise ValueError("PointCloud2 header.frame_id is empty.")
+
+        if frame_sensor_id == self.map_frame:
+            t_np = np.zeros(3, dtype=np.float32)
+            R = np.eye(3, dtype=np.float32)
         else:
-            # Use standard method for structured arrays
-            pts = rnp.point_cloud2.get_xyz_points(points)
-            # TODO: This is probably expensive. Consider modifying rnp or input_pointcloud()
-            # Append additional channels to pts
-            for channel in additional_channels:
-                if hasattr(points, 'dtype') and hasattr(points.dtype, 'names') and channel in points.dtype.names:
-                    data = points[channel].flatten()
-                    if data.ndim == 1:
-                        data = data[:, np.newaxis]
-                    pts = np.hstack((pts, data))
-        self._map.input_pointcloud(pts, channels, R, t_np, 0, 0)
+            transform_sensor_to_map = self.safe_lookup_transform(
+                self.map_frame,
+                frame_sensor_id,
+                msg.header.stamp,
+            )
+            if transform_sensor_to_map is None:
+                # Transform not available yet.
+                return
+            t = transform_sensor_to_map.transform.translation
+            q = transform_sensor_to_map.transform.rotation
+            t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
+            R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
+
+        self._map.input_pointcloud(pts, ["x", "y", "z"], R, t_np, 0, 0)
         self._pointcloud_process_counter += 1
 
     def pose_update(self) -> None:
@@ -866,7 +811,8 @@ def main(args=None) -> None:
     finally:
         executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        # launch_testing / signal handlers can already have shut down the context.
+        rclpy.try_shutdown()
 
 if __name__ == '__main__':
     main()

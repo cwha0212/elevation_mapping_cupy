@@ -20,7 +20,6 @@
     recordable_fps: 3.0
 
     # Minimal filtering - we want raw data for testing
-    voxel_filter_size: 0.05
     sensor_noise_factor: 0.01
     mahalanobis_thresh: 10.0           # Accept most points
     min_valid_distance: 0.0            # Accept all distances
@@ -34,7 +33,12 @@
     enable_pointcloud_publishing: false
     enable_drift_corrected_TF_publishing: false
     enable_normal_arrow_publishing: false
-    enable_normal_color: false
+
+    # Services / bags (used by save_map + load_map integration tests)
+    masked_replace_service_mask_layer_name: 'mask'
+    save_map_default_topic: 'elevation_map'
+    save_map_storage_id: 'mcap'
+    service_namespace: '/elevation_mapping_cupy'
 
     # Basic variance settings
     initial_variance: 10.0
@@ -44,9 +48,7 @@
     outlier_variance: 0.01
 
     # Other required parameters
-    average_weight: 0.5
     drift_compensation_variance_inlier: 0.1
-    drift_compensation_variance_inler: 0.05
     checker_layer: 'elevation'
     max_drift: 0.1
     drift_compensation_alpha: 0.1
@@ -70,9 +72,7 @@
     overlap_clear_range_xy: 4.0
     overlap_clear_range_z: 2.0
 
-    # No traversability filter
     use_chainer: false
-    weight_file: '$(find-pkg-share elevation_mapping_cupy)/config/core/weights.dat'
 
     # Upper bound
     use_only_above_for_upper_bound: false
@@ -85,12 +85,7 @@
     dilation_size_initialize: 2
     initialize_tf_grid_size: 1.0
 
-    # No plugins for simplicity
-    plugin_config_file: '$(find-pkg-share elevation_mapping_cupy)/config/core/plugin_config.yaml'
-
-    # Channel fusions
-    pointcloud_channel_fusions:
-      default: 'average'
+    # plugin_config_file / weight_file are resolved internally by the node (package share).
 
     # Single pointcloud subscriber
     subscribers:

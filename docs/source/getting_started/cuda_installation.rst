@@ -1,40 +1,15 @@
-Cuda installation
-==================================================================
 .. _cuda_installation:
 
+CUDA Setup Notes
+******************************************************************
 
-CUDA
--------------------------------------------------------------------
+This Jazzy branch is tested via the provided Docker image (Ubuntu 24.04 + ROS 2 Jazzy + CUDA base).
 
-You can download CUDA10.2 from `here <https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/cuda-ubuntu1804.pin>`_.
-You can follow the instruction.
+If you want to run natively (not recommended), you need:
 
-.. code-block:: bash
+* a recent NVIDIA driver on the host
+* a CUDA-capable CuPy wheel (e.g. ``cupy-cuda12x``)
+* a matching torch installation (CUDA wheels vary by CUDA/driver)
 
-  wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/cuda-ubuntu1804.pin
-
-  sudo mv cuda-ubuntu1804.pin /etc/apt/preferences.d/cuda-repository-pin-600
-
-  sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub
-
-  sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/ /"
-
-  sudo apt-get update
-
-  sudo apt-get -y install cuda
-
-
-cuDNN
--------------------------------------------------------------------
-
-You can download specific version from `here <https://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64/>`_.
-For example, the tested version is with `libcudnn8_8.0.0.180-1+cuda10.2_amd64.deb`.
-
-Then install them using the command below.
-
-.. code-block:: bash
-
-  sudo dpkg -i libcudnn8_8.0.0.180-1+cuda10.2_amd64.deb
-
-  sudo dpkg -i libcudnn8-dev_8.0.0.180-1+cuda10.2_amd64.deb
+For most users, using Docker is the simplest path.
 

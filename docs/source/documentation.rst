@@ -1,69 +1,52 @@
 ##################################################
-Multi-modal elevation mapping's documentation
+Elevation Mapping CuPy (ROS 2 Jazzy)
 ##################################################
-Welcome to elevation mapping documentation
 
-.. image:: https://github.com/leggedrobotics/elevation_mapping_semantic_cupy/actions/workflows/python-tests.yml/badge.svg
-    :target: https://github.com/leggedrobotics/elevation_mapping_semantic_cupy/actions/workflows/python-tests.yml/badge.svg
-    :alt: python tests
+This repository contains:
 
-.. image:: https://github.com/leggedrobotics/elevation_mapping_semantic_cupy/actions/workflows/documentation.yml/badge.svg
-    :target: https://github.com/leggedrobotics/elevation_mapping_semantic_cupy/actions/workflows/documentation.yml/badge.svg
-    :alt: documentation
-
-Index
----------------
-
-| :doc:`getting_started/introduction` - What is elevation mapping cupy
-| :doc:`getting_started/installation` - How to install the elevation map
-| :doc:`getting_started/tutorial` - How to launch the first elevation map
+* ``elevation_map_msgs``: message/service definitions (ament_cmake).
+* ``elevation_mapping_cupy``: GPU-accelerated elevation mapping node (Python, CuPy).
 
 
-This is a ROS package for elevation mapping on GPU. The elevation mapping code is written in python and uses cupy for GPU computation. The
-legacy plane segmentation pipeline ran independently on the CPU to provide convex terrain approximations, but it has been removed from the
-current ROS 2 workspace until it is validated again.
+Supported Surface (Regression-Tested)
+-------------------------------------
 
-.. image:: ../media/main_repo.png
-    :alt: Elevation map examples
-.. image:: ../media/main_mem.png
-    :alt: Overview of the project
+This Jazzy branch intentionally keeps the supported surface small and deterministic:
+
+* ``sensor_msgs/msg/PointCloud2`` input only.
+* One golden-path bring-up:
+
+  * synthetic TF (``map -> base_link``) + synthetic depth-like pointcloud
+  * ``elevation_mapping_node.py`` publishes ``grid_map_msgs/msg/GridMap``
+  * optional RViz config to visually verify that the map shifts correctly with robot motion
+
+Everything under ``elevation_mapping_cupy/config/experimental`` and
+``elevation_mapping_cupy/launch/experimental`` is unverified.
+
+The legacy plane segmentation stack lives under ``plane_segmentation/`` but is disabled by default
+(``COLCON_IGNORE``) because it has heavy dependencies and is not part of the supported bring-up path.
+
+
+Quick Start (Docker)
+--------------------
+
+See the repo-level ``README.md`` for the exact commands (Docker build, ``colcon build``, ``colcon test``,
+and running the synthetic demo).
 
 
 Citing
----------------
-If you use the elevation mapping cupy, please cite the following paper:
-Elevation Mapping for Locomotion and Navigation using GPU
+------
 
-.. hint:: 
+If you use Elevation Mapping CuPy, please cite:
 
-    Elevation Mapping for Locomotion and Navigation using GPU  `Link <https://arxiv.org/abs/2204.12876>`_
-
-    Takahiro Miki, Lorenz Wellhausen, Ruben Grandia, Fabian Jenelten, Timon Homberger, Marco Hutter  
+* Elevation Mapping for Locomotion and Navigation using GPU (`arXiv:2204.12876 <https://arxiv.org/abs/2204.12876>`_)
 
 .. code-block::
 
     @misc{mikielevation2022,
         doi = {10.48550/ARXIV.2204.12876},
         author = {Miki, Takahiro and Wellhausen, Lorenz and Grandia, Ruben and Jenelten, Fabian and Homberger, Timon and Hutter, Marco},
-        keywords = {Robotics (cs.RO), FOS: Computer and information sciences, FOS: Computer and information sciences},
         title = {Elevation Mapping for Locomotion and Navigation using GPU},
         publisher = {International Conference on Intelligent Robots and Systems (IROS)},
         year = {2022},
-    }
-
-Multi-modal elevation mapping if you use color or semantic layers
-
-.. hint::
-
-    MEM: Multi-Modal Elevation Mapping for Robotics and Learning  `Link <https://arxiv.org/abs/2309.16818v1>`_
-
-    Gian Erni, Jonas Frey, Takahiro Miki, Matias Mattamala, Marco Hutter
-
-.. code-block::
-
-    @misc{Erni2023-bs,
-        title = "{MEM}: {Multi-Modal} Elevation Mapping for Robotics and Learning",
-        author = "Erni, Gian and Frey, Jonas and Miki, Takahiro and Mattamala, Matias and Hutter, Marco",
-        publisher = {International Conference on Intelligent Robots and Systems (IROS)},
-        year = {2023},
     }

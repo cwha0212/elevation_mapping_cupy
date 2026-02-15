@@ -1,17 +1,14 @@
-elevation_mapping_node:
+/elevation_mapping_node:
   ros__parameters:
     #### Basic parameters ########
-    voxel_filter_size: 0.1
-    average_weight: 0.5
     drift_compensation_variance_inlier: 0.1
     checker_layer: 'elevation'                # layer name for checking the validity of the cell.
     initialized_variance: 10.0                     # initial variance for each cell.    
     resolution: 0.1                                # resolution in m.  
     map_length: 20.0                                 # map's size in m.
-    sensor_noise_factor: 0.05                       # point's noise is sensor_noise_factor*z^2 (z is distance from sensor).
+    sensor_noise_factor: 0.05                       # point noise ~ sensor_noise_factor * range^2 in the sensor frame (range^2 = x^2+y^2+z^2).
     mahalanobis_thresh: 2.0                         # points outside this distance is outlier.
     outlier_variance: 0.01                          # if point is outlier, add this value to the cell.
-    drift_compensation_variance_inler: 0.05         # cells under this value is used for drift compensation.
     max_drift: 0.1                                  # drift compensation happens only the drift is smaller than this value (for safety)
     drift_compensation_alpha: 0.1                   # drift compensation alpha for smoother update of drift compensation
     time_variance: 0.0001                           # add this value when update_variance is called.
@@ -66,11 +63,8 @@ elevation_mapping_node:
     enable_overlap_clearance: true
     enable_pointcloud_publishing: false
     enable_drift_corrected_TF_publishing: false
-    enable_normal_color: false                      # If true, the map contains 'color' layer corresponding to normal. Add 'color' layer to the publishers setting if you want to visualize.
-
     #### Traversability filter ########
-    use_chainer: false                              # Use chainer as a backend of traversability filter or pytorch. If false, it uses pytorch. pytorch requires ~2GB more GPU memory compared to chainer but runs faster.
-    weight_file: '$(find-pkg-share elevation_mapping_cupy)/config/core/weights.dat'               # Weight file for traversability filter
+    use_chainer: false                              # If false, uses the PyTorch backend (GPU).
 
     #### Upper bound ########
     use_only_above_for_upper_bound: false
@@ -78,10 +72,10 @@ elevation_mapping_node:
     #### Initializer ########
     initialize_method: 'linear'                                         # Choose one from 'nearest', 'linear', 'cubic'
     initialize_frame_id: ['base_link']   # One tf (like ['footprint'] ) initializes a square around it.
-    initialize_tf_offset: [0.0, 0.0, 0.0, 0.0]                          # z direction. Should be same number as initialize_frame_id.
+    initialize_tf_offset: [0.0]                                         # Optional z-offset(s) for initializer (same length as initialize_frame_id).
     dilation_size_initialize: 2                                         # dilation size after the init.
     initialize_tf_grid_size: 1.0                                        # This is not used if number of tf is more than 3.
     use_initializer_at_start: true                                      # Use initializer when the node starts.
 
     #### Default Plugins ########
-    plugin_config_file: '$(find-pkg-share elevation_mapping_cupy)/config/core/plugin_config.yaml'
+    # plugin_config_file is resolved internally (package share) by the node.

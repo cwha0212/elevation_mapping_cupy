@@ -61,8 +61,11 @@ def map_utils(
                                      float16 r0, float16 r1, float16 r2, float16 t) {
             return r0 * x + r1 * y + r2 * z + t;
         }
-        __device__ float z_noise(float16 z){
-            return ${sensor_noise_factor} * z * z;
+        __device__ float point_noise(float16 x, float16 y, float16 z){
+            // Noise model based on squared range in the sensor frame.
+            // This avoids v=0 for flat ground points (z=0) and works for both
+            // depth-camera optical frames (where z is range) and generic frames.
+            return ${sensor_noise_factor} * (x * x + y * y + z * z);
         }
 
         __device__ float point_sensor_distance(float16 x, float16 y, float16 z,
@@ -169,7 +172,7 @@ def add_points_kernel(
             U x = transform_p(rx, ry, rz, R[0], R[1], R[2], t[0]);
             U y = transform_p(rx, ry, rz, R[3], R[4], R[5], t[1]);
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
-            U v = z_noise(rz);
+            U v = point_noise(rx, ry, rz);
             int idx = get_idx(x, y, center_x[0], center_y[0]);
             if (is_valid(x, y, z, t[0], t[1], t[2])) {
                 if (is_inside(idx)) {
@@ -319,7 +322,7 @@ def error_counting_kernel(
             U x = transform_p(rx, ry, rz, R[0], R[1], R[2], t[0]);
             U y = transform_p(rx, ry, rz, R[3], R[4], R[5], t[1]);
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
-            U v = z_noise(rz);
+            U v = point_noise(rx, ry, rz);
             // if (!is_valid(z, t[2])) {return;}
             if (!is_valid(x, y, z, t[0], t[1], t[2])) {return;}
             // if ((x - t[0]) * (x - t[0]) + (y - t[1]) * (y - t[1]) + (z - t[2]) * (z - t[2]) < 0.5) {return;}
@@ -376,11 +379,13 @@ def average_map_kernel(width, height, max_variance, initial_variance):
                     map[get_map_idx(i, 0)] = 0;
                     map[get_map_idx(i, 1)] = ${initial_variance};
                     map[get_map_idx(i, 2)] = 0;
+                    valid = 0;
                 }
                 else {
                     map[get_map_idx(i, 0)] = new_h / new_cnt;
                     map[get_map_idx(i, 1)] = new_v / new_cnt;
                     map[get_map_idx(i, 2)] = 1;
+                    valid = 1;
                 }
             }
             if (valid < 0.5) {

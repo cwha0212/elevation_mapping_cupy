@@ -190,8 +190,17 @@ class PluginManager(object):
         semantic_map=None,
         semantic_params=None,
         rotation=None,
-        elements_to_shift={},
+        elements_to_shift=None,
     ):
+        # Semantic layers are optional. In this repo's supported surface we don't use them, so
+        # default to empty containers to keep plugins robust.
+        if semantic_map is None:
+            semantic_map = cp.zeros((0, self.cell_n, self.cell_n), dtype=cp.float32)
+        if semantic_params is None:
+            semantic_params = []
+        if elements_to_shift is None:
+            elements_to_shift = {}
+
         idx = self.get_layer_index_with_name(name)
         if idx is not None and idx < len(self.plugins):
             n_param = len(signature(self.plugins[idx]).parameters)

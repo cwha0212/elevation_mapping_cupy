@@ -3,32 +3,36 @@
 Parameters
 ******************************************************************
 
-There are three parameter files:
+The supported bring-up uses two YAML files:
 
-#. `Robot Setup Configurations`_
+1. Core parameters (map resolution/size, kernels, services, toggles)
+2. A robot/setup file (subscribers + publishers)
 
-#. `Plugin configurations`_
-
-#. `Core Parameters`_
-
-
-Robot Setup Configurations
-================================================
-Such as Publishers and subscribers
-
-.. include:: ../../../elevation_mapping_cupy/config/core/example_setup.yaml
-  :code: yaml
-
-Plugin configurations
-================================================
-
-More informations on the plugins can be found in :ref:`plugins`.
-
-.. include:: ../../../elevation_mapping_cupy/config/core/plugin_config.yaml
-  :code: yaml
 
 Core Parameters
 ==============================================================
 
 .. include:: ../../../elevation_mapping_cupy/config/core/core_param.yaml
   :code: yaml
+
+
+Golden-Path Setup (Synthetic Demo)
+================================================
+
+.. include:: ../../../elevation_mapping_cupy/config/setups/synthetic/synthetic_depth.yaml
+  :code: yaml
+
+
+Example Robot Setup (Menzi)
+================================================
+
+.. include:: ../../../elevation_mapping_cupy/config/setups/menzi/base.yaml
+  :code: yaml
+
+
+Plugin Configuration
+================================================
+
+.. include:: ../../../elevation_mapping_cupy/config/core/plugin_config.yaml
+  :code: yaml
+

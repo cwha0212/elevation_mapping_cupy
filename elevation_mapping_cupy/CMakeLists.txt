@@ -5,32 +5,25 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(message_filters REQUIRED)
-find_package(elevation_map_msgs REQUIRED)
 find_package(grid_map_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(cv_bridge REQUIRED)
 
 set(dependencies
   rclpy
   std_msgs
-  std_srvs
   sensor_msgs
   geometry_msgs
-  message_filters
-  elevation_map_msgs
   grid_map_msgs
   tf2_ros
-  cv_bridge
 )
 
 ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   scripts/elevation_mapping_node.py
+  scripts/synthetic_pointcloud_tf_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -64,6 +57,26 @@ if(BUILD_TESTING)
     TIMEOUT 120
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
+  ament_add_pytest_test(test_gridmap_layout
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_gridmap_layout.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_parameter
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_parameter.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_repo_config_sanity
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_repo_config_sanity.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_kernel_compile_smoke
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_kernel_compile_smoke.py
+    TIMEOUT 180
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
 
   # Define isolated launch test function for unique ROS_DOMAIN_ID per test
   # See: https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Testing/Integration.html
@@ -80,7 +93,18 @@ if(BUILD_TESTING)
   # Locally, tests fail loudly to catch real regressions.
   add_ros_isolated_launch_test(test/test_tf_gridmap_integration.py
     TIMEOUT 180
-    ENV SKIP_DDS_FLAKES=1 FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+    ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+  )
+
+  add_ros_isolated_launch_test(test/test_map_save_load_services.py
+    TIMEOUT 240
+    ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+  )
+
+  # Smoke-test the actual golden-path launch file (without RViz).
+  add_ros_isolated_launch_test(test/test_synthetic_demo_launch.py
+    TIMEOUT 180
+    ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
   )
 endif()
 
