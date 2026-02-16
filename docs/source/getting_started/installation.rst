@@ -30,13 +30,11 @@ Build + test the packages inside a mounted workspace:
       set -e
       source /opt/ros/jazzy/setup.bash
       colcon build --symlink-install \
-        --build-base build_jazzy --install-base install_jazzy \
         --packages-select elevation_map_msgs elevation_mapping_cupy
-      source install_jazzy/setup.bash
+      source install/setup.bash
       colcon test --packages-select elevation_mapping_cupy \
-        --build-base build_jazzy --install-base install_jazzy \
         --event-handlers console_direct+
-      colcon test-result --verbose --test-result-base build_jazzy
+      colcon test-result --verbose
     '
 
 
