@@ -1,12 +1,14 @@
 /elevation_mapping_node:
   ros__parameters:
     #### Basic parameters ########
-    drift_compensation_variance_inlier: 0.1
+    voxel_filter_size: 0.1
+    average_weight: 0.5
+    drift_compensation_variance_inlier: 0.05
     checker_layer: 'elevation'                # layer name for checking the validity of the cell.
     initialized_variance: 10.0                     # initial variance for each cell.    
-    resolution: 0.1                                # resolution in m.  
-    map_length: 20.0                                 # map's size in m.
-    sensor_noise_factor: 0.05                       # point noise ~ sensor_noise_factor * range^2 in the sensor frame (range^2 = x^2+y^2+z^2).
+    resolution: 0.05                                # resolution in m.  
+    map_length: 8.0                                 # map's size in m.
+    sensor_noise_factor: 0.05                       # point's noise is sensor_noise_factor*z^2 (z is distance from sensor).
     mahalanobis_thresh: 2.0                         # points outside this distance is outlier.
     outlier_variance: 0.01                          # if point is outlier, add this value to the cell.
     max_drift: 0.1                                  # drift compensation happens only the drift is smaller than this value (for safety)
@@ -22,8 +24,8 @@
     orientation_noise_thresh: 0.01                  # if the orientation change is bigger than this value, the drift compensation happens.
     position_lowpass_alpha: 0.2                     # lowpass filter alpha used for detecting movements.
     orientation_lowpass_alpha: 0.2                  # lowpass filter alpha used for detecting movements.
-    min_valid_distance: 0.1                         # points with shorter distance will be filtered out.
-    max_height_range: 10.5                          # points higher than this value from sensor will be filtered out to disable ceiling.
+    min_valid_distance: 0.5                         # points with shorter distance will be filtered out.
+    max_height_range: 2.5                          # points higher than this value from sensor will be filtered out to disable ceiling.
     ramped_height_range_a: 0.3                      # if z > max(d - ramped_height_range_b, 0) * ramped_height_range_a + ramped_height_range_c, reject.
     ramped_height_range_b: 1.0                      # if z > max(d - ramped_height_range_b, 0) * ramped_height_range_a + ramped_height_range_c, reject.
     ramped_height_range_c: 0.2                      # if z > max(d - ramped_height_range_b, 0) * ramped_height_range_a + ramped_height_range_c, reject.
@@ -52,9 +54,9 @@
     overlap_clear_range_z: 2.0                      # z range [m] for clearing overlapped area. cells outside this range will be cleared. (used for multi floor setting)
     
     # Default frame configuration (can be overridden in robot-specific configs)
-    map_frame: 'odom'                               # The map frame where the odometry source uses.
-    base_frame: 'base_link'                    # The robot's base frame. This frame will be a center of the map.
-    corrected_map_frame: 'odom'
+    map_frame: 'odom_zedx'                               # The map frame where the odometry source uses.
+    base_frame: 'zed_camera_link'                    # The robot's base frame. This frame will be a center of the map.
+    corrected_map_frame: 'odom_zedx'
 
     #### Feature toggles ########
     enable_edge_sharpen: true
@@ -71,8 +73,13 @@
 
     #### Initializer ########
     initialize_method: 'linear'                                         # Choose one from 'nearest', 'linear', 'cubic'
+<<<<<<< HEAD
     initialize_frame_id: ['base_link']   # One tf (like ['footprint'] ) initializes a square around it.
     initialize_tf_offset: [0.0]                                         # Optional z-offset(s) for initializer (same length as initialize_frame_id).
+=======
+    initialize_frame_id: ['zed_camera_link']   # One tf (like ['footprint'] ) initializes a square around it.
+    initialize_tf_offset: [0.0, 0.0, 0.0, 0.0]                          # z direction. Should be same number as initialize_frame_id.
+>>>>>>> ptz
     dilation_size_initialize: 2                                         # dilation size after the init.
     initialize_tf_grid_size: 1.0                                        # This is not used if number of tf is more than 3.
     use_initializer_at_start: true                                      # Use initializer when the node starts.

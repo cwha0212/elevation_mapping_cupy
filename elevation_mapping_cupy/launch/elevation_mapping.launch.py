@@ -18,7 +18,6 @@ def generate_launch_description():
     # Declare launch arguments
     robot_param_arg = DeclareLaunchArgument(
         'robot_config',
-        # default_value='turtle_bot/turle_bot_simple.yaml',
         default_value='menzi/base.yaml',
         description='Name of the robot-specific config file within '
                     'config/setups/'
@@ -30,6 +29,7 @@ def generate_launch_description():
         description='Whether to launch RViz'
     )
 
+    #  elevation_mapping_cupy/elevation_mapping_cupy/rviz/ros2.rviz
     rviz_config_arg = DeclareLaunchArgument(
         'rviz_config',
         default_value='',
@@ -38,7 +38,7 @@ def generate_launch_description():
 
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
-        default_value='false',
+        default_value='true',
         description='Use simulation clock if true'
     )
 
@@ -61,6 +61,8 @@ def generate_launch_description():
         executable='elevation_mapping_node.py',
         name='elevation_mapping_node',
         output='screen',
+        emulate_tty=True,
+        additional_env={'PYTHONUNBUFFERED': '1'},
         parameters=[
             core_param_path,
             robot_param_path,

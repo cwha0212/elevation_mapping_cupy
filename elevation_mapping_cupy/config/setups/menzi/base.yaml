@@ -2,15 +2,15 @@
   ros__parameters:
     subscribers:
       front_cam:
-        topic_name: '/ouster_points_self_filtered'
+        topic_name: '/zed/zed_node/point_cloud/cloud_registered'
         data_type: pointcloud
 
     publishers:
       elevation_map_raw:
         layers: ['elevation', 'traversability', 'variance']
         basic_layers: ['elevation']
-        fps: 5.0
+        fps: 10.0
       elevation_map_filter:
-        layers: ['min_filter', 'smooth', 'inpaint', 'elevation']
-        basic_layers: ['min_filter']
-        fps: 3.0
+        layers: ['inpaint', 'smooth', 'min_filter', 'upper_bound']
+        basic_layers: ['inpaint']
+        fps: 5.0
