@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package format="3">
     <name>elevation_mapping_cupy</name>
-    <version>2.0.0</version>
+    <version>2.1.0</version>
     <description>Elevation mapping on GPU</description>
     <maintainer email="takahiro.miki1992@gmail.com">Takahiro Miki</maintainer>
     <license>MIT</license>
