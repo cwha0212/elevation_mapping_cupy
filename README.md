@@ -48,7 +48,7 @@ docker run --rm --gpus all --net=host \
   '
 ```
 
-## Run (golden path)
+## Run
 
 ```bash
 # Headless:
