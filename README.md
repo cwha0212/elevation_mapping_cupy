@@ -12,7 +12,7 @@ We intentionally keep the supported surface small and deterministic:
   - Synthetic TF (`map -> base_link`) + synthetic depth-like `PointCloud2`
   - `elevation_mapping_node.py` publishes `grid_map_msgs/msg/GridMap`
   - RViz config to verify the map shifts correctly with the robot motion
-- Menzi config is kept in-tree for Moleworks usage:
+- Optional robot-config launch path:
   - `elevation_mapping.launch.py robot_config:=menzi/base.yaml`
 Legacy multi-modal examples (image/semantic fusion, turtlebot pipelines, etc.) were removed from this branch
 to keep the bring-up scope tight and regression-tested.
@@ -33,20 +33,16 @@ cd ~/ros2_ws/src/elevation_mapping_cupy
 docker build -f docker/Dockerfile.x64 -t elevation_mapping_cupy:jazzy .
 
 # Build + test in a mounted Jazzy workspace (keeps Jazzy artifacts separate).
-# Note: in Moleworks, `ros2_ws/src/grid_map` exists but conflicts with Jazzy binaries.
-# We ignore any in-workspace `grid_map*` packages and use /opt/ros/jazzy instead.
 docker run --rm --gpus all --net=host \
   -v ~/ros2_ws:/ws -w /ws elevation_mapping_cupy:jazzy bash -lc '
     set -e
     source /opt/ros/jazzy/setup.bash
     colcon build --symlink-install \
       --build-base build_jazzy --install-base install_jazzy \
-      --packages-select elevation_map_msgs elevation_mapping_cupy \
-      --packages-ignore-regex "^grid_map.*"
+      --packages-select elevation_map_msgs elevation_mapping_cupy
     source install_jazzy/setup.bash
     colcon test --packages-select elevation_mapping_cupy \
       --build-base build_jazzy --install-base install_jazzy \
-      --packages-ignore-regex "^grid_map.*" \
       --event-handlers console_direct+
     colcon test-result --verbose --test-result-base build_jazzy
   '

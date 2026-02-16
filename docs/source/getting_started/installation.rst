@@ -31,12 +31,10 @@ Build + test the packages inside a mounted workspace:
       source /opt/ros/jazzy/setup.bash
       colcon build --symlink-install \
         --build-base build_jazzy --install-base install_jazzy \
-        --packages-select elevation_map_msgs elevation_mapping_cupy \
-        --packages-ignore-regex "^grid_map.*"
+        --packages-select elevation_map_msgs elevation_mapping_cupy
       source install_jazzy/setup.bash
       colcon test --packages-select elevation_mapping_cupy \
         --build-base build_jazzy --install-base install_jazzy \
-        --packages-ignore-regex "^grid_map.*" \
         --event-handlers console_direct+
       colcon test-result --verbose --test-result-base build_jazzy
     '
@@ -47,6 +45,3 @@ Native (Not Recommended)
 
 Native installs are possible, but you must provide CUDA-capable Python wheels yourself
 (CuPy + torch) and ensure your ROS 2 Jazzy environment has the required ROS/system dependencies.
-
-For exact commands and pitfalls (Moleworks ``grid_map`` source conflict), use the repo-level ``README.md``.
-
