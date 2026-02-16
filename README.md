@@ -32,19 +32,17 @@ to keep the bring-up scope tight and regression-tested.
 cd ~/ros2_ws/src/elevation_mapping_cupy
 docker build -f docker/Dockerfile.x64 -t elevation_mapping_cupy:jazzy .
 
-# Build + test in a mounted Jazzy workspace (keeps Jazzy artifacts separate).
+# Build + test in a mounted Jazzy workspace.
 docker run --rm --gpus all --net=host \
   -v ~/ros2_ws:/ws -w /ws elevation_mapping_cupy:jazzy bash -lc '
     set -e
     source /opt/ros/jazzy/setup.bash
     colcon build --symlink-install \
-      --build-base build_jazzy --install-base install_jazzy \
       --packages-select elevation_map_msgs elevation_mapping_cupy
-    source install_jazzy/setup.bash
+    source install/setup.bash
     colcon test --packages-select elevation_mapping_cupy \
-      --build-base build_jazzy --install-base install_jazzy \
       --event-handlers console_direct+
-    colcon test-result --verbose --test-result-base build_jazzy
+    colcon test-result --verbose
   '
 ```
 
@@ -55,7 +53,7 @@ docker run --rm --gpus all --net=host \
 docker run --rm --gpus all --net=host \
   -v ~/ros2_ws:/ws -w /ws elevation_mapping_cupy:jazzy bash -lc '
     source /opt/ros/jazzy/setup.bash
-    source install_jazzy/setup.bash
+    source install/setup.bash
     ros2 launch elevation_mapping_cupy synthetic_depth_demo.launch.py launch_rviz:=false
   '
 ```
