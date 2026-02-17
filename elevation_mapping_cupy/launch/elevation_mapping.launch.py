@@ -32,7 +32,7 @@ def generate_launch_description():
     #  elevation_mapping_cupy/elevation_mapping_cupy/rviz/ros2.rviz
     rviz_config_arg = DeclareLaunchArgument(
         'rviz_config',
-        default_value='',
+        default_value='/home/tutuna/colcon_ws/src/elevation_mapping_cupy/elevation_mapping_cupy/rviz/ros2.rviz',
         description='Path to the RViz config file'
     )
 

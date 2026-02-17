@@ -73,13 +73,8 @@
 
     #### Initializer ########
     initialize_method: 'linear'                                         # Choose one from 'nearest', 'linear', 'cubic'
-<<<<<<< HEAD
-    initialize_frame_id: ['base_link']   # One tf (like ['footprint'] ) initializes a square around it.
-    initialize_tf_offset: [0.0]                                         # Optional z-offset(s) for initializer (same length as initialize_frame_id).
-=======
     initialize_frame_id: ['zed_camera_link']   # One tf (like ['footprint'] ) initializes a square around it.
     initialize_tf_offset: [0.0, 0.0, 0.0, 0.0]                          # z direction. Should be same number as initialize_frame_id.
->>>>>>> ptz
     dilation_size_initialize: 2                                         # dilation size after the init.
     initialize_tf_grid_size: 1.0                                        # This is not used if number of tf is more than 3.
     use_initializer_at_start: true                                      # Use initializer when the node starts.

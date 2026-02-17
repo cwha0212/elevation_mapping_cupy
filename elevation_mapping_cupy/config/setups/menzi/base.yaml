@@ -7,10 +7,10 @@
 
     publishers:
       elevation_map_raw:
-        layers: ['elevation', 'traversability', 'variance']
+        layers: ['elevation']
         basic_layers: ['elevation']
         fps: 10.0
       elevation_map_filter:
-        layers: ['inpaint', 'smooth', 'min_filter', 'upper_bound']
+        layers: ['inpaint']
         basic_layers: ['inpaint']
         fps: 5.0
