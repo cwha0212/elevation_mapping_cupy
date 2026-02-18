@@ -54,9 +54,9 @@
     overlap_clear_range_z: 2.0                      # z range [m] for clearing overlapped area. cells outside this range will be cleared. (used for multi floor setting)
     
     # Default frame configuration (can be overridden in robot-specific configs)
-    map_frame: 'odom_zedx'                               # The map frame where the odometry source uses.
-    base_frame: 'zed_camera_link'                    # The robot's base frame. This frame will be a center of the map.
-    corrected_map_frame: 'odom_zedx'
+    map_frame: 'odom'                               # The map frame where the odometry source uses.
+    base_frame: 'base'                    # The robot's base frame. This frame will be a center of the map.
+    corrected_map_frame: 'odom'
 
     #### Feature toggles ########
     enable_edge_sharpen: true
@@ -73,7 +73,7 @@
 
     #### Initializer ########
     initialize_method: 'linear'                                         # Choose one from 'nearest', 'linear', 'cubic'
-    initialize_frame_id: ['zed_camera_link']   # One tf (like ['footprint'] ) initializes a square around it.
+    initialize_frame_id: ['base']   # One tf (like ['footprint'] ) initializes a square around it.
     initialize_tf_offset: [0.0, 0.0, 0.0, 0.0]                          # z direction. Should be same number as initialize_frame_id.
     dilation_size_initialize: 2                                         # dilation size after the init.
     initialize_tf_grid_size: 0.5                                        # This is not used if number of tf is more than 3.
