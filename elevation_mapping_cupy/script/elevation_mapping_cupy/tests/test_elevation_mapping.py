@@ -2,6 +2,14 @@ import pytest
 from elevation_mapping_cupy import parameter, elevation_mapping
 import cupy as cp
 import numpy as np
+from pathlib import Path
+
+
+TEST_DIR = Path(__file__).resolve().parent
+PACKAGE_ROOT = TEST_DIR.parents[2]
+CORE_CONFIG_DIR = PACKAGE_ROOT / "config" / "core"
+WEIGHT_FILE = CORE_CONFIG_DIR / "weights.dat"
+PLUGIN_CONFIG_FILE = CORE_CONFIG_DIR / "plugin_config.yaml"
 
 
 def encode_max(maxim, index):
@@ -22,8 +30,8 @@ def elmap_ex(add_lay, fusion_alg):
     fusion_algorithms = fusion_alg
     p = parameter.Parameter(
         use_chainer=False,
-        weight_file="../../../config/weights.dat",
-        plugin_config_file="../../../config/plugin_config.yaml",
+        weight_file=str(WEIGHT_FILE),
+        plugin_config_file=str(PLUGIN_CONFIG_FILE),
     )
     p.subscriber_cfg["front_cam"]["channels"] = additional_layer
     p.subscriber_cfg["front_cam"]["fusion"] = fusion_algorithms
@@ -96,6 +104,8 @@ class TestElevationMap:
 
     def test_exists_layer(self, elmap_ex, add_lay):
         for layer in add_lay:
+            assert not elmap_ex.exists_layer(layer)
+            elmap_ex.semantic_map.add_layer(layer)
             assert elmap_ex.exists_layer(layer)
 
     def test_polygon_traversability(self, elmap_ex):

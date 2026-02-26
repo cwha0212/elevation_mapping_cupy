@@ -1,16 +1,21 @@
 import pytest
 from elevation_mapping_cupy import semantic_map, parameter
 import cupy as cp
-import numpy as np
-from elevation_mapping_cupy.plugins.plugin_manager import PluginManager, PluginParams
+from elevation_mapping_cupy.plugins.plugin_manager import PluginManager
+from pathlib import Path
 
-plugin_path = "plugin_config.yaml"
+
+TEST_DIR = Path(__file__).resolve().parent
+PACKAGE_ROOT = TEST_DIR.parents[2]
+CORE_CONFIG_DIR = PACKAGE_ROOT / "config" / "core"
+WEIGHT_FILE = CORE_CONFIG_DIR / "weights.dat"
+PLUGIN_PATH = TEST_DIR / "plugin_config.yaml"
 
 
 @pytest.fixture()
 def semmap_ex(add_lay, fusion_alg):
     p = parameter.Parameter(
-        use_chainer=False, weight_file="../../../config/weights.dat", plugin_config_file=plugin_path,
+        use_chainer=False, weight_file=str(WEIGHT_FILE), plugin_config_file=str(PLUGIN_PATH),
     )
     p.subscriber_cfg["front_cam"]["channels"] = add_lay
     p.subscriber_cfg["front_cam"]["fusion"] = fusion_alg
@@ -35,7 +40,7 @@ def semmap_ex(add_lay, fusion_alg):
 )
 def test_plugin_manager(semmap_ex, channels):
     manager = PluginManager(202)
-    manager.load_plugin_settings(plugin_path)
+    manager.load_plugin_settings(str(PLUGIN_PATH))
     elevation_map = cp.zeros((7, 202, 202)).astype(cp.float32)
     rotation = cp.eye(3, dtype=cp.float32)
     layer_names = [
@@ -49,12 +54,26 @@ def test_plugin_manager(semmap_ex, channels):
     ]
     elevation_map[0] = cp.random.randn(202, 202)
     elevation_map[2] = cp.abs(cp.random.randn(202, 202))
-    elevation_map[0]
-    manager.layers[0]
     manager.update_with_name("min_filter", elevation_map, layer_names)
     manager.update_with_name("smooth_filter", elevation_map, layer_names)
-    manager.update_with_name("semantic_filter", elevation_map, layer_names, semmap_ex, rotation)
-    manager.update_with_name("semantic_traversability", elevation_map, layer_names, semmap_ex)
+    manager.update_with_name(
+        "sem_fil",
+        elevation_map,
+        layer_names,
+        semmap_ex.semantic_map,
+        semmap_ex.layer_names,
+        rotation,
+        semmap_ex.elements_to_shift,
+    )
+    manager.update_with_name(
+        "sem_traversability",
+        elevation_map,
+        layer_names,
+        semmap_ex.semantic_map,
+        semmap_ex.layer_names,
+        rotation,
+        semmap_ex.elements_to_shift,
+    )
     manager.get_map_with_name("smooth")
     for lay in manager.get_layer_names():
         manager.update_with_name(
@@ -62,7 +81,7 @@ def test_plugin_manager(semmap_ex, channels):
             elevation_map,
             layer_names,
             semmap_ex.semantic_map,
-            semmap_ex.param,
+            semmap_ex.layer_names,
             rotation,
             semmap_ex.elements_to_shift,
         )
