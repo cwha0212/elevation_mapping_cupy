@@ -330,12 +330,13 @@ class ElevationMap:
         points = points_all[:, :3]
         # additional_fusion = self.get_fusion_of_pcl(channels)
         with self.map_lock:
-            self.shift_translation_to_map_center(t)
+            t = t.copy()
+            t[2] -= self.center[2]
             self.error_counting_kernel(
                 self.elevation_map,
                 points,
-                cp.array([0.0], dtype=self.data_type),
-                cp.array([0.0], dtype=self.data_type),
+                self.center[:1],
+                self.center[1:2],
                 R,
                 t,
                 self.new_map,
@@ -356,8 +357,8 @@ class ElevationMap:
                 if np.abs(self.mean_error) < self.param.max_drift:
                     self.elevation_map[0] += self.mean_error * self.param.drift_compensation_alpha
             self.add_points_kernel(
-                cp.array([0.0], dtype=self.data_type),
-                cp.array([0.0], dtype=self.data_type),
+                self.center[:1],
+                self.center[1:2],
                 R,
                 t,
                 self.normal_map,
