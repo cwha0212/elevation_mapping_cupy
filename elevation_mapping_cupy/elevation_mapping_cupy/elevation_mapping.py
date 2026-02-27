@@ -351,15 +351,13 @@ class ElevationMap:
         points = points_all[:, :3]
 
         with self.map_lock:
-            self.shift_translation_to_map_center(t)
-            
-            # Log before kernel execution
-            
+            t = t.copy()
+            t[2] -= self.center[2]
             self.error_counting_kernel(
                 self.elevation_map,
                 points,
-                cp.array([0.0], dtype=self.data_type),
-                cp.array([0.0], dtype=self.data_type),
+                self.center[:1],
+                self.center[1:2],
                 R,
                 t,
                 self.new_map,
@@ -367,7 +365,6 @@ class ElevationMap:
                 error_cnt,
                 size=(points.shape[0]),
             )
-            
             if (
                 self.param.enable_drift_compensation
                 and error_cnt > self.param.min_height_drift_cnt
@@ -380,11 +377,9 @@ class ElevationMap:
                 self.additive_mean_error += self.mean_error
                 if np.abs(self.mean_error) < self.param.max_drift:
                     self.elevation_map[0] += self.mean_error * self.param.drift_compensation_alpha
-
-            
             self.add_points_kernel(
-                cp.array([0.0], dtype=self.data_type),
-                cp.array([0.0], dtype=self.data_type),
+                self.center[:1],
+                self.center[1:2],
                 R,
                 t,
                 self.normal_map,
@@ -393,8 +388,6 @@ class ElevationMap:
                 self.new_map,
                 size=(points.shape[0]),
             )
-            
-            # Log after adding points
 
             self.average_map_kernel(self.new_map, self.elevation_map, size=(self.cell_n * self.cell_n))
 
@@ -415,7 +408,6 @@ class ElevationMap:
                 (traversability.shape[2], traversability.shape[3])
             )
 
-        # Log final state
         self.update_normal(self.traversability_input)
 
     def clear_overlap_map(self, t):
