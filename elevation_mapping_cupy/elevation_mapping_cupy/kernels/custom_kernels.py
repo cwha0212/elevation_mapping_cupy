@@ -79,7 +79,7 @@ def map_utils(
         __device__ bool is_valid(float16 x, float16 y, float16 z,
                                float16 sx, float16 sy, float16 sz) {
             float d = point_sensor_distance(x, y, z, sx, sy, sz);
-            float dxy = max(sqrt(x * x + y * y) - ${ramped_height_range_b}, 0.0);
+            float dxy = max(sqrt((x - sx) * (x - sx) + (y - sy) * (y - sy)) - ${ramped_height_range_b}, 0.0);
             if (d < ${min_valid_distance} * ${min_valid_distance}) {
                 return false;
             }
