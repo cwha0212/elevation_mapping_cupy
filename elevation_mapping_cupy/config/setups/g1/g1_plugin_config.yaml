@@ -44,4 +44,4 @@ min_smooth_filter:
   layer_name: "min_smooth_filter"
   extra_params:
     input_layer_name: "min_filter"
-    size: 1
+    size: 2
