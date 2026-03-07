@@ -8,7 +8,6 @@
 
 - For ROS2 Jazzy, use the [`ros2`](https://github.com/leggedrobotics/elevation_mapping_cupy/tree/ros2) branch.
 - The `main` branch is the legacy ROS1 line.
-- ROS2 branch maintainer: Lorenzo Terenzi.
 - Current ROS2/Jazzy release: `v2.1.0`.
 
 ## Overview
