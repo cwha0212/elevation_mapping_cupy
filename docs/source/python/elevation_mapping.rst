@@ -12,6 +12,7 @@ Elevation mapping cupy
     :members:
     :undoc-members:
     :show-inheritance:
+    :no-index:
 
 .. automodule:: elevation_mapping_cupy.plugins.plugin_manager
     :members:

@@ -69,14 +69,14 @@ Visualization Manager:
       Min Intensity: 0
       Name: ElevationMapRaw
       Show Grid Lines: true
-      Topic: /elevation_mapping/elevation_map_raw
+      Topic: /elevation_mapping_node/elevation_map_raw
       Unreliable: false
       Use Rainbow: false
       Value: true
     - Alpha: 1
       Class: rviz/RobotModel
       Collision Enabled: false
-      Enabled: true
+      Enabled: false
       Links:
         All Links Enabled: true
         Expand Joint Details: false
@@ -146,7 +146,7 @@ Visualization Manager:
       Robot Description: robot_description
       TF Prefix: ""
       Update Interval: 0
-      Value: true
+      Value: false
       Visual Enabled: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -201,7 +201,7 @@ Visualization Manager:
       Unreliable: false
       Value: true
     - Class: rviz/Image
-      Enabled: true
+      Enabled: false
       Image Topic: /front_cam/semantic_seg_feat_im
       Max Value: 1
       Median window: 5
@@ -211,7 +211,7 @@ Visualization Manager:
       Queue Size: 2
       Transport Hint: raw
       Unreliable: false
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 255; 255; 255

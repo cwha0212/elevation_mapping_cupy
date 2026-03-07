@@ -71,7 +71,7 @@ Visualization Manager:
       Min Intensity: 0
       Name: ElevationMapRaw
       Show Grid Lines: true
-      Topic: /elevation_mapping/elevation_map_raw
+      Topic: /elevation_mapping_node/elevation_map_raw
       Unreliable: false
       Use ColorMap: true
       Value: true

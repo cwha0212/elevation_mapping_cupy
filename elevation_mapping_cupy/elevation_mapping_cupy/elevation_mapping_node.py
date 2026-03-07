@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import math
+import message_filters
 import numpy as np
 import os
 from pathlib import Path
@@ -10,7 +11,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from ament_index_python.packages import get_package_share_directory
-from sensor_msgs.msg import PointCloud2, PointField
+from cv_bridge import CvBridge
+from elevation_map_msgs.msg import ChannelInfo
+import ros2_numpy as rnp
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from tf_transformations import quaternion_matrix
 import tf2_ros
 import tf2_py as tf2
@@ -280,17 +284,54 @@ class ElevationMappingNode(Node):
 
     def register_subscribers(self) -> None:
         self._pointcloud_subs = {}
+        self._image_syncs = {}
+        self._image_filter_subs = {}
+        self._channel_info_subs = {}
+        self._image_channels = {}
+
+        if any(config.get("data_type") == "image" for config in self.my_subscribers.values()):
+            self.cv_bridge = CvBridge()
+
         for key, config in self.my_subscribers.items():
             data_type = config.get("data_type")
+            if data_type == "image":
+                topic_name = config.get("topic_name")
+                camera_info_topic_name = config.get(
+                    "camera_info_topic_name",
+                    config.get("topic_name_camera_info"),
+                )
+                if not topic_name:
+                    raise ValueError(f"Image subscriber '{key}' is missing required key 'topic_name'.")
+                if not camera_info_topic_name:
+                    raise ValueError(
+                        f"Image subscriber '{key}' is missing required key 'camera_info_topic_name'."
+                    )
+
+                camera_sub = message_filters.Subscriber(self, Image, topic_name)
+                camera_info_sub = message_filters.Subscriber(self, CameraInfo, camera_info_topic_name)
+                image_sync = message_filters.ApproximateTimeSynchronizer(
+                    [camera_sub, camera_info_sub],
+                    queue_size=10,
+                    slop=0.5,
+                )
+                image_sync.registerCallback(partial(self.image_callback, sub_key=key))
+                self._image_filter_subs[key] = [camera_sub, camera_info_sub]
+                self._image_syncs[key] = image_sync
+
+                channel_info_topic_name = config.get("channel_info_topic_name")
+                if channel_info_topic_name:
+                    self._channel_info_subs[key] = self.create_subscription(
+                        ChannelInfo,
+                        channel_info_topic_name,
+                        partial(self.channel_info_callback, sub_key=key),
+                        10,
+                    )
+                continue
+
             if data_type != "pointcloud":
                 raise ValueError(
                     f"Unsupported subscriber data_type='{data_type}' for '{key}'. "
-                    "Supported: pointcloud only."
-                )
-            if config.get("channels"):
-                raise ValueError(
-                    f"Subscriber '{key}' sets 'channels', but semantic/rgb channels are not supported "
-                    "in the supported surface. Remove 'channels' from the config."
+                    "Supported: pointcloud and image."
                 )
 
             topic_name = config.get("topic_name")
@@ -305,6 +346,27 @@ class ElevationMappingNode(Node):
                 partial(self.pointcloud_callback, sub_key=key),
                 qos_profile,
             )
+
+    def channel_info_callback(self, msg: ChannelInfo, sub_key: str) -> None:
+        self._image_channels[sub_key] = list(msg.channels)
+
+    def resolve_image_channels(self, sub_key: str) -> List[str]:
+        configured_channels = self.param.subscriber_cfg[sub_key].get("channels", [])
+        if configured_channels:
+            return configured_channels
+
+        live_channels = self._image_channels.get(sub_key, [])
+        if live_channels:
+            return live_channels
+
+        self.get_logger().warning(
+            (
+                f"Image subscriber '{sub_key}' has no resolved channels yet. "
+                "Configure 'channels' or wait for ChannelInfo."
+            ),
+            throttle_duration_sec=5.0,
+        )
+        return []
 
     def register_publishers(self) -> None:
         self._publishers_dict = {}
@@ -739,11 +801,113 @@ class ElevationMappingNode(Node):
             )
             return None
 
+    def image_callback(self, camera_msg: Image, camera_info_msg: CameraInfo, sub_key: str) -> None:
+        self._last_t = camera_msg.header.stamp
+
+        frame_sensor_id = camera_msg.header.frame_id
+        if not frame_sensor_id:
+            raise ValueError("Image header.frame_id is empty.")
+
+        semantic_img = self.cv_bridge.imgmsg_to_cv2(camera_msg, desired_encoding="passthrough")
+        if len(semantic_img.shape) != 2:
+            semantic_img = [semantic_img[:, :, idx] for idx in range(semantic_img.shape[2])]
+        else:
+            semantic_img = [semantic_img]
+
+        K = np.array(camera_info_msg.k, dtype=np.float32).reshape(3, 3)
+        D = np.array(camera_info_msg.d, dtype=np.float32).reshape(-1, 1)
+
+        if frame_sensor_id == self.map_frame:
+            t_np = np.zeros(3, dtype=np.float32)
+            R = np.eye(3, dtype=np.float32)
+        else:
+            transform_camera_to_map = self.safe_lookup_transform(
+                self.map_frame,
+                frame_sensor_id,
+                camera_msg.header.stamp,
+            )
+            if transform_camera_to_map is None:
+                return
+            t = transform_camera_to_map.transform.translation
+            q = transform_camera_to_map.transform.rotation
+            t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
+            R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
+
+        channels = self.resolve_image_channels(sub_key)
+        if not channels:
+            return
+
+        self._map.input_image(
+            semantic_img,
+            channels,
+            R,
+            t_np,
+            K,
+            D,
+            camera_info_msg.distortion_model,
+            camera_info_msg.height,
+            camera_info_msg.width,
+        )
+        self._image_process_counter += 1
+
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
         self._last_t = msg.header.stamp
-        # self.get_logger().info(f"Received pointcloud with {msg.width} points")
+        additional_channels = list(self.param.subscriber_cfg[sub_key].get("channels", []))
+        channels = ["x", "y", "z"] + additional_channels
 
-        pts = _pointcloud2_xyz_f32(msg)
+        if additional_channels:
+            points = rnp.numpify(msg)
+            if points is None:
+                return
+
+            if isinstance(points, dict):
+                if not points:
+                    return
+                if "xyz" in points:
+                    xyz_array = np.array(points["xyz"])
+                    if xyz_array.ndim == 2 and xyz_array.shape[1] == 3:
+                        pts = xyz_array
+                    elif xyz_array.ndim == 1:
+                        pts = xyz_array.reshape(-1, 3)
+                    else:
+                        pts = xyz_array[:, :3]
+                elif all(name in points for name in ("x", "y", "z")):
+                    pts = np.column_stack(
+                        (
+                            np.array(points["x"]).flatten(),
+                            np.array(points["y"]).flatten(),
+                            np.array(points["z"]).flatten(),
+                        )
+                    )
+                else:
+                    raise ValueError(
+                        f"PointCloud2 dict for '{sub_key}' is missing xyz fields. "
+                        f"Available: {list(points.keys())}"
+                    )
+                for channel in additional_channels:
+                    if channel not in points:
+                        raise ValueError(
+                            f"PointCloud2 for '{sub_key}' is missing configured channel '{channel}'."
+                        )
+                    data = np.array(points[channel]).flatten()
+                    if data.ndim == 1:
+                        data = data[:, np.newaxis]
+                    pts = np.hstack((pts, data))
+            else:
+                if points.size == 0:
+                    return
+                pts = rnp.point_cloud2.get_xyz_points(points)
+                for channel in additional_channels:
+                    if not hasattr(points, "dtype") or channel not in points.dtype.names:
+                        raise ValueError(
+                            f"PointCloud2 for '{sub_key}' is missing configured channel '{channel}'."
+                        )
+                    data = points[channel].flatten()
+                    if data.ndim == 1:
+                        data = data[:, np.newaxis]
+                    pts = np.hstack((pts, data))
+        else:
+            pts = _pointcloud2_xyz_f32(msg)
         if pts.size == 0:
             return
 
@@ -768,7 +932,7 @@ class ElevationMappingNode(Node):
             t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
             R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
 
-        self._map.input_pointcloud(pts, ["x", "y", "z"], R, t_np, 0, 0)
+        self._map.input_pointcloud(pts, channels, R, t_np, 0, 0)
         self._pointcloud_process_counter += 1
 
     def pose_update(self) -> None:

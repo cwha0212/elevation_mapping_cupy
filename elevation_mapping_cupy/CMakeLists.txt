@@ -3,6 +3,9 @@ project(elevation_mapping_cupy)
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(elevation_map_msgs REQUIRED)
+find_package(message_filters REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -11,6 +14,9 @@ find_package(grid_map_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 set(dependencies
+  cv_bridge
+  elevation_map_msgs
+  message_filters
   rclpy
   std_msgs
   sensor_msgs
@@ -75,6 +81,11 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_kernel_compile_smoke
     ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_kernel_compile_smoke.py
     TIMEOUT 180
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_semantic_launch_descriptions
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_semantic_launch_descriptions.py
+    TIMEOUT 120
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
 

@@ -491,11 +491,80 @@ class ElevationMap:
             orientation_noise,
         )
 
-    def input_image(self, *args, **kwargs):
-        raise NotImplementedError(
-            "Image input was removed from the supported surface of this repo. "
-            "Use pointcloud input only."
-        )
+    def input_image(
+        self,
+        image: List[cp._core.core.ndarray],
+        channels: List[str],
+        R: cp._core.core.ndarray,
+        t: cp._core.core.ndarray,
+        K: cp._core.core.ndarray,
+        D: cp._core.core.ndarray,
+        distortion_model: str,
+        image_height: int,
+        image_width: int,
+    ):
+        """Project image channels into the map using the camera calibration and pose."""
+
+        image = np.stack(image, axis=0)
+        if len(image.shape) == 2:
+            image = image[None]
+
+        image = cp.asarray(image, dtype=self.data_type)
+        K = cp.asarray(K, dtype=self.data_type)
+        R = cp.asarray(R, dtype=self.data_type)
+        t = cp.asarray(t, dtype=self.data_type)
+        D = cp.asarray(D, dtype=self.data_type)
+        image_height = cp.float32(image_height)
+        image_width = cp.float32(image_width)
+
+        if len(D) < 4:
+            D = cp.zeros(5, dtype=self.data_type)
+        elif len(D) == 4:
+            D = cp.concatenate([D, cp.zeros(1, dtype=self.data_type)])
+        else:
+            D = D[:5]
+
+        if distortion_model == "radtan":
+            pass
+        elif distortion_model in {"equidistant", "plumb_bob"}:
+            D *= 0
+        else:
+            D *= 0
+
+        P = cp.asarray(K @ cp.concatenate([R, t[:, None]], 1), dtype=np.float32)
+        t_cam_map = -R.T @ t - self.center
+        t_cam_map = t_cam_map.get()
+        x1 = cp.uint32((self.cell_n / 2) + (t_cam_map[0] / self.resolution))
+        y1 = cp.uint32((self.cell_n / 2) + (t_cam_map[1] / self.resolution))
+        z1 = cp.float32(t_cam_map[2])
+
+        self.uv_correspondence *= 0
+        self.valid_correspondence[:, :] = False
+
+        with self.map_lock:
+            self.image_to_map_correspondence_kernel(
+                self.elevation_map,
+                x1,
+                y1,
+                z1,
+                P.reshape(-1),
+                K.reshape(-1),
+                D.reshape(-1),
+                image_height,
+                image_width,
+                self.center,
+                self.uv_correspondence,
+                self.valid_correspondence,
+                size=int(self.cell_n * self.cell_n),
+            )
+            self.semantic_map.update_layers_image(
+                image,
+                channels,
+                self.uv_correspondence,
+                self.valid_correspondence,
+                image_height,
+                image_width,
+            )
 
     def update_normal(self, dilated_map):
         """Clear the normal map and then apply the normal kernel with dilated map as input.
