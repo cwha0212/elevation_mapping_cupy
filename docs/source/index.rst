@@ -37,7 +37,3 @@
     :caption: Release Notes
 
     Jazzy Release <release_notes/jazzy_release>
-
-
-
-
