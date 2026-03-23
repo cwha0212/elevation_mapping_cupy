@@ -122,17 +122,17 @@ border-connected invalid regions stay unknown in the published layer.
 .. automodule:: elevation_mapping_cupy.plugins.robot_centric_elevation
     :members:
 
-5. Semantic Filter
+5. Erosion
 -------------------------------------------------------------------
-.. automodule:: elevation_mapping_cupy.plugins.semantic_filter
+.. automodule:: elevation_mapping_cupy.plugins.erosion
     :members:
 
-6. Semantic traversability
+6. Max Filter
 -------------------------------------------------------------------
-.. automodule:: elevation_mapping_cupy.plugins.semantic_traversability
+.. automodule:: elevation_mapping_cupy.plugins.max_filter
     :members:
 
-7. Features PCA
+7. Max Layer Filter
 -------------------------------------------------------------------
-.. automodule:: elevation_mapping_cupy.plugins.features_pca
+.. automodule:: elevation_mapping_cupy.plugins.max_layer_filter
     :members:

@@ -21,6 +21,14 @@ def _supported_config_files() -> list[Path]:
         # Keep experimental configs in the tree, but don't treat them as supported.
         if "experimental" in p.parts:
             continue
+        # The turtlesim semantic examples are legacy samples for the optional
+        # semantic/image workflow. The supported ROS2 surface in this branch is
+        # pointcloud-only, so exclude those configs from the supported contract.
+        if p.name in {
+            "turtle_bot_semantics_image.yaml",
+            "turtle_bot_semantics_pointcloud.yaml",
+        }:
+            continue
         supported.append(p)
     return supported
 
