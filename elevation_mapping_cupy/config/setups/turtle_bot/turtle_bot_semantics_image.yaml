@@ -1,8 +1,5 @@
 /elevation_mapping_node:
   ros__parameters:
-    #### Plugins ########
-    plugin_config_file: '$(find-pkg-share elevation_mapping_cupy)/config/setups/turtle_bot/plugin_config.yaml'
-
     pointcloud_channel_fusions:
       none: 'none'
 
