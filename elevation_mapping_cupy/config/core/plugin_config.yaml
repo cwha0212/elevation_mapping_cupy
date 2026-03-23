@@ -23,6 +23,8 @@ inpainting:
   layer_name: "inpaint"
   extra_params:
     method: "telea"                           # telea or ns
+    max_hole_area: 64                         # fill only small invalid components; <=0 disables the size bound
+    fill_border_holes: False                  # boundary-connected invalid regions stay unknown
 # Apply smoothing for inpainted layer
 erosion:
   enable: True

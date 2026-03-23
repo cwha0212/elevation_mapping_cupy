@@ -106,6 +106,9 @@ use.
 2. Inpainting
 -------------------------------------------------------------------
 
+The default inpainting plugin only fills bounded interior holes; large or
+border-connected invalid regions stay unknown in the published layer.
+
 .. automodule:: elevation_mapping_cupy.plugins.inpainting
     :members:
 
