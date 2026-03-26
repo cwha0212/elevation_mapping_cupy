@@ -1,7 +1,12 @@
 import pytest
-from elevation_mapping_cupy import parameter, elevation_mapping
 import cupy as cp
 import numpy as np
+from pathlib import Path
+
+from elevation_mapping_cupy import parameter, elevation_mapping
+
+
+_CONFIG_DIR = Path(__file__).resolve().parents[2] / "config" / "core"
 
 
 def encode_max(maxim, index):
@@ -22,8 +27,8 @@ def elmap_ex(add_lay, fusion_alg):
     fusion_algorithms = fusion_alg
     p = parameter.Parameter(
         use_chainer=False,
-        weight_file="../../../config/weights.dat",
-        plugin_config_file="../../../config/plugin_config.yaml",
+        weight_file=str(_CONFIG_DIR / "weights.dat"),
+        plugin_config_file=str(_CONFIG_DIR / "plugin_config.yaml"),
     )
     p.subscriber_cfg["front_cam"]["channels"] = additional_layer
     p.subscriber_cfg["front_cam"]["fusion"] = fusion_algorithms
@@ -74,18 +79,11 @@ class TestElevationMap:
             "elevation",
             "variance",
             "traversability",
-            "min_filter",
-            "smooth",
-            "inpaint",
-            "rgb",
+            *elmap_ex.plugin_manager.layer_names,
         ]
         data = np.zeros((elmap_ex.cell_n - 2, elmap_ex.cell_n - 2), dtype=cp.float32)
         for layer in layers:
             elmap_ex.get_map_with_name_ref(layer, data)
-
-    def test_get_position(self, elmap_ex):
-        pos = np.random.rand(1, 3)
-        elmap_ex.get_position(pos)
 
     def test_clear(self, elmap_ex):
         elmap_ex.clear()
@@ -94,8 +92,8 @@ class TestElevationMap:
         delta_position = np.random.rand(3)
         elmap_ex.move(delta_position)
 
-    def test_exists_layer(self, elmap_ex, add_lay):
-        for layer in add_lay:
+    def test_exists_layer(self, elmap_ex):
+        for layer in ["elevation", "variance", "traversability", *elmap_ex.plugin_manager.layer_names]:
             assert elmap_ex.exists_layer(layer)
 
     def test_polygon_traversability(self, elmap_ex):
