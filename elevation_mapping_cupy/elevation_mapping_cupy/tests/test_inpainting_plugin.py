@@ -1,7 +1,11 @@
 import cupy as cp
 import numpy as np
+from pathlib import Path
 
 from elevation_mapping_cupy.plugins.inpainting import Inpainting
+
+
+_DATA_DIR = Path(__file__).resolve().parent / "data"
 
 
 def _make_elevation_map(size: int = 9):
@@ -12,6 +16,16 @@ def _make_elevation_map(size: int = 9):
     elevation_map[0] = cp.asarray(elevation)
     elevation_map[2] = cp.asarray(valid)
     return elevation_map
+
+
+def _make_snapshot_elevation_map():
+    snapshot = np.load(_DATA_DIR / "mole_elevation_snapshot.npz")
+    elevation = snapshot["elevation"].astype(np.float32, copy=False)
+    valid = np.isfinite(elevation).astype(np.float32)
+    elevation_map = cp.zeros((7, elevation.shape[0], elevation.shape[1]), dtype=cp.float32)
+    elevation_map[0] = cp.asarray(elevation)
+    elevation_map[2] = cp.asarray(valid)
+    return elevation, elevation_map
 
 
 def test_inpainting_only_fills_small_holes():
@@ -57,3 +71,30 @@ def test_inpainting_does_not_fill_border_touching_invalid_cells():
     result = cp.asnumpy(plugin(elevation_map, [], cp.zeros((0, 9, 9), dtype=cp.float32), []))
 
     assert np.isnan(result[0, 4])
+
+
+def test_snapshot_aggressive_inpainting_fills_all_holes():
+    elevation, elevation_map = _make_snapshot_elevation_map()
+    default_plugin = Inpainting(max_hole_area=64, fill_border_holes=False)
+    aggressive_plugin = Inpainting(max_hole_area=0, fill_border_holes=True)
+
+    default_result = cp.asnumpy(
+        default_plugin(elevation_map, [], cp.zeros((0, elevation.shape[0], elevation.shape[1]), dtype=cp.float32), [])
+    )
+    aggressive_result = cp.asnumpy(
+        aggressive_plugin(
+            elevation_map,
+            [],
+            cp.zeros((0, elevation.shape[0], elevation.shape[1]), dtype=cp.float32),
+            [],
+        )
+    )
+
+    finite_input = int(np.isfinite(elevation).sum())
+    finite_default = int(np.isfinite(default_result).sum())
+    finite_aggressive = int(np.isfinite(aggressive_result).sum())
+
+    assert finite_default > finite_input
+    assert finite_default < elevation.size
+    assert finite_aggressive == elevation.size
+    assert np.allclose(aggressive_result[np.isfinite(elevation)], elevation[np.isfinite(elevation)])

@@ -182,6 +182,14 @@ class ElevationMappingNode(Node):
         # Assign to self.param so it won't use defaults. This is research code: crash loudly if
         # a required parameter is missing or mistyped.
         self.param.use_chainer = self.use_chainer
+        if self.has_parameter("plugin_config_file"):
+            plugin_config_file = self.get_parameter("plugin_config_file").get_parameter_value().string_value
+            assert plugin_config_file
+            self.param.plugin_config_file = plugin_config_file
+        if self.has_parameter("weight_file"):
+            weight_file = self.get_parameter("weight_file").get_parameter_value().string_value
+            assert weight_file
+            self.param.weight_file = weight_file
         self.param.resolution = self.get_parameter('resolution').get_parameter_value().double_value
         self.param.map_length = self.get_parameter('map_length').get_parameter_value().double_value
         self.param.sensor_noise_factor = self.get_parameter('sensor_noise_factor').get_parameter_value().double_value
