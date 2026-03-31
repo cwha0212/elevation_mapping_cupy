@@ -113,8 +113,9 @@ class PluginManager(object):
     This manages the plugins.
     """
 
-    def __init__(self, cell_n: int):
+    def __init__(self, cell_n: int, resolution: Optional[float] = None):
         self.cell_n = cell_n
+        self.resolution = resolution
 
     def init(self, plugin_params: List[PluginParams], extra_params: List[Dict]):
         self.plugin_params = plugin_params
@@ -124,10 +125,12 @@ class PluginManager(object):
             m = importlib.import_module("." + param.name, package="elevation_mapping_cupy.plugins")  # -> 'module'
             for name, obj in inspect.getmembers(m):
                 if inspect.isclass(obj) and issubclass(obj, PluginBase) and name != "PluginBase":
-                    # Add cell_n to params
+                    # Add shared grid geometry so plugins can reason in meters.
                     extra_param["cell_n"] = self.cell_n
+                    if self.resolution is not None:
+                        extra_param["resolution"] = self.resolution
                     self.plugins.append(obj(**extra_param))
-        self.layers = cp.zeros((len(self.plugins), self.cell_n, self.cell_n), dtype=cp.float32)
+        self.layers = cp.full((len(self.plugins), self.cell_n, self.cell_n), cp.nan, dtype=cp.float32)
         self.layer_names = self.get_layer_names()
         self.plugin_names = self.get_plugin_names()
 
@@ -191,6 +194,7 @@ class PluginManager(object):
         semantic_params=None,
         rotation=None,
         elements_to_shift=None,
+        _active_stack=None,
     ):
         # Semantic layers are optional. In this repo's supported surface we don't use them, so
         # default to empty containers to keep plugins robust.
@@ -200,42 +204,64 @@ class PluginManager(object):
             semantic_params = []
         if elements_to_shift is None:
             elements_to_shift = {}
+        if _active_stack is None:
+            _active_stack = set()
 
         idx = self.get_layer_index_with_name(name)
         if idx is not None and idx < len(self.plugins):
-            n_param = len(signature(self.plugins[idx]).parameters)
-            if n_param == 5:
-                self.layers[idx] = self.plugins[idx](elevation_map, layer_names, self.layers, self.layer_names)
-            elif n_param == 7:
-                self.layers[idx] = self.plugins[idx](
-                    elevation_map,
-                    layer_names,
-                    self.layers,
-                    self.layer_names,
-                    semantic_map,
-                    semantic_params,
-                )
-            elif n_param == 8:
-                self.layers[idx] = self.plugins[idx](
-                    elevation_map,
-                    layer_names,
-                    self.layers,
-                    self.layer_names,
-                    semantic_map,
-                    semantic_params,
-                    rotation,
-                )
-            else:
-                self.layers[idx] = self.plugins[idx](
-                    elevation_map,
-                    layer_names,
-                    self.layers,
-                    self.layer_names,
-                    semantic_map,
-                    semantic_params,
-                    rotation,
-                    elements_to_shift,
-                )
+            if name in _active_stack:
+                raise RuntimeError(f"Cyclic plugin dependency detected while computing '{name}'")
+            _active_stack.add(name)
+            try:
+                input_layer_name = getattr(self.plugins[idx], "input_layer_name", None)
+                if input_layer_name in self.layer_names:
+                    dependency_idx = self.get_layer_index_with_name(input_layer_name)
+                    if dependency_idx is not None and cp.isnan(self.layers[dependency_idx]).all():
+                        self.update_with_name(
+                            input_layer_name,
+                            elevation_map,
+                            layer_names,
+                            semantic_map=semantic_map,
+                            semantic_params=semantic_params,
+                            rotation=rotation,
+                            elements_to_shift=elements_to_shift,
+                            _active_stack=_active_stack,
+                        )
+                n_param = len(signature(self.plugins[idx]).parameters)
+                if n_param == 5:
+                    self.layers[idx] = self.plugins[idx](elevation_map, layer_names, self.layers, self.layer_names)
+                elif n_param == 7:
+                    self.layers[idx] = self.plugins[idx](
+                        elevation_map,
+                        layer_names,
+                        self.layers,
+                        self.layer_names,
+                        semantic_map,
+                        semantic_params,
+                    )
+                elif n_param == 8:
+                    self.layers[idx] = self.plugins[idx](
+                        elevation_map,
+                        layer_names,
+                        self.layers,
+                        self.layer_names,
+                        semantic_map,
+                        semantic_params,
+                        rotation,
+                    )
+                else:
+                    self.layers[idx] = self.plugins[idx](
+                        elevation_map,
+                        layer_names,
+                        self.layers,
+                        self.layer_names,
+                        semantic_map,
+                        semantic_params,
+                        rotation,
+                        elements_to_shift,
+                    )
+            finally:
+                _active_stack.remove(name)
 
     def get_map_with_name(self, name: str) -> cp.ndarray:
         idx = self.get_layer_index_with_name(name)

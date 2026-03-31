@@ -9,9 +9,9 @@ import cupy as cp
 import cv2 as cv
 import numpy as np
 
-_LOGGER = logging.getLogger(__name__)
-
 from .plugin_manager import PluginBase
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class Inpainting(PluginBase):
@@ -28,12 +28,14 @@ class Inpainting(PluginBase):
         self,
         cell_n: int = 100,
         method: str = "telea",
+        input_layer_name: str = "elevation",
         max_hole_area: int = 64,
         fill_border_holes: bool = False,
         inpaint_radius: float = 1.0,
         **kwargs,
     ):
         super().__init__()
+        self.input_layer_name = input_layer_name
         if method == "telea":
             self.method = cv.INPAINT_TELEA
         elif method == "ns":  # Navier-Stokes
@@ -91,8 +93,14 @@ class Inpainting(PluginBase):
         Returns:
             cupy._core.core.ndarray:
         """
-        elevation = elevation_map[0]
         valid_layer = elevation_map[2]
+        if self.input_layer_name in layer_names:
+            elevation = elevation_map[layer_names.index(self.input_layer_name)]
+        elif self.input_layer_name in plugin_layer_names:
+            elevation = plugin_layers[plugin_layer_names.index(self.input_layer_name)]
+        else:
+            raise ValueError(f"Inpainting could not find layer '{self.input_layer_name}'")
+
         finite_elevation = cp.isfinite(elevation)
         valid_mask = cp.logical_and(valid_layer > 0.5, finite_elevation)
         output = cp.full(elevation.shape, cp.nan, dtype=cp.float32)
