@@ -148,7 +148,7 @@ class ElevationMap:
         self.untraversable_polygon = xp.zeros((1, 2))
 
         # Plugins
-        self.plugin_manager = PluginManager(cell_n=self.cell_n)
+        self.plugin_manager = PluginManager(cell_n=self.cell_n, resolution=self.resolution)
         self.plugin_manager.load_plugin_settings(param.plugin_config_file)
 
         self.map_initializer = MapInitializer(self.initial_variance, param.initialized_variance, xp=cp, method="points")
@@ -159,6 +159,7 @@ class ElevationMap:
             self.elevation_map *= 0.0
             # Initial variance
             self.elevation_map[1] += self.initial_variance
+            self.plugin_manager.reset_layers()
 
         self.mean_error = 0.0
         self.additive_mean_error = 0.0
@@ -407,6 +408,7 @@ class ElevationMap:
             self.elevation_map[3][3:-3, 3:-3] = traversability.reshape(
                 (traversability.shape[2], traversability.shape[3])
             )
+            self.plugin_manager.reset_layers()
 
         self.update_normal(self.traversability_input)
 
@@ -977,6 +979,7 @@ class ElevationMap:
                         size=(self.cell_n * self.cell_n),
                     )
             self.update_upper_bound_with_valid_elevation()
+            self.plugin_manager.reset_layers()
 
     def list_layers(self) -> List[str]:
         ordered: List[str] = []
