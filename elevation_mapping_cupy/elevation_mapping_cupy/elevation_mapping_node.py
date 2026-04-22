@@ -152,6 +152,11 @@ class ElevationMappingNode(Node):
         self.update_variance_fps = self.get_parameter('update_variance_fps').get_parameter_value().double_value
         self.time_interval = self.get_parameter('time_interval').get_parameter_value().double_value
         self.update_pose_fps = self.get_parameter('update_pose_fps').get_parameter_value().double_value
+        if not self.has_parameter('cupy_memory_pool_trim_interval_s'):
+            self.declare_parameter('cupy_memory_pool_trim_interval_s', 5.0)
+        self.cupy_memory_pool_trim_interval_s = float(
+            self.get_parameter('cupy_memory_pool_trim_interval_s').value
+        )
         self.initialize_tf_grid_size = self.get_parameter('initialize_tf_grid_size').get_parameter_value().double_value
         self.map_acquire_fps = self.get_parameter('map_acquire_fps').get_parameter_value().double_value
         self.publish_statistics_fps = self.get_parameter('publish_statistics_fps').get_parameter_value().double_value
@@ -406,6 +411,12 @@ class ElevationMappingNode(Node):
             self.time_interval,
             self.update_time
         )
+        self.timer_cupy_memory_pool = None
+        if self.cupy_memory_pool_trim_interval_s > 0.0:
+            self.timer_cupy_memory_pool = self.create_timer(
+                self.cupy_memory_pool_trim_interval_s,
+                self.trim_cupy_memory_pool
+            )
 
     def register_services(self) -> None:
         service_masked = self._resolve_service_name('masked_replace')
@@ -989,6 +1000,9 @@ class ElevationMappingNode(Node):
 
     def update_time(self) -> None:
         self._map.update_time()
+
+    def trim_cupy_memory_pool(self) -> None:
+        self._map.trim_memory_pool()
 
     def destroy_node(self) -> None:
         super().destroy_node()

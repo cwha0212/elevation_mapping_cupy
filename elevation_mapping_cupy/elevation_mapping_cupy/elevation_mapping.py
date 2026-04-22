@@ -699,12 +699,18 @@ class ElevationMap:
             stream (Union[None, cupy.cuda.stream.Stream, None, None, None, None, None, None, None]):
         """
         if type(array) == np.ndarray:
-            data[...] = array.astype(np.float32)
+            data[...] = array.astype(np.float32, copy=False)
         elif type(array) == cp.ndarray:
+            source = array.astype(np.float32, copy=False)
             if stream is not None:
-                data[...] = cp.asnumpy(array.astype(np.float32), stream=stream)
+                cp.asnumpy(source, stream=stream, out=data)
             else:
-                data[...] = cp.asnumpy(array.astype(np.float32))
+                cp.asnumpy(source, out=data)
+
+    def trim_memory_pool(self):
+        """Release cached CuPy allocator blocks that are not currently in use."""
+        pool.free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
 
     def exists_layer(self, name):
         """Check if the layer exists in elevation map or in the semantic map.
