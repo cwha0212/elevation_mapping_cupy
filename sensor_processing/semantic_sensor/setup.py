@@ -23,6 +23,7 @@ setup(
     maintainer_email='lorenzoterenzi96@gmail.com',
     description='Semantic image and semantic pointcloud publishers for elevation_mapping_cupy',
     license='MIT',
+    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'pointcloud_node = semantic_sensor.pointcloud_node:main',

@@ -2,4 +2,4 @@ repositories:
   ros2_numpy:
     type: git
     url: https://github.com/Box-Robotics/ros2_numpy.git
-    version: humble
+    version: jazzy
