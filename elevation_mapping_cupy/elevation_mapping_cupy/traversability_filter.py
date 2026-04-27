@@ -25,7 +25,7 @@ def get_filter_torch(*args, **kwargs):
 
         def __call__(self, elevation_cupy):
             # Convert cupy tensor to pytorch.
-            elevation_cupy = elevation_cupy.astype(cp.float32)
+            elevation_cupy = elevation_cupy.astype(cp.float32, copy=False)
             elevation = torch.as_tensor(elevation_cupy, device=self.conv1.weight.device)
 
             with torch.no_grad():

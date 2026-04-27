@@ -5,6 +5,7 @@
 import math
 import os
 import threading
+import sys
 from dataclasses import dataclass
 from typing import Dict, List, Any, Tuple, Union, Optional
 
@@ -711,6 +712,9 @@ class ElevationMap:
         """Release cached CuPy allocator blocks that are not currently in use."""
         pool.free_all_blocks()
         cp.get_default_pinned_memory_pool().free_all_blocks()
+        torch = sys.modules.get("torch")
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def exists_layer(self, name):
         """Check if the layer exists in elevation map or in the semantic map.
