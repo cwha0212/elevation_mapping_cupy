@@ -978,7 +978,7 @@ class ElevationMap:
         patch_rows = overlap["patch"][0]
         patch_cols = overlap["patch"][1]
 
-        mask_slice = mask[patch_rows, patch_cols]
+        mask_slice = self._resample_patch_slice_to_map(mask, geometry, map_rows, map_cols, patch_rows, patch_cols)
         valid_mask = np.isfinite(mask_slice)
         if not np.any(valid_mask):
             return
@@ -991,7 +991,7 @@ class ElevationMap:
                 target = self._resolve_layer_target(name)
                 if target is None:
                     raise ValueError(f"Layer '{name}' does not exist in the map.")
-                incoming_slice = array[patch_rows, patch_cols]
+                incoming_slice = self._resample_patch_slice_to_map(array, geometry, map_rows, map_cols, patch_rows, patch_cols)
                 if incoming_slice.shape != mask_slice.shape:
                     raise ValueError("Mismatch between mask and incoming slice dimensions.")
                 if name in ("elevation", "upper_bound"):
@@ -1075,10 +1075,43 @@ class ElevationMap:
             raise ValueError(
                 f"Grid shape mismatch: expected {expected_shape}, received {shape}."
             )
-        if not math.isclose(float(geometry.resolution), float(self.resolution), rel_tol=1e-6, abs_tol=1e-6):
-            raise ValueError(
-                f"Resolution mismatch: map uses {self.resolution}, incoming grid uses {geometry.resolution}."
-            )
+
+    def _resample_patch_slice_to_map(
+        self,
+        patch_array: np.ndarray,
+        geometry: GridGeometry,
+        map_rows: slice,
+        map_cols: slice,
+        patch_rows: slice,
+        patch_cols: slice,
+    ) -> np.ndarray:
+        """Sample a patch onto the map grid when incoming and map resolutions differ."""
+        map_row_count = map_rows.stop - map_rows.start
+        map_col_count = map_cols.stop - map_cols.start
+        if map_row_count <= 0 or map_col_count <= 0:
+            raise ValueError("Invalid overlap region for masked replace.")
+
+        if math.isclose(float(geometry.resolution), float(self.resolution), rel_tol=1e-6, abs_tol=1e-6):
+            return patch_array[patch_rows, patch_cols]
+
+        map_length = (self.cell_n - 2) * self.resolution
+        center_cpu = np.asarray(cp.asnumpy(self.center))
+        map_min_x = center_cpu[0] - map_length / 2.0
+        map_min_y = center_cpu[1] - map_length / 2.0
+        patch_min_x, _ = geometry.bounds_x
+        patch_min_y, _ = geometry.bounds_y
+
+        map_r = np.arange(map_rows.start, map_rows.stop, dtype=np.float32)
+        map_c = np.arange(map_cols.start, map_cols.stop, dtype=np.float32)
+        world_x = map_min_x + (map_c + 0.5) * self.resolution
+        world_y = map_min_y + (map_r + 0.5) * self.resolution
+        xx, yy = np.meshgrid(world_x, world_y)
+
+        patch_col = np.floor((xx - patch_min_x) / geometry.resolution).astype(np.int32)
+        patch_row = np.floor((yy - patch_min_y) / geometry.resolution).astype(np.int32)
+        patch_col = np.clip(patch_col, 0, patch_array.shape[1] - 1)
+        patch_row = np.clip(patch_row, 0, patch_array.shape[0] - 1)
+        return patch_array[patch_row, patch_col]
 
     def _compute_overlap_indices(
         self, incoming_shape: Tuple[int, int], geometry: GridGeometry

@@ -622,6 +622,9 @@ class ElevationMappingNode(Node):
         return f"{base}/{suffix}".replace('//', '/')
 
     def _resolve_topic_name(self, topic: str) -> str:
+        topic = topic.strip()
+        if topic.startswith('/'):
+            return topic
         topic = topic.strip('/') or self.save_map_default_topic
         base = self.service_namespace
         if not base:
