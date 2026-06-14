@@ -35,7 +35,7 @@ publishers:
 #### Subscribers ########
 subscribers:
   Livox:
-    topic_name: /robot/dlio/odom_node/pointcloud/deskewed
+    topic_name: /livox/lidar_filtered
     data_type: pointcloud
   D435:
     topic_name: /camera/depth_registered/points
