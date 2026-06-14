@@ -91,7 +91,7 @@ class ElevationMappingNode {
   void readParameters();
   void setupMapPublishers();
   void pointcloudCallback(const sensor_msgs::PointCloud2& cloud, const std::string& key);
-  void inputPointCloud(const sensor_msgs::PointCloud2& cloud, const std::vector<std::string>& channels);
+  void inputPointCloud(const sensor_msgs::PointCloud2& cloud, const std::vector<std::string>& channels, const std::string& key);
   void inputImage(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg, const std::vector<std::string>& channels);
   void imageCallback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg, const std::string& key);
   void imageChannelCallback(const sensor_msgs::ImageConstPtr& image_msg, const sensor_msgs::CameraInfoConstPtr& camera_info_msg, const elevation_map_msgs::ChannelInfoConstPtr& channel_info_msg);
@@ -159,6 +159,10 @@ class ElevationMappingNode {
   std::set<double> map_fps_unique_;
   std::vector<ros::Timer> mapTimers_;
   std::map<std::string, std::vector<std::string>> channels_;
+  // Optional per-subscriber frame whose origin is used as the visibility-cleanup ray source
+  // (and point validity sensor origin), instead of the point cloud's header frame. Needed when
+  // clouds are published in a non-sensor frame (e.g. deskewed into odom).
+  std::map<std::string, std::string> raySourceFrames_;
 
   std::vector<std::string> initialize_frame_id_;
   std::vector<double> initialize_tf_offset_;

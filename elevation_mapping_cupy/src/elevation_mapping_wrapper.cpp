@@ -171,10 +171,12 @@ void ElevationMappingWrapper::setParameters(ros::NodeHandle& nh) {
 }
 
 void ElevationMappingWrapper::input(const RowMatrixXd& points, const std::vector<std::string>& channels, const RowMatrixXd& R,
-                                    const Eigen::VectorXd& t, const double positionNoise, const double orientationNoise) {
+                                    const Eigen::VectorXd& t, const Eigen::VectorXd& sensorOrigin, const double positionNoise,
+                                    const double orientationNoise) {
   py::gil_scoped_acquire acquire;
   map_.attr("input_pointcloud")(Eigen::Ref<const RowMatrixXd>(points), channels, Eigen::Ref<const RowMatrixXd>(R),
-                     Eigen::Ref<const Eigen::VectorXd>(t), positionNoise, orientationNoise);
+                     Eigen::Ref<const Eigen::VectorXd>(t), positionNoise, orientationNoise,
+                     Eigen::Ref<const Eigen::VectorXd>(sensorOrigin));
 }
 
 void ElevationMappingWrapper::input_image(const std::vector<ColMatrixXf>& multichannel_image, const std::vector<std::string>& channels, const RowMatrixXd& R,

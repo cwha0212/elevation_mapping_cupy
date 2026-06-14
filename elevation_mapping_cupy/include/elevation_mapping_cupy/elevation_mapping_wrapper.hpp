@@ -47,7 +47,7 @@ class ElevationMappingWrapper {
   void initialize(ros::NodeHandle& nh);
 
   void input(const RowMatrixXd& points, const std::vector<std::string>& channels, const RowMatrixXd& R, const Eigen::VectorXd& t,
-             const double positionNoise, const double orientationNoise);
+             const Eigen::VectorXd& sensorOrigin, const double positionNoise, const double orientationNoise);
   void input_image(const std::vector<ColMatrixXf>& multichannel_image, const std::vector<std::string>& channels, const RowMatrixXd& R,
                    const Eigen::VectorXd& t, const RowMatrixXd& cameraMatrix, const Eigen::VectorXd& D, const std::string distortion_model, int height, int width);
   void move_to(const Eigen::VectorXd& p, const RowMatrixXd& R);

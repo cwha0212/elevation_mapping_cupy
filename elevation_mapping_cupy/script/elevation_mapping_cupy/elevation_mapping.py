@@ -313,16 +313,19 @@ class ElevationMap:
         """
         t -= self.center
 
-    def update_map_with_kernel(self, points_all, channels, R, t, position_noise, orientation_noise):
+    def update_map_with_kernel(self, points_all, channels, R, t, position_noise, orientation_noise, sensor_t=None):
         """Update map with new measurement.
 
         Args:
             points_all (cupy._core.core.ndarray):
             channels (List[str]):
             R (cupy._core.core.ndarray):
-            t (cupy._core.core.ndarray):
+            t (cupy._core.core.ndarray): Translation of the point-cloud frame (used to place points).
             position_noise (float):
             orientation_noise (float):
+            sensor_t (cupy._core.core.ndarray): Origin of the sensor (ray_source_frame) used for
+                visibility-cleanup ray tracing and point validity checks. Defaults to ``t`` when None,
+                which reproduces the original behavior (cloud header frame == sensor frame).
         """
         self.new_map *= 0.0
         error = cp.array([0.0], dtype=cp.float32)
@@ -331,6 +334,13 @@ class ElevationMap:
         # additional_fusion = self.get_fusion_of_pcl(channels)
         with self.map_lock:
             self.shift_translation_to_map_center(t)
+            # Resolve the sensor origin used for ray tracing / validity. It must be expressed
+            # in the same map-center-relative frame as t, so apply the same shift.
+            if sensor_t is None:
+                sensor_t = t
+            else:
+                sensor_t = cp.asarray(sensor_t, dtype=self.data_type).copy()
+                self.shift_translation_to_map_center(sensor_t)
             self.error_counting_kernel(
                 self.elevation_map,
                 points,
@@ -360,6 +370,7 @@ class ElevationMap:
                 cp.array([0.0], dtype=self.data_type),
                 R,
                 t,
+                sensor_t,
                 self.normal_map,
                 points,
                 self.elevation_map,
@@ -439,6 +450,7 @@ class ElevationMap:
         t: cp._core.core.ndarray,
         position_noise: float,
         orientation_noise: float,
+        sensor_t: cp._core.core.ndarray = None,
     ):
         """Input the point cloud and fuse the new measurements to update the elevation map.
 
@@ -446,9 +458,11 @@ class ElevationMap:
             raw_points (cupy._core.core.ndarray):
             channels (List[str]):
             R  (cupy._core.core.ndarray):
-            t (cupy._core.core.ndarray):
+            t (cupy._core.core.ndarray): Translation of the point-cloud frame.
             position_noise (float):
             orientation_noise (float):
+            sensor_t (cupy._core.core.ndarray): Origin of the sensor (ray_source_frame) used for
+                visibility cleanup and validity checks. Defaults to ``t`` when None.
 
         Returns:
             None:
@@ -463,6 +477,7 @@ class ElevationMap:
             cp.asarray(t, dtype=self.data_type),
             position_noise,
             orientation_noise,
+            None if sensor_t is None else cp.asarray(sensor_t, dtype=self.data_type),
         )
 
     def input_image(

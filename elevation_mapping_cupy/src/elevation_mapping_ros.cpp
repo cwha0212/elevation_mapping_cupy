@@ -84,6 +84,12 @@ ElevationMappingNode::ElevationMappingNode(ros::NodeHandle& nh)
       channels_[key].push_back("x");
       channels_[key].push_back("y");
       channels_[key].push_back("z");
+      // Optional override of the frame used as the visibility-cleanup ray source. If the cloud is
+      // published in a non-sensor frame (e.g. deskewed into odom), set this to the true sensor frame.
+      if (subscriber.second.hasMember("ray_source_frame")) {
+        raySourceFrames_[key] = static_cast<std::string>(subscriber.second["ray_source_frame"]);
+        ROS_INFO_STREAM("[" << key << "] ray_source_frame override: " << raySourceFrames_[key]);
+      }
       boost::function<void(const sensor_msgs::PointCloud2&)> f = boost::bind(&ElevationMappingNode::pointcloudCallback, this, _1, key);
       ros::Subscriber sub = nh_.subscribe<sensor_msgs::PointCloud2>(pointcloud_topic, 1, f);
       pointcloudSubs_.push_back(sub);
@@ -310,14 +316,14 @@ void ElevationMappingNode::pointcloudCallback(const sensor_msgs::PointCloud2& cl
     auto& field = fields[it];
     channels.push_back(field.name);
   }
-  inputPointCloud(cloud, channels);
+  inputPointCloud(cloud, channels, key);
 
   // This is used for publishing as statistics.
   pointCloudProcessCounter_++;
 }
 
 void ElevationMappingNode::inputPointCloud(const sensor_msgs::PointCloud2& cloud,
-                                          const std::vector<std::string>& channels) {
+                                          const std::vector<std::string>& channels, const std::string& key) {
   auto start = ros::Time::now();
   auto* pcl_pc = new pcl::PCLPointCloud2;
   pcl::PCLPointCloud2ConstPtr cloudPtr(pcl_pc);
@@ -351,6 +357,44 @@ void ElevationMappingNode::inputPointCloud(const sensor_msgs::PointCloud2& cloud
     return;
   }
 
+  // Resolve the sensor origin used for visibility-cleanup ray tracing and point validity.
+  // By default this is the origin of the cloud's header frame. If a ray_source_frame is
+  // configured for this subscriber (e.g. because the cloud is deskewed into odom and its
+  // header frame no longer coincides with the sensor), look up that frame's origin instead.
+  Eigen::Vector3d rayOrigin = transformationSensorToMap.translation();
+  std::string rayFrameUsed = sensorFrameId;
+  auto rayFrameIt = raySourceFrames_.find(key);
+  if (rayFrameIt != raySourceFrames_.end() && !rayFrameIt->second.empty()) {
+    tf::StampedTransform raySourceTf;
+    Eigen::Affine3d raySourceToMap;
+    try {
+      transformListener_.waitForTransform(mapFrameId_, rayFrameIt->second, timeStamp, ros::Duration(1.0));
+      transformListener_.lookupTransform(mapFrameId_, rayFrameIt->second, timeStamp, raySourceTf);
+      poseTFToEigen(raySourceTf, raySourceToMap);
+      rayOrigin = raySourceToMap.translation();
+      rayFrameUsed = rayFrameIt->second;
+    } catch (tf::TransformException& ex) {
+      // A configured ray_source_frame that cannot be resolved must NOT silently fall back to the
+      // cloud header frame: that origin (e.g. odom) is exactly what causes the supporting surface
+      // to be erased by visibility cleanup. Drop this cloud instead and raise a loud alert.
+      ROS_ERROR_STREAM_THROTTLE(
+          2.0, "\n"
+                   << "========================================================================\n"
+                   << "  [ELEVATION MAPPING] ray_source_frame NOT AVAILABLE -- SKIPPING CLOUD\n"
+                   << "  subscriber key   : " << key << "\n"
+                   << "  ray_source_frame : " << rayFrameIt->second << "\n"
+                   << "  map frame        : " << mapFrameId_ << "\n"
+                   << "  TF error         : " << ex.what() << "\n"
+                   << "  This point cloud is NOT used for mapping. Fix the TF tree or the\n"
+                   << "  ray_source_frame setting in the sensor parameter YAML.\n"
+                   << "========================================================================");
+      return;
+    }
+  }
+  ROS_INFO_STREAM_THROTTLE(5.0, "[" << key << "] point frame: " << sensorFrameId << ", cleanup ray source frame: "
+                                    << rayFrameUsed << ", ray origin in " << mapFrameId_ << " = ["
+                                    << rayOrigin.x() << ", " << rayOrigin.y() << ", " << rayOrigin.z() << "]");
+
   double positionError{0.0};
   double orientationError{0.0};
   {
@@ -358,8 +402,8 @@ void ElevationMappingNode::inputPointCloud(const sensor_msgs::PointCloud2& cloud
     positionError = positionError_;
     orientationError = orientationError_;
   }
-  map_.input(points, channels, transformationSensorToMap.rotation(), transformationSensorToMap.translation(), positionError,
-             orientationError);
+  map_.input(points, channels, transformationSensorToMap.rotation(), transformationSensorToMap.translation(), rayOrigin,
+             positionError, orientationError);
 
   if (enableDriftCorrectedTFPublishing_) {
     publishMapToOdom(map_.get_additive_mean_error());

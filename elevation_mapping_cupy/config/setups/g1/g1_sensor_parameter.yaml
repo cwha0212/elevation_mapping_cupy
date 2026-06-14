@@ -37,6 +37,13 @@ subscribers:
   Livox:
     topic_name: /livox/lidar_filtered
     data_type: pointcloud
-  D435:
-    topic_name: /camera/depth_registered/points
-    data_type: pointcloud
+    # Frame whose origin is the true sensor optical center, used as the visibility-cleanup
+    # ray source (and point-validity sensor origin). Required because the cloud is deskewed
+    # into 'odom', so its header frame is no longer the sensor. If omitted, the cloud's
+    # header frame is used (original behavior).
+    ray_source_frame: livox_frame
+
+  # Odin:
+  #   topic_name: /odin1/cloud_slam
+  #   data_type: pointcloud
+  #   ray_source_frame: odin1_base_link

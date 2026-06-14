@@ -142,7 +142,7 @@ def add_points_kernel(
     enable_visibility_cleanup=True,
 ):
     add_points_kernel = cp.ElementwiseKernel(
-        in_params="raw U center_x, raw U center_y, raw U R, raw U t, raw U norm_map",
+        in_params="raw U center_x, raw U center_y, raw U R, raw U t, raw U sensor_t, raw U norm_map",
         out_params="raw U p, raw U map, raw T newmap",
         preamble=map_utils(
             resolution,
@@ -165,7 +165,7 @@ def add_points_kernel(
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
             U v = z_noise(rz);
             int idx = get_idx(x, y, center_x[0], center_y[0]);
-            if (is_valid(x, y, z, t[0], t[1], t[2])) {
+            if (is_valid(x, y, z, sensor_t[0], sensor_t[1], sensor_t[2])) {
                 if (is_inside(idx)) {
                     U map_h = map[get_map_idx(idx, 0)];
                     U map_v = map[get_map_idx(idx, 1)];
@@ -197,7 +197,11 @@ def add_points_kernel(
             }
             if (${enable_visibility_cleanup}) {
                 float16 ray_x, ray_y, ray_z;
-                float16 ray_length = ray_vector(t[0], t[1], t[2], x, y, z, ray_x, ray_y, ray_z);
+                // Visibility cleanup traces rays from the sensor origin. Use sensor_t (the
+                // configured ray_source_frame origin) instead of t (the point-cloud frame
+                // origin), so deskewed clouds whose header frame is not the sensor still get
+                // the true sensor optical center as the ray start. Defaults to t upstream.
+                float16 ray_length = ray_vector(sensor_t[0], sensor_t[1], sensor_t[2], x, y, z, ray_x, ray_y, ray_z);
                 ray_length = min(ray_length, (float16)${max_ray_length});
                 int last_nidx = -1;
                 for (float16 s=${ray_step}; s < ray_length; s+=${ray_step}) {
@@ -223,7 +227,7 @@ def add_points_kernel(
 
                     // If point is close or is farther away than ray length, skip.
                     float16 d = (x - nx) * (x - nx) + (y - ny) * (y - ny) + (z - nz) * (z - nz);
-                    if (d < 0.1 || !is_valid(x, y, z, t[0], t[1], t[2])) {continue;}
+                    if (d < 0.1 || !is_valid(x, y, z, sensor_t[0], sensor_t[1], sensor_t[2])) {continue;}
 
                     // If invalid, do upper bound check, then skip
                     if (nmap_valid < 0.5) {
@@ -258,7 +262,7 @@ def add_points_kernel(
                 }
             }
             p[i * 3]= idx;
-            p[i * 3 + 1] = is_valid(x, y, z, t[0], t[1], t[2]);
+            p[i * 3 + 1] = is_valid(x, y, z, sensor_t[0], sensor_t[1], sensor_t[2]);
             p[i * 3 + 2] = is_inside(idx);
             """
         ).substitute(
