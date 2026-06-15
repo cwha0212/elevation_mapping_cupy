@@ -206,9 +206,13 @@ def add_points_kernel(
                 int last_nidx = -1;
                 for (float16 s=${ray_step}; s < ray_length; s+=${ray_step}) {
                     // iterate through ray
-                    U nx = t[0] + ray_x * s;
-                    U ny = t[1] + ray_y * s;
-                    U nz = t[2] + ray_z * s;
+                    // March from the sensor origin (sensor_t), the same point the ray direction
+                    // was computed from. Marching from t (the point-cloud frame origin) when
+                    // t != sensor_t shifts every ray by (t - sensor_t) and erroneously erodes
+                    // surfaces the sensor never saw through.
+                    U nx = sensor_t[0] + ray_x * s;
+                    U ny = sensor_t[1] + ray_y * s;
+                    U nz = sensor_t[2] + ray_z * s;
                     int nidx = get_idx(nx, ny, center_x[0], center_y[0]);
                     if (last_nidx == nidx) {continue;}  // Skip if we're still in the same cell
                     else {last_nidx = nidx;}
@@ -296,7 +300,7 @@ def error_counting_kernel(
     ramped_height_range_c,
 ):
     error_counting_kernel = cp.ElementwiseKernel(
-        in_params="raw U map, raw U p, raw U center_x, raw U center_y, raw U R, raw U t",
+        in_params="raw U map, raw U p, raw U center_x, raw U center_y, raw U R, raw U t, raw U sensor_t",
         out_params="raw U newmap, raw T error, raw T error_cnt",
         preamble=map_utils(
             resolution,
@@ -318,9 +322,10 @@ def error_counting_kernel(
             U y = transform_p(rx, ry, rz, R[3], R[4], R[5], t[1]);
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
             U v = z_noise(rz);
-            // if (!is_valid(z, t[2])) {return;}
-            if (!is_valid(x, y, z, t[0], t[1], t[2])) {return;}
-            // if ((x - t[0]) * (x - t[0]) + (y - t[1]) * (y - t[1]) + (z - t[2]) * (z - t[2]) < 0.5) {return;}
+            // Validity (distance + height-above-sensor) must be measured from the true sensor
+            // origin (sensor_t), not t (the cloud frame, usually odom when a ray_source_frame
+            // is set). Keep consistent with add_points_kernel.
+            if (!is_valid(x, y, z, sensor_t[0], sensor_t[1], sensor_t[2])) {return;}
             int idx = get_idx(x, y, center_x[0], center_y[0]);
             if (!is_inside(idx)) {
                 return;

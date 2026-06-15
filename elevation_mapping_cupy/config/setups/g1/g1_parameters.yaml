@@ -40,14 +40,14 @@ max_unsafe_n: 10                                # if the number of cells under s
 overlap_clear_range_xy: 4.0                     # xy range [m] for clearing overlapped area. this defines the valid area for overlap clearance. (used for multi floor setting)
 overlap_clear_range_z: 2.0                      # z range [m] for clearing overlapped area. cells outside this range will be cleared. (used for multi floor setting)
 
-map_frame: 'odom'                               # The map frame where the odometry source uses (Odin odometry, published by odom_to_tf as odom -> odin1_base_link).
-base_frame: 'pelvis'                              # The robot's base frame. This frame will be a center of the map. g1_base_odom publishes odom -> pelvis.
+map_frame: 'robot/odom'                               # The map frame where the odometry source uses.
+base_frame: 'robot/base_link'                              # The robot's base frame. This frame will be a center of the map. g1_base_odom publishes odom -> pelvis.
 corrected_map_frame: 'odom_corrected'
 
 #### Feature toggles ########
 enable_edge_sharpen: true
 enable_visibility_cleanup: true
-enable_drift_compensation: false
+enable_drift_compensation: true
 enable_overlap_clearance: true
 enable_pointcloud_publishing: false
 enable_drift_corrected_TF_publishing: false

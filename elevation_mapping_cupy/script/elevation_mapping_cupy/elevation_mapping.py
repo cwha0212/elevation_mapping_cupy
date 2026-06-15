@@ -75,7 +75,6 @@ class ElevationMap:
             "upper_bound",
             "is_upper_bound",
         ]
-
         # buffers
         self.traversability_buffer = xp.full((self.cell_n, self.cell_n), xp.nan)
         self.normal_map = xp.zeros((3, self.cell_n, self.cell_n), dtype=self.data_type)
@@ -348,6 +347,7 @@ class ElevationMap:
                 cp.array([0.0], dtype=self.data_type),
                 R,
                 t,
+                sensor_t,
                 self.new_map,
                 error,
                 error_cnt,
@@ -365,6 +365,7 @@ class ElevationMap:
                 self.additive_mean_error += self.mean_error
                 if np.abs(self.mean_error) < self.param.max_drift:
                     self.elevation_map[0] += self.mean_error * self.param.drift_compensation_alpha
+            # Debug: reset the per-frame visibility-cleanup counters before tracing rays.
             self.add_points_kernel(
                 cp.array([0.0], dtype=self.data_type),
                 cp.array([0.0], dtype=self.data_type),
