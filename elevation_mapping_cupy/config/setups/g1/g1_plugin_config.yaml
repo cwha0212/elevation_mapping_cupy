@@ -1,0 +1,43 @@
+# Settings of the plugins. (The plugins should be stored in script/plugins)
+min_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: True
+  layer_name: "min_filter"
+  extra_params:
+    dilation_size: 1
+    iteration_n: 30
+
+max_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: True
+  layer_name: "max_filter"
+  extra_params:
+    dilation_size: 5
+    iteration_n: 10
+
+smooth_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: True
+  layer_name: "smooth"
+  extra_params:
+    input_layer_name: "min_filter"
+
+inpainting:
+  enable: True
+  fill_nan: False
+  is_height_layer: True
+  layer_name: "inpaint"
+  extra_params:
+    method: "telea"
+
+min_smooth_filter:
+  type: "smooth_filter"
+  enable: True
+  fill_nan: False
+  is_height_layer: True
+  layer_name: "min_smooth_filter"
+  extra_params:
+    input_layer_name: "min_filter"

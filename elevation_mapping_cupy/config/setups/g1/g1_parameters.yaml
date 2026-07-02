@@ -1,0 +1,70 @@
+/elevation_mapping_node:
+  ros__parameters:
+    #### Basic parameters ########
+    resolution: 0.04
+    map_length: 8.0
+    sensor_noise_factor: 0.05
+    mahalanobis_thresh: 1.5
+    outlier_variance: 0.01
+    drift_compensation_variance_inlier: 0.05
+    max_drift: 0.1
+    drift_compensation_alpha: 0.1
+    time_variance: 0.0001
+    max_variance: 100.0
+    initial_variance: 1000.0
+    traversability_inlier: 0.9
+    dilation_size: 3
+    wall_num_thresh: 20
+    min_height_drift_cnt: 100
+    position_noise_thresh: 0.01
+    orientation_noise_thresh: 0.01
+    position_lowpass_alpha: 0.2
+    orientation_lowpass_alpha: 0.2
+    min_valid_distance: 0.4
+    max_height_range: -0.1
+    ramped_height_range_a: 0.3
+    ramped_height_range_b: 1.0
+    ramped_height_range_c: 0.2
+    update_variance_fps: 10.0
+    update_pose_fps: 20.0
+    time_interval: 0.1
+    map_acquire_fps: 10.0
+    publish_statistics_fps: 1.0
+
+    max_ray_length: 10.0
+    cleanup_step: 0.005
+    cleanup_cos_thresh: 0.7
+
+    safe_thresh: 0.7
+    safe_min_thresh: 0.4
+    max_unsafe_n: 10
+
+    overlap_clear_range_xy: 4.0
+    overlap_clear_range_z: 2.0
+
+    map_frame: "robot/odom"
+    base_frame: "robot/base_link"
+    corrected_map_frame: "odom_corrected"
+
+    #### Feature toggles ########
+    enable_edge_sharpen: true
+    enable_visibility_cleanup: true
+    enable_drift_compensation: true
+    enable_overlap_clearance: true
+    enable_pointcloud_publishing: false
+    enable_drift_corrected_TF_publishing: false
+    enable_normal_color: false
+
+    #### Traversability filter ########
+    use_chainer: false
+
+    #### Upper bound ########
+    use_only_above_for_upper_bound: false
+
+    #### Initializer ########
+    initialize_method: "linear"
+    initialize_frame_id: ["left_ankle_roll_link", "right_ankle_roll_link"]
+    initialize_tf_offset: [-0.04, -0.04]
+    dilation_size_initialize: 5
+    initialize_tf_grid_size: 0.1
+    use_initializer_at_start: true

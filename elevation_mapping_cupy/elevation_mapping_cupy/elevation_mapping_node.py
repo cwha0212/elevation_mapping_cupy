@@ -7,6 +7,9 @@ from pathlib import Path
 from functools import partial
 from typing import Dict, List
 
+if not hasattr(np, "float"):
+    np.float = float  # type: ignore[attr-defined]
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles

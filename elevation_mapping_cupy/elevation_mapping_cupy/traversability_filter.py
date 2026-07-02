@@ -16,17 +16,21 @@ def get_filter_torch(*args, **kwargs):
             self.conv2 = nn.Conv2d(1, 4, 3, dilation=2, padding=0, bias=use_bias)
             self.conv3 = nn.Conv2d(1, 4, 3, dilation=3, padding=0, bias=use_bias)
             self.conv_out = nn.Conv2d(12, 1, 1, bias=use_bias)
+            self._device = torch.device(device)
 
             # Set weights.
             self.conv1.weight = nn.Parameter(torch.from_numpy(w1).float())
             self.conv2.weight = nn.Parameter(torch.from_numpy(w2).float())
             self.conv3.weight = nn.Parameter(torch.from_numpy(w3).float())
             self.conv_out.weight = nn.Parameter(torch.from_numpy(w_out).float())
+            self.to(self._device)
 
         def __call__(self, elevation_cupy):
-            # Convert cupy tensor to pytorch.
             elevation_cupy = elevation_cupy.astype(cp.float32, copy=False)
-            elevation = torch.as_tensor(elevation_cupy, device=self.conv1.weight.device)
+            if self._device.type == "cuda":
+                elevation = torch.as_tensor(elevation_cupy, device=self._device)
+            else:
+                elevation = torch.from_numpy(cp.asnumpy(elevation_cupy)).to(self._device)
 
             with torch.no_grad():
                 out1 = self.conv1(elevation.view(-1, 1, elevation.shape[0], elevation.shape[1]))
@@ -39,11 +43,15 @@ def get_filter_torch(*args, **kwargs):
                 # out = F.concat((out1, out2, out3), axis=1)
                 out = self.conv_out(out.abs())
                 out = torch.exp(-out)
-                out_cupy = cp.asarray(out)
+                if self._device.type == "cuda":
+                    out_cupy = cp.asarray(out)
+                else:
+                    out_cupy = cp.asarray(out.cpu().numpy())
 
             return out_cupy
 
-    traversability_filter = TraversabilityFilter(*args, **kwargs).cuda().eval()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    traversability_filter = TraversabilityFilter(*args, device=device, **kwargs).eval()
     return traversability_filter
 
 
