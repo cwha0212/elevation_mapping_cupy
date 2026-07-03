@@ -228,7 +228,9 @@ class PluginManager(object):
                             _active_stack=_active_stack,
                         )
                 n_param = len(signature(self.plugins[idx]).parameters)
-                if n_param == 5:
+                if n_param == 4:
+                    self.layers[idx] = self.plugins[idx](elevation_map, layer_names, self.layers, self.layer_names)
+                elif n_param == 5:
                     self.layers[idx] = self.plugins[idx](elevation_map, layer_names, self.layers, self.layer_names)
                 elif n_param == 7:
                     self.layers[idx] = self.plugins[idx](

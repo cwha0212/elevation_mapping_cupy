@@ -12,12 +12,12 @@
 
     publishers:
       elevation_map_raw:
-        layers: ["elevation", "traversability", "variance", "rgb", "upper_bound"]
+        layers: ["elevation", "traversability", "variance", "upper_bound"]
         basic_layers: ["elevation", "traversability"]
         fps: 5.0
 
       elevation_map_recordable:
-        layers: ["elevation", "traversability", "variance", "rgb"]
+        layers: ["elevation", "traversability", "variance"]
         basic_layers: ["elevation", "traversability"]
         fps: 2.0
 
