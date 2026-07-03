@@ -68,3 +68,4 @@
     dilation_size_initialize: 5
     initialize_tf_grid_size: 0.1
     use_initializer_at_start: true
+    always_clear_with_initializer: false

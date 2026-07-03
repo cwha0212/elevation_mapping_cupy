@@ -336,7 +336,7 @@ class ElevationMap:
         """
         t -= self.center
 
-    def update_map_with_kernel(self, points_all, channels, R, t, position_noise, orientation_noise):
+    def update_map_with_kernel(self, points_all, channels, R, t, position_noise, orientation_noise, sensor_t=None):
         """Update map with new measurement.
 
         Args:
@@ -355,6 +355,11 @@ class ElevationMap:
         with self.map_lock:
             t = t.copy()
             t[2] -= self.center[2]
+            if sensor_t is None:
+                sensor_t = t
+            else:
+                sensor_t = sensor_t.copy()
+                sensor_t[2] -= self.center[2]
             self.error_counting_kernel(
                 self.elevation_map,
                 points,
@@ -362,6 +367,7 @@ class ElevationMap:
                 self.center[1:2],
                 R,
                 t,
+                sensor_t,
                 self.new_map,
                 error,
                 error_cnt,
@@ -384,6 +390,7 @@ class ElevationMap:
                 self.center[1:2],
                 R,
                 t,
+                sensor_t,
                 self.normal_map,
                 points,
                 self.elevation_map,
@@ -462,6 +469,7 @@ class ElevationMap:
         t: cp._core.core.ndarray,
         position_noise: float,
         orientation_noise: float,
+        sensor_t: cp._core.core.ndarray = None,
     ):
         """Input the point cloud and fuse the new measurements to update the elevation map.
 
@@ -472,6 +480,8 @@ class ElevationMap:
             t (cupy._core.core.ndarray):
             position_noise (float):
             orientation_noise (float):
+            sensor_t (cupy._core.core.ndarray): Optional true sensor origin used for
+                point validity and visibility cleanup. Defaults to ``t``.
 
         Returns:
             None:
@@ -492,6 +502,7 @@ class ElevationMap:
             cp.asarray(t, dtype=self.data_type),
             position_noise,
             orientation_noise,
+            None if sensor_t is None else cp.asarray(sensor_t, dtype=self.data_type),
         )
 
     def input_image(

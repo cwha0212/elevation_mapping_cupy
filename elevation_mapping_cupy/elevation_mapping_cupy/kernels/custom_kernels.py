@@ -153,7 +153,7 @@ def add_points_kernel(
     enable_visibility_cleanup=True,
 ):
     add_points_kernel = cp.ElementwiseKernel(
-        in_params="raw U center_x, raw U center_y, raw U R, raw U t, raw U norm_map",
+        in_params="raw U center_x, raw U center_y, raw U R, raw U t, raw U sensor_t, raw U norm_map",
         out_params="raw U p, raw U map, raw T newmap",
         preamble=map_utils(
             resolution,
@@ -176,7 +176,7 @@ def add_points_kernel(
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
             U v = point_noise(rx, ry, rz);
             int idx = get_idx(x, y, center_x[0], center_y[0]);
-            if (is_valid(x, y, z, t[0], t[1], t[2])) {
+            if (is_valid(x, y, z, sensor_t[0], sensor_t[1], sensor_t[2])) {
                 if (is_inside(idx)) {
                     U map_h = map[get_map_idx(idx, 0)];
                     U map_v = map[get_map_idx(idx, 1)];
@@ -208,14 +208,14 @@ def add_points_kernel(
             }
             if (${enable_visibility_cleanup}) {
                 float16 ray_x, ray_y, ray_z;
-                float16 ray_length = ray_vector(t[0], t[1], t[2], x, y, z, ray_x, ray_y, ray_z);
+                float16 ray_length = ray_vector(sensor_t[0], sensor_t[1], sensor_t[2], x, y, z, ray_x, ray_y, ray_z);
                 ray_length = min(ray_length, (float16)${max_ray_length});
                 int last_nidx = -1;
                 for (float16 s=${ray_step}; s < ray_length; s+=${ray_step}) {
                     // iterate through ray
-                    U nx = t[0] + ray_x * s;
-                    U ny = t[1] + ray_y * s;
-                    U nz = t[2] + ray_z * s;
+                    U nx = sensor_t[0] + ray_x * s;
+                    U ny = sensor_t[1] + ray_y * s;
+                    U nz = sensor_t[2] + ray_z * s;
                     int nidx = get_idx(nx, ny, center_x[0], center_y[0]);
                     if (last_nidx == nidx) {continue;}  // Skip if we're still in the same cell
                     else {last_nidx = nidx;}
@@ -303,7 +303,7 @@ def error_counting_kernel(
     ramped_height_range_c,
 ):
     error_counting_kernel = cp.ElementwiseKernel(
-        in_params="raw U map, raw U p, raw U center_x, raw U center_y, raw U R, raw U t",
+        in_params="raw U map, raw U p, raw U center_x, raw U center_y, raw U R, raw U t, raw U sensor_t",
         out_params="raw U newmap, raw T error, raw T error_cnt",
         preamble=map_utils(
             resolution,
@@ -325,8 +325,8 @@ def error_counting_kernel(
             U y = transform_p(rx, ry, rz, R[3], R[4], R[5], t[1]);
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
             U v = point_noise(rx, ry, rz);
-            // if (!is_valid(z, t[2])) {return;}
-            if (!is_valid(x, y, z, t[0], t[1], t[2])) {return;}
+            // if (!is_valid(z, sensor_t[2])) {return;}
+            if (!is_valid(x, y, z, sensor_t[0], sensor_t[1], sensor_t[2])) {return;}
             // if ((x - t[0]) * (x - t[0]) + (y - t[1]) * (y - t[1]) + (z - t[2]) * (z - t[2]) < 0.5) {return;}
             int idx = get_idx(x, y, center_x[0], center_y[0]);
             if (!is_inside(idx)) {

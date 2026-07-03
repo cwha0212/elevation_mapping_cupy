@@ -5,7 +5,7 @@ import numpy as np
 import os
 from pathlib import Path
 from functools import partial
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 if not hasattr(np, "float"):
     np.float = float  # type: ignore[attr-defined]
@@ -16,6 +16,7 @@ from rclpy.qos import QoSPresetProfiles
 from ament_index_python.packages import get_package_share_directory
 from cv_bridge import CvBridge
 from elevation_map_msgs.msg import ChannelInfo
+from elevation_map_msgs.srv import Initialize
 import ros2_numpy as rnp
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from tf_transformations import quaternion_matrix
@@ -167,6 +168,9 @@ class ElevationMappingNode(Node):
         self.enable_normal_arrow_publishing = self.get_parameter('enable_normal_arrow_publishing').get_parameter_value().bool_value
         self.enable_drift_corrected_TF_publishing = self.get_parameter('enable_drift_corrected_TF_publishing').get_parameter_value().bool_value
         self.use_initializer_at_start = self.get_parameter('use_initializer_at_start').get_parameter_value().bool_value
+        if not self.has_parameter('always_clear_with_initializer'):
+            self.declare_parameter('always_clear_with_initializer', False)
+        self.always_clear_with_initializer = self.get_parameter('always_clear_with_initializer').get_parameter_value().bool_value
         subscribers_params = self.get_parameters_by_prefix('subscribers')
         self.my_subscribers = {}
         for param_name, param_value in subscribers_params.items():
@@ -426,6 +430,8 @@ class ElevationMappingNode(Node):
         service_save = self._resolve_service_name('save_map')
         service_load = self._resolve_service_name('load_map')
         service_clear = self._resolve_service_name('clear_map')
+        service_initialize = self._resolve_service_name('initialize')
+        service_clear_with_initializer = self._resolve_service_name('clear_map_with_initializer')
 
         self._srv_masked_replace = self.create_service(
             SetGridMap,
@@ -446,6 +452,16 @@ class ElevationMappingNode(Node):
             Trigger,
             service_clear,
             self.handle_clear_map
+        )
+        self._srv_initialize = self.create_service(
+            Initialize,
+            service_initialize,
+            self.handle_initialize
+        )
+        self._srv_clear_map_with_initializer = self.create_service(
+            Trigger,
+            service_clear_with_initializer,
+            self.handle_clear_map_with_initializer
         )
 
     def publish_map(self, key: str) -> None:
@@ -599,6 +615,8 @@ class ElevationMappingNode(Node):
         del request
         try:
             self._map.clear()
+            if self.always_clear_with_initializer:
+                self._initialize_with_tf()
             self._last_t = self.get_clock().now().to_msg()
             self._republish_all_once()
             response.success = True
@@ -608,6 +626,51 @@ class ElevationMappingNode(Node):
             response.success = False
             response.message = str(exc)
             self.get_logger().error(f"clear_map failed: {exc}")
+        return response
+
+    def handle_clear_map_with_initializer(self, request, response):
+        del request
+        try:
+            self._map.clear()
+            initialized = self._initialize_with_tf()
+            self._last_t = self.get_clock().now().to_msg()
+            self._republish_all_once()
+            response.success = initialized
+            response.message = "Elevation map cleared with TF initializer." if initialized else "TF initializer failed."
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+            self.get_logger().error(f"clear_map_with_initializer failed: {exc}")
+        return response
+
+    def handle_initialize(self, request, response):
+        try:
+            if request.type != Initialize.Request.POINTS:
+                raise ValueError(f"Unsupported initialize request type: {request.type}")
+            points = []
+            for point in request.points:
+                point_frame_id = point.header.frame_id
+                p = np.array([point.point.x, point.point.y, point.point.z], dtype=np.float32)
+                if point_frame_id and point_frame_id != self.map_frame:
+                    transform = self.safe_lookup_transform(self.map_frame, point_frame_id, point.header.stamp)
+                    if transform is None:
+                        response.success = False
+                        return response
+                    t = transform.transform.translation
+                    q = transform.transform.rotation
+                    R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
+                    p = R @ p + np.array([t.x, t.y, t.z], dtype=np.float32)
+                points.append(p)
+
+            method = self._initialize_method_from_request(request.method)
+            self.get_logger().info(f"Initializing map with {len(points)} point(s) using {method}.")
+            self._map.initialize_map(np.asarray(points, dtype=np.float32), method)
+            self._last_t = self.get_clock().now().to_msg()
+            self._republish_all_once()
+            response.success = True
+        except Exception as exc:
+            response.success = False
+            self.get_logger().error(f"initialize failed: {exc}")
         return response
 
     def _grid_map_to_numpy(self, grid_map_msg: GridMap):
@@ -795,6 +858,56 @@ class ElevationMappingNode(Node):
             value = f'/{value}'
         return value.rstrip('/')
 
+    def _initialize_method_from_request(self, method: int) -> str:
+        if method == Initialize.Request.NEAREST:
+            return "nearest"
+        if method == Initialize.Request.LINEAR:
+            return "linear"
+        if method == Initialize.Request.CUBIC:
+            return "cubic"
+        raise ValueError(f"Unsupported initialize method: {method}")
+
+    def _initialize_with_tf(self) -> bool:
+        points = []
+        last_point: Optional[np.ndarray] = None
+        stamp = self.get_clock().now().to_msg()
+
+        if len(self.initialize_tf_offset) < len(self.initialize_frame_id):
+            self.get_logger().error(
+                "initialize_tf_offset must have at least as many entries as initialize_frame_id."
+            )
+            return False
+
+        for idx, frame_id in enumerate(self.initialize_frame_id):
+            transform = self.safe_lookup_transform(self.map_frame, frame_id, stamp)
+            if transform is None:
+                return False
+
+            t = transform.transform.translation
+            point = np.array([t.x, t.y, t.z + self.initialize_tf_offset[idx]], dtype=np.float32)
+            points.append(point)
+            last_point = point
+
+        if points and len(points) < 3 and last_point is not None:
+            s = float(self.initialize_tf_grid_size)
+            points.extend(
+                [
+                    last_point + np.array([s, s, 0.0], dtype=np.float32),
+                    last_point + np.array([-s, s, 0.0], dtype=np.float32),
+                    last_point + np.array([s, -s, 0.0], dtype=np.float32),
+                    last_point + np.array([-s, -s, 0.0], dtype=np.float32),
+                ]
+            )
+
+        if not points:
+            self.get_logger().error("No initialize_frame_id entries are configured.")
+            return False
+
+        self.get_logger().info(f"Initializing map with TF points using {self.initialize_method}.")
+        self._map.initialize_map(np.asarray(points, dtype=np.float32), self.initialize_method)
+        self._republish_all_once()
+        return True
+
     def safe_lookup_transform(self, target_frame, source_frame, time):
         try:
             return self._tf_buffer.lookup_transform(
@@ -976,16 +1089,46 @@ class ElevationMappingNode(Node):
             t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
             R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
 
-        self._map.input_pointcloud(pts, channels, R, t_np, 0, 0)
+        sensor_t_np = t_np
+        ray_source_frame = self.param.subscriber_cfg[sub_key].get("ray_source_frame")
+        if ray_source_frame:
+            if ray_source_frame == self.map_frame:
+                sensor_t_np = np.zeros(3, dtype=np.float32)
+            else:
+                transform_ray_source_to_map = self.safe_lookup_transform(
+                    self.map_frame,
+                    ray_source_frame,
+                    msg.header.stamp,
+                )
+                if transform_ray_source_to_map is None:
+                    self.get_logger().error(
+                        (
+                            f"[{sub_key}] ray_source_frame '{ray_source_frame}' is not available. "
+                            "Skipping cloud instead of falling back to the point cloud frame."
+                        ),
+                        throttle_duration_sec=2.0,
+                    )
+                    return
+                ray_t = transform_ray_source_to_map.transform.translation
+                sensor_t_np = np.array([ray_t.x, ray_t.y, ray_t.z], dtype=np.float32)
+            self.get_logger().info(
+                (
+                    f"[{sub_key}] point frame: {frame_sensor_id}, cleanup ray source frame: "
+                    f"{ray_source_frame}, ray origin in {self.map_frame} = "
+                    f"[{sensor_t_np[0]:.3f}, {sensor_t_np[1]:.3f}, {sensor_t_np[2]:.3f}]"
+                ),
+                throttle_duration_sec=5.0,
+            )
+
+        self._map.input_pointcloud(pts, channels, R, t_np, 0, 0, sensor_t_np)
         self._pointcloud_process_counter += 1
 
     def pose_update(self) -> None:
-        if self._last_t is None:
-            return
+        stamp = self._last_t if self._last_t is not None else self.get_clock().now().to_msg()
         transform = self.safe_lookup_transform(
             self.map_frame,
             self.base_frame,
-            self._last_t
+            stamp
         )
         if transform is None:
             # Transform not available, skip pose update
@@ -997,6 +1140,10 @@ class ElevationMappingNode(Node):
         self._map.move_to(trans, rot)
         self._map_t = t
         self._map_q = q
+        if self.use_initializer_at_start:
+            self.get_logger().info("Clearing map with initializer.", throttle_duration_sec=5.0)
+            if self._initialize_with_tf():
+                self.use_initializer_at_start = False
 
     def update_variance(self) -> None:
         self._map.update_variance()
