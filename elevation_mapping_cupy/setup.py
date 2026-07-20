@@ -6,7 +6,7 @@ package_name = 'elevation_mapping_cupy'
 
 setup(
     name=package_name,
-    version='2.1.0',
+    version='2.2.0',
     packages=find_packages(include=[package_name, f'{package_name}.*']),
     install_requires=['setuptools'],
     zip_safe=True,

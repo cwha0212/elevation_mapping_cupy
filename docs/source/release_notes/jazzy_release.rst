@@ -1,71 +1,81 @@
-ROS2 Jazzy Release
+ROS 2 Jazzy v2.2.0 Release
 ******************************************************************
 
 Release Target
 ==================================================================
 
-This page tracks the current ROS2/Jazzy release state for the ``ros2`` branch.
+This page describes the ``v2.2.0`` release from the ``ros2`` branch.
 
-* Branch: ``ros2``
-* Release version: ``v2.1.0``
-* ROS2 maintainer: Lorenzo Terenzi
-* Release surface:
+* ROS distribution: Jazzy
+* Packages:
 
-  * ``elevation_mapping_cupy`` Python/CuPy node
-  * ``semantic_sensor`` package
-  * TurtleBot3 example launches
-  * semantic image and semantic pointcloud example launches
+  * ``elevation_map_msgs`` 2.2.0
+  * ``elevation_mapping_cupy`` 2.2.0
+  * ``semantic_sensor`` 2.2.0
 
-What Changed Since ``v2.0.0``
+Highlights
 ==================================================================
 
-* Restored the ROS2 semantic workflow and brought back the
-  ``semantic_sensor`` package.
-* Fixed the semantic image ingestion path in ``elevation_mapping_node.py``.
-* Added ROS2 branch CI on the self-hosted NVIDIA runner using the
-  ``moleworks_ros`` container.
-* Revalidated the example launch surface instead of leaving semantic launches
-  as stale files.
-* Rewrote the user-facing documentation for ROS2 Jazzy.
+Correctness
+-----------
+
+* Replaced the incorrect dilation distance and row-wrapping behavior with an
+  exact Euclidean implementation.
+* Restored float32 point geometry and added early NaN/Inf rejection.
+* Removed point-order-dependent fusion and visibility races using immutable
+  snapshots, proposal buffers, and deterministic per-cell finalization.
+* Replaced fixed-step visibility sampling with exact 2D grid DDA traversal.
+* Fixed min-filter buffer aliasing and PointCloud2 row-padding handling.
+
+Throughput
+----------
+
+* Reused mapping buffers and removed redundant reductions, map reads, and host
+  synchronizations.
+* Cached plugin results by map generation and used ping-pong min-filter
+  buffers.
+* Reduced GridMap message construction overhead by encoding contiguous float32
+  bytes directly.
+* Skipped map construction for publishers without subscribers.
+* Switched to CuPy's device memory pool and made periodic trimming opt-in.
+
+Measured Results
+==================================================================
+
+Measurements used an NVIDIA RTX 4090, 30 warmups, 200 measured iterations, and
+three independent processes. Tables report the median per-run p95.
+
+* Core mapping callback p95 improved by 55.3--64.2% for deterministic
+  10k--100k-point clouds.
+* The in-process ROS callback plus six-layer filtered GridMap preparation
+  improved p95 by 26.3--65.8%.
+* Large-radius 602 x 602 dilation improved from 8.704 ms to 0.590 ms p95.
+* A 600 x 600 single-layer GridMap message improved from 10.80 ms to 0.90 ms
+  p95.
+
+An equivalent deterministic finalizer was benchmarked in CuPy RawKernel and
+NVIDIA Warp. Warp did not provide a repeatable p95 benefit, so this release
+does not add Warp as a dependency. Full methodology and machine-readable
+results are in ``GPU_OPTIMIZATION_WORKLOG.md`` and
+``benchmarks/results/rtx4090_20260720_summary.json``.
 
 Validation
 ==================================================================
 
-The ``v2.1.0`` release validation was executed on ``starship`` inside the
-GPU-enabled ``moleworks_ros`` container.
+Local validation in the isolated ROS 2 Jazzy GPU workspace completed with:
 
-Executed checks:
+* 126 direct GPU unit tests passed.
+* 77 colcon tests passed with no errors, failures, or skips.
+* TF/GridMap integration, save/load services, and the synthetic demo launch
+  passed.
 
-* semantic image runtime smoke
-* semantic pointcloud runtime smoke
-* ``PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest sensor_processing/semantic_sensor/test -q``
-* ``colcon test --packages-select elevation_mapping_cupy``
+The release tag is created only after the ``ros2`` branch's GitHub Actions
+checks pass for the release commit.
 
-Observed result:
-
-* 24 tests
-* 0 errors
-* 0 failures
-* 0 skipped
-
-Known Issues
+Deployment Note
 ==================================================================
 
-* Some container images do not ship ``torchvision``. CI installs a matching
-  wheel at runtime.
-* The integration test still logs ``rclpy.shutdown already called`` during
-  teardown, but the test passes.
-* A real GPU is still required at runtime. A CUDA userspace image without a
-  loaded NVIDIA host driver is not enough.
-
-Release Checklist
-==================================================================
-
-The branch is ready to tag once the maintainer is satisfied with the current
-state.
-
-Before pushing the release tag:
-
-* confirm the docs build on GitHub Actions
-* confirm the self-hosted ROS2 CI still passes on ``ros2``
-* create the Git tag for ``v2.1.0``
+The available workspace did not contain a representative raw Ouster
+PointCloud2 bag. Before robot deployment, replay a representative recorded
+cloud, compare map output, and measure executor, serialization, DDS latency,
+and missed publication deadlines on the target system.
