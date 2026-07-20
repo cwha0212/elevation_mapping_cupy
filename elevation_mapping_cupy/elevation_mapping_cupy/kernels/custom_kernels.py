@@ -125,6 +125,17 @@ def map_utils(
             return product;
        }
 
+        __device__ float atomic_min_float(float* address, float value) {
+            int* address_as_int = (int*)address;
+            int old = *address_as_int;
+            while (value < __int_as_float(old)) {
+                int assumed = old;
+                old = atomicCAS(address_as_int, assumed, __float_as_int(value));
+                if (old == assumed) { break; }
+            }
+            return __int_as_float(old);
+        }
+
         """
     ).substitute(
         resolution=resolution,
@@ -160,8 +171,8 @@ def add_points_kernel(
     enable_visibility_cleanup=True,
 ):
     add_points_kernel = cp.ElementwiseKernel(
-        in_params="raw U center_x, raw U center_y, raw U R, raw U t, raw U norm_map",
-        out_params="raw U p, raw U map, raw T newmap",
+        in_params="raw U center_x, raw U center_y, raw U R, raw U t, raw U map, raw U norm_map",
+        out_params="raw U p, raw T newmap, raw T visibility",
         preamble=map_utils(
             resolution,
             width,
@@ -194,7 +205,7 @@ def add_points_kernel(
                     U map_v = map[get_map_idx(idx, 1)];
                     U num_points = newmap[get_map_idx(idx, 4)];
                     if (abs(map_h - z) > (map_v * ${mahalanobis_thresh})) {
-                        atomicAdd(&map[get_map_idx(idx, 1)], ${outlier_variance});
+                        atomicAdd(&newmap[get_map_idx(idx, 5)], 1.0);
                     }
                     else {
                         if (${enable_edge_shaped} && (num_points > ${wall_num_thresh}) && (z < map_h - map_v * ${mahalanobis_thresh} / num_points)) {
@@ -206,13 +217,6 @@ def add_points_kernel(
                             atomicAdd(&newmap[get_map_idx(idx, 0)], new_h);
                             atomicAdd(&newmap[get_map_idx(idx, 1)], new_v);
                             atomicAdd(&newmap[get_map_idx(idx, 2)], 1.0);
-                            // is Valid
-                            map[get_map_idx(idx, 2)] = 1;
-                            // Time layer
-                            map[get_map_idx(idx, 4)] = 0.0;
-                            // Upper bound
-                            map[get_map_idx(idx, 5)] = new_h;
-                            map[get_map_idx(idx, 6)] = 0.0;
                         }
                         // visibility cleanup
                     }
@@ -221,36 +225,74 @@ def add_points_kernel(
                 float ray_x, ray_y, ray_z;
                 float ray_length = ray_vector(t[0], t[1], t[2], x, y, z, ray_x, ray_y, ray_z);
                 ray_length = fminf(ray_length, (float)${max_ray_length});
-                int last_nidx = -1;
-                for (float s=${ray_step}; s < ray_length; s+=${ray_step}) {
-                    // iterate through ray
-                    U nx = t[0] + ray_x * s;
-                    U ny = t[1] + ray_y * s;
-                    U nz = t[2] + ray_z * s;
-                    int nidx = get_idx(nx, ny, center_x[0], center_y[0]);
-                    if (last_nidx == nidx) {continue;}  // Skip if we're still in the same cell
-                    else {last_nidx = nidx;}
-                    if (!is_inside(nidx)) {continue;}
+                float end_x = t[0] + ray_x * ray_length;
+                float end_y = t[1] + ray_y * ray_length;
+                float end_z = t[2] + ray_z * ray_length;
+                float start_grid_x = (
+                    (t[0] - center_x[0]) / ${resolution} + 0.5f * (${width} - 1) + 0.5f
+                );
+                float start_grid_y = (
+                    (t[1] - center_y[0]) / ${resolution} + 0.5f * (${height} - 1) + 0.5f
+                );
+                float end_grid_x = (
+                    (end_x - center_x[0]) / ${resolution} + 0.5f * (${width} - 1) + 0.5f
+                );
+                float end_grid_y = (
+                    (end_y - center_y[0]) / ${resolution} + 0.5f * (${height} - 1) + 0.5f
+                );
+                float grid_dx = end_grid_x - start_grid_x;
+                float grid_dy = end_grid_y - start_grid_y;
+                int cell_x = (int)floorf(start_grid_x);
+                int cell_y = (int)floorf(start_grid_y);
+                int end_cell_x = (int)floorf(end_grid_x);
+                int end_cell_y = (int)floorf(end_grid_y);
+                int step_x = (grid_dx > 0.0f) - (grid_dx < 0.0f);
+                int step_y = (grid_dy > 0.0f) - (grid_dy < 0.0f);
+                float delta_x = step_x == 0 ? 1.0e30f : fabsf(1.0f / grid_dx);
+                float delta_y = step_y == 0 ? 1.0e30f : fabsf(1.0f / grid_dy);
+                float boundary_x = cell_x + (step_x > 0 ? 1.0f : 0.0f);
+                float boundary_y = cell_y + (step_y > 0 ? 1.0f : 0.0f);
+                float next_x = step_x == 0 ? 1.0e30f : (boundary_x - start_grid_x) / grid_dx;
+                float next_y = step_y == 0 ? 1.0e30f : (boundary_y - start_grid_y) / grid_dy;
+
+                for (int step = 0; step < ${width} + ${height}; ++step) {
+                    float entry;
+                    if (next_x < next_y) {
+                        entry = next_x;
+                        next_x += delta_x;
+                        cell_x += step_x;
+                    }
+                    else if (next_y < next_x) {
+                        entry = next_y;
+                        next_y += delta_y;
+                        cell_y += step_y;
+                    }
+                    else {
+                        entry = next_x;
+                        next_x += delta_x;
+                        next_y += delta_y;
+                        cell_x += step_x;
+                        cell_y += step_y;
+                    }
+                    if (entry >= 1.0f || (cell_x == end_cell_x && cell_y == end_cell_y)) {break;}
+                    if (
+                        cell_x <= 0 || cell_x >= ${width} - 1
+                        || cell_y <= 0 || cell_y >= ${height} - 1
+                    ) {continue;}
+
+                    int nidx = cell_y * ${width} + cell_x;
+                    float exit = fminf(fminf(next_x, next_y), 1.0f);
+                    float sample = 0.5f * (entry + exit);
+                    U nz = t[2] + (end_z - t[2]) * sample;
 
                     U nmap_h = map[get_map_idx(nidx, 0)];
                     U nmap_v = map[get_map_idx(nidx, 1)];
                     U nmap_valid = map[get_map_idx(nidx, 2)];
                     // Time layer
                     U non_updated_t = map[get_map_idx(nidx, 4)];
-                    // upper bound
-                    U nmap_upper = map[get_map_idx(nidx, 5)];
-                    U nmap_is_upper = map[get_map_idx(nidx, 6)];
-
-                    // If point is close or is farther away than ray length, skip.
-                    float d = (x - nx) * (x - nx) + (y - ny) * (y - ny) + (z - nz) * (z - nz);
-                    if (d < 0.1) {continue;}
-
                     // If invalid, do upper bound check, then skip
                     if (nmap_valid < 0.5) {
-                      if (nz < nmap_upper || nmap_is_upper < 0.5) {
-                        map[get_map_idx(nidx, 5)] = nz;
-                        map[get_map_idx(nidx, 6)] = 1.0f;
-                      }
+                      atomic_min_float(&visibility[get_map_idx(nidx, 2)], nz);
                       continue;
                     }
                     // If updated recently, skip
@@ -267,13 +309,12 @@ def add_points_kernel(
                         if (num_points > ${wall_num_thresh} && non_updated_t < 1.0) {continue;}
 
                         // Finally, this cell is penetrated by the ray.
-                        atomicAdd(&map[get_map_idx(nidx, 2)], -${cleanup_step}/(ray_length / ${max_ray_length}));
-                        atomicAdd(&map[get_map_idx(nidx, 1)], ${outlier_variance});
-                        // Do upper bound check.
-                        if (nz < nmap_upper || nmap_is_upper < 0.5) {
-                            map[get_map_idx(nidx, 5)] = nz;
-                            map[get_map_idx(nidx, 6)] = 1.0f;
-                        }
+                        atomicAdd(
+                            &visibility[get_map_idx(nidx, 0)],
+                            ${cleanup_step}/(ray_length / ${max_ray_length})
+                        );
+                        atomicAdd(&visibility[get_map_idx(nidx, 1)], 1.0);
+                        atomic_min_float(&visibility[get_map_idx(nidx, 2)], nz);
                     }
                 }
             }
@@ -282,7 +323,9 @@ def add_points_kernel(
             mahalanobis_thresh=mahalanobis_thresh,
             outlier_variance=outlier_variance,
             wall_num_thresh=wall_num_thresh,
-            ray_step=resolution / 2 ** 0.5,
+            resolution=resolution,
+            width=width,
+            height=height,
             max_ray_length=max_ray_length,
             cleanup_step=cleanup_step,
             cleanup_cos_thresh=cleanup_cos_thresh,
@@ -292,6 +335,82 @@ def add_points_kernel(
         name="add_points_kernel",
     )
     return add_points_kernel
+
+
+def finalize_map_kernel(width, height, max_variance, initial_variance, outlier_variance):
+    """Finalize immutable endpoint and visibility proposals once per map cell."""
+    return cp.ElementwiseKernel(
+        in_params="raw U previous, raw U newmap, raw U visibility",
+        out_params="raw U map",
+        preamble=string.Template(
+            """
+            __device__ int get_map_idx(int idx, int layer_n) {
+                const int layer = ${width} * ${height};
+                return layer * layer_n + idx;
+            }
+            """
+        ).substitute(width=width, height=height),
+        operation=string.Template(
+            """
+            for (int layer = 0; layer < 7; ++layer) {
+                map[get_map_idx(i, layer)] = previous[get_map_idx(i, layer)];
+            }
+
+            U new_count = newmap[get_map_idx(i, 2)];
+            U outlier_count = newmap[get_map_idx(i, 5)];
+            if (new_count > 0) {
+                U new_height = newmap[get_map_idx(i, 0)] / new_count;
+                U new_variance = newmap[get_map_idx(i, 1)] / new_count;
+                map[get_map_idx(i, 0)] = new_height;
+                map[get_map_idx(i, 1)] = new_variance;
+                map[get_map_idx(i, 2)] = 1.0;
+                map[get_map_idx(i, 4)] = 0.0;
+                map[get_map_idx(i, 5)] = new_height;
+                map[get_map_idx(i, 6)] = 0.0;
+                if (new_variance > ${max_variance}) {
+                    map[get_map_idx(i, 0)] = 0.0;
+                    map[get_map_idx(i, 1)] = ${initial_variance};
+                    map[get_map_idx(i, 2)] = 0.0;
+                }
+            }
+            else {
+                map[get_map_idx(i, 1)] += outlier_count * ${outlier_variance};
+                U cleanup = visibility[get_map_idx(i, 0)];
+                if (cleanup > 0.0) {
+                    map[get_map_idx(i, 2)] -= cleanup;
+                    map[get_map_idx(i, 1)] += (
+                        visibility[get_map_idx(i, 1)] * ${outlier_variance}
+                    );
+                }
+
+                U proposed_upper_bound = visibility[get_map_idx(i, 2)];
+                U previous_upper_bound = previous[get_map_idx(i, 5)];
+                U previous_has_upper_bound = previous[get_map_idx(i, 6)];
+                if (
+                    isfinite(proposed_upper_bound)
+                    && (
+                        previous_has_upper_bound < 0.5
+                        || proposed_upper_bound < previous_upper_bound
+                    )
+                ) {
+                    map[get_map_idx(i, 5)] = proposed_upper_bound;
+                    map[get_map_idx(i, 6)] = 1.0;
+                }
+            }
+
+            if (map[get_map_idx(i, 2)] < 0.5) {
+                map[get_map_idx(i, 0)] = 0.0;
+                map[get_map_idx(i, 1)] = ${initial_variance};
+                map[get_map_idx(i, 2)] = 0.0;
+            }
+            """
+        ).substitute(
+            max_variance=max_variance,
+            initial_variance=initial_variance,
+            outlier_variance=outlier_variance,
+        ),
+        name=f"finalize_map_{width}_{height}",
+    )
 
 
 def error_counting_kernel(

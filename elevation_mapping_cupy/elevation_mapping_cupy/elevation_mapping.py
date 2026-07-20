@@ -23,7 +23,7 @@ from elevation_mapping_cupy.kernels import (
 
 from elevation_mapping_cupy.kernels import sum_kernel
 from elevation_mapping_cupy.kernels import error_counting_kernel
-from elevation_mapping_cupy.kernels import average_map_kernel
+from elevation_mapping_cupy.kernels import finalize_map_kernel
 from elevation_mapping_cupy.kernels import dilation_filter_kernel
 from elevation_mapping_cupy.kernels import normal_filter_kernel
 from elevation_mapping_cupy.kernels import polygon_mask_kernel
@@ -41,7 +41,7 @@ from elevation_mapping_cupy.traversability_polygon import (
 import cupy as cp
 
 xp = cp
-pool = cp.cuda.MemoryPool(cp.cuda.malloc_managed)
+pool = cp.get_default_memory_pool()
 cp.cuda.set_allocator(pool.malloc)
 
 
@@ -280,6 +280,11 @@ class ElevationMap:
         )
         self.error = cp.zeros(1, dtype=cp.float32)
         self.error_cnt = cp.zeros(1, dtype=cp.float32)
+        self.map_snapshot = cp.empty_like(self.elevation_map)
+        self.visibility_map = cp.empty(
+            (3, self.cell_n, self.cell_n),
+            dtype=self.data_type,
+        )
         self.traversability_input = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
         self.traversability_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
         self.min_filtered = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
@@ -319,8 +324,12 @@ class ElevationMap:
             self.param.ramped_height_range_b,
             self.param.ramped_height_range_c,
         )
-        self.average_map_kernel = average_map_kernel(
-            self.cell_n, self.cell_n, self.param.max_variance, self.initial_variance
+        self.finalize_map_kernel = finalize_map_kernel(
+            self.cell_n,
+            self.cell_n,
+            self.param.max_variance,
+            self.initial_variance,
+            self.param.outlier_variance,
         )
 
         self.dilation_filter_kernel = dilation_filter_kernel(self.cell_n, self.cell_n, self.param.dilation_size)
@@ -349,16 +358,19 @@ class ElevationMap:
             position_noise (float):
             orientation_noise (float):
         """
-        self.new_map.fill(0.0)
-        self.error.fill(0.0)
-        self.error_cnt.fill(0.0)
         points = cp.ascontiguousarray(points_all[:, :3])
 
         with self.map_lock:
+            self.new_map.fill(0.0)
+            self.error.fill(0.0)
+            self.error_cnt.fill(0.0)
+            self.map_snapshot[...] = self.elevation_map
+            self.visibility_map.fill(0.0)
+            self.visibility_map[2].fill(cp.inf)
             t = t.copy()
             t[2] -= self.center[2]
             self.error_counting_kernel(
-                self.elevation_map,
+                self.map_snapshot,
                 points,
                 self.center[:1],
                 self.center[1:2],
@@ -380,20 +392,28 @@ class ElevationMap:
                 self.mean_error = self.error / self.error_cnt
                 self.additive_mean_error += self.mean_error
                 if np.abs(self.mean_error) < self.param.max_drift:
-                    self.elevation_map[0] += self.mean_error * self.param.drift_compensation_alpha
+                    correction = self.mean_error * self.param.drift_compensation_alpha
+                    self.map_snapshot[0] += correction
             self.add_points_kernel(
                 self.center[:1],
                 self.center[1:2],
                 R,
                 t,
+                self.map_snapshot,
                 self.normal_map,
                 points,
-                self.elevation_map,
                 self.new_map,
+                self.visibility_map,
                 size=(points.shape[0]),
             )
 
-            self.average_map_kernel(self.new_map, self.elevation_map, size=(self.cell_n * self.cell_n))
+            self.finalize_map_kernel(
+                self.map_snapshot,
+                self.new_map,
+                self.visibility_map,
+                self.elevation_map,
+                size=(self.cell_n * self.cell_n),
+            )
 
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)

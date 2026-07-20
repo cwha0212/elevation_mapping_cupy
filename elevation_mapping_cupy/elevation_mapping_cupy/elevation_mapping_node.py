@@ -77,8 +77,26 @@ def _pointcloud2_xyz_f32(msg: PointCloud2) -> np.ndarray:
             "itemsize": msg.point_step,
         }
     )
-    arr = np.frombuffer(msg.data, dtype=dtype)
-    pts = np.stack((arr["x"], arr["y"], arr["z"]), axis=-1).astype(np.float32, copy=False)
+    if msg.height == 0 or msg.width == 0:
+        return np.empty((0, 3), dtype=np.float32)
+    packed_row_size = msg.point_step * msg.width
+    if msg.row_step < packed_row_size:
+        raise ValueError(
+            f"PointCloud2 row_step={msg.row_step} is smaller than the packed row size {packed_row_size}."
+        )
+    required_bytes = msg.row_step * msg.height
+    if len(msg.data) < required_bytes:
+        raise ValueError(
+            f"PointCloud2 data has {len(msg.data)} bytes, expected at least {required_bytes}."
+        )
+
+    rows = np.ndarray(
+        shape=(msg.height, msg.width),
+        dtype=dtype,
+        buffer=msg.data,
+        strides=(msg.row_step, msg.point_step),
+    )
+    pts = np.stack((rows["x"], rows["y"], rows["z"]), axis=-1).reshape(-1, 3)
 
     if not msg.is_dense:
         good = np.isfinite(pts).all(axis=1)

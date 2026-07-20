@@ -88,6 +88,36 @@ if(BUILD_TESTING)
     TIMEOUT 180
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
+  ament_add_pytest_test(test_dilation_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_dilation_filter.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_fusion_finalization
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_fusion_finalization.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_indexing_center
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_indexing_center.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_height_gate_translation_invariance
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_height_gate_translation_invariance.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_plugin_manager_cache
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_plugin_manager_cache.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  ament_add_pytest_test(test_pointcloud_parser
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_pointcloud_parser.py
+    TIMEOUT 120
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
   ament_add_pytest_test(test_semantic_launch_descriptions
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_semantic_launch_descriptions.py
     TIMEOUT 120
