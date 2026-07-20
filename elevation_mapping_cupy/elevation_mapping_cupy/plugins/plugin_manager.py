@@ -133,6 +133,9 @@ class PluginManager(object):
         self.layers = cp.full((len(self.plugins), self.cell_n, self.cell_n), cp.nan, dtype=cp.float32)
         self.layer_names = self.get_layer_names()
         self.plugin_names = self.get_plugin_names()
+        self._generation = 0
+        self._layer_generations = [-1] * len(self.plugins)
+        self._empty_semantic_map = cp.zeros((0, self.cell_n, self.cell_n), dtype=cp.float32)
 
     def load_plugin_settings(self, file_path: str):
         cfg = YAML().load(open(file_path, "r"))
@@ -160,8 +163,8 @@ class PluginManager(object):
 
     def reset_layers(self):
         """Invalidate cached plugin layers so they will be recomputed on demand."""
-        if hasattr(self, "layers"):
-            self.layers[...] = cp.nan
+        if hasattr(self, "_generation"):
+            self._generation += 1
 
     def get_plugin_names(self):
         names = []
@@ -199,7 +202,7 @@ class PluginManager(object):
         # Semantic layers are optional. In this repo's supported surface we don't use them, so
         # default to empty containers to keep plugins robust.
         if semantic_map is None:
-            semantic_map = cp.zeros((0, self.cell_n, self.cell_n), dtype=cp.float32)
+            semantic_map = self._empty_semantic_map
         if semantic_params is None:
             semantic_params = []
         if elements_to_shift is None:
@@ -209,6 +212,8 @@ class PluginManager(object):
 
         idx = self.get_layer_index_with_name(name)
         if idx is not None and idx < len(self.plugins):
+            if self._layer_generations[idx] == self._generation:
+                return
             if name in _active_stack:
                 raise RuntimeError(f"Cyclic plugin dependency detected while computing '{name}'")
             _active_stack.add(name)
@@ -216,7 +221,10 @@ class PluginManager(object):
                 input_layer_name = getattr(self.plugins[idx], "input_layer_name", None)
                 if input_layer_name in self.layer_names:
                     dependency_idx = self.get_layer_index_with_name(input_layer_name)
-                    if dependency_idx is not None and cp.isnan(self.layers[dependency_idx]).all():
+                    if (
+                        dependency_idx is not None
+                        and self._layer_generations[dependency_idx] != self._generation
+                    ):
                         self.update_with_name(
                             input_layer_name,
                             elevation_map,
@@ -260,6 +268,7 @@ class PluginManager(object):
                         rotation,
                         elements_to_shift,
                     )
+                self._layer_generations[idx] = self._generation
             finally:
                 _active_stack.remove(name)
 

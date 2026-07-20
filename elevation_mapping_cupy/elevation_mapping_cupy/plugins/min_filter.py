@@ -24,8 +24,10 @@ class MinFilter(PluginBase):
         self.iteration_n = iteration_n
         self.width = cell_n
         self.height = cell_n
-        self.min_filtered = cp.zeros((self.width, self.height))
-        self.min_filtered_mask = cp.zeros((self.width, self.height))
+        self.min_filtered = cp.zeros((self.width, self.height), dtype=cp.float32)
+        self.min_filtered_mask = cp.zeros((self.width, self.height), dtype=cp.float32)
+        self.next_min_filtered = cp.zeros((self.width, self.height), dtype=cp.float32)
+        self.next_min_filtered_mask = cp.zeros((self.width, self.height), dtype=cp.float32)
         self.min_filter_kernel = cp.ElementwiseKernel(
             in_params="raw U map, raw U mask",
             out_params="raw U newmap, raw U newmask",
@@ -36,21 +38,8 @@ class MinFilter(PluginBase):
                     return layer * layer_n + idx;
                 }
 
-                __device__ int get_relative_map_idx(int idx, int dx, int dy, int layer_n) {
-                    const int layer = ${width} * ${height};
-                    const int relative_idx = idx + ${width} * dy + dx;
-                    return layer * layer_n + relative_idx;
-                }
-                __device__ bool is_inside(int idx) {
-                    int idx_x = idx / ${width};
-                    int idx_y = idx % ${width};
-                    if (idx_x <= 0 || idx_x >= ${width} - 1) {
-                        return false;
-                    }
-                    if (idx_y <= 0 || idx_y >= ${height} - 1) {
-                        return false;
-                    }
-                    return true;
+                __device__ bool is_inside(int row, int col) {
+                    return row > 0 && row < ${height} - 1 && col > 0 && col < ${width} - 1;
                 }
                 """
             ).substitute(width=self.width, height=self.height),
@@ -58,15 +47,21 @@ class MinFilter(PluginBase):
                 """
                 U h = map[get_map_idx(i, 0)];
                 U valid = mask[get_map_idx(i, 0)];
+                newmap[get_map_idx(i, 0)] = h;
+                newmask[get_map_idx(i, 0)] = valid;
                 if (valid < 0.5) {
+                    int row = i / ${width};
+                    int col = i % ${width};
                     U min_value = 1000000.0;
                     for (int dy = -${dilation_size}; dy <= ${dilation_size}; dy++) {
                         for (int dx = -${dilation_size}; dx <= ${dilation_size}; dx++) {
-                            int idx = get_relative_map_idx(i, dx, dy, 0);
-                            if (!is_inside(idx)) {continue;}
-                            U valid = newmask[idx];
-                            U value = newmap[idx];
-                            if(valid > 0.5 && value < min_value) {
+                            int candidate_row = row + dy;
+                            int candidate_col = col + dx;
+                            if (!is_inside(candidate_row, candidate_col)) {continue;}
+                            int idx = candidate_row * ${width} + candidate_col;
+                            U candidate_valid = mask[idx];
+                            U value = map[idx];
+                            if(candidate_valid > 0.5 && value < min_value) {
                                 min_value = value;
                             }
                         }
@@ -77,8 +72,8 @@ class MinFilter(PluginBase):
                     }
                 }
                 """
-            ).substitute(dilation_size=dilation_size),
-            name="min_filter_kernel",
+            ).substitute(dilation_size=dilation_size, width=self.width),
+            name=f"min_filter_{self.width}_{self.height}_{dilation_size}",
         )
 
     def __call__(
@@ -101,18 +96,22 @@ class MinFilter(PluginBase):
         Returns:
             cupy._core.core.ndarray:
         """
-        self.min_filtered = elevation_map[0].copy()
-        self.min_filtered_mask = elevation_map[2].copy()
-        for i in range(self.iteration_n):
+        source_map = elevation_map[0]
+        source_mask = elevation_map[2]
+        output_map = self.min_filtered
+        output_mask = self.min_filtered_mask
+        for _ in range(self.iteration_n):
             self.min_filter_kernel(
-                elevation_map[0],
-                elevation_map[2],
-                self.min_filtered,
-                self.min_filtered_mask,
+                source_map,
+                source_mask,
+                output_map,
+                output_mask,
                 size=(self.width * self.height),
             )
-            # If there's no more mask, break
-            if (self.min_filtered_mask > 0.5).all():
-                break
-        min_filtered = cp.where(self.min_filtered_mask > 0.5, self.min_filtered.copy(), cp.nan)
+            source_map, output_map = output_map, self.next_min_filtered if output_map is self.min_filtered else self.min_filtered
+            source_mask, output_mask = (
+                output_mask,
+                self.next_min_filtered_mask if output_mask is self.min_filtered_mask else self.min_filtered_mask,
+            )
+        min_filtered = cp.where(source_mask > 0.5, source_map, cp.nan)
         return min_filtered

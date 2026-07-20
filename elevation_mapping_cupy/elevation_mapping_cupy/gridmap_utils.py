@@ -1,4 +1,6 @@
+from array import array as float_array
 import math
+
 import numpy as np
 from std_msgs.msg import Float32MultiArray
 from std_msgs.msg import MultiArrayLayout as MAL
@@ -15,13 +17,17 @@ def encode_layer_to_multiarray(array: np.ndarray, layout: str = "gridmap_column"
     if layout == "gridmap_column":
         msg.layout.dim.append(MAD(label="column_index", size=cols, stride=rows * cols))
         msg.layout.dim.append(MAD(label="row_index", size=rows, stride=rows))
-        msg.data = arr.flatten(order="F").tolist()
+        contiguous = np.ascontiguousarray(arr.T)
+        msg.data = float_array("f")
+        msg.data.frombytes(contiguous.tobytes())
         return msg
 
     if layout == "row_major":
         msg.layout.dim.append(MAD(label="row_index", size=rows, stride=rows * cols))
         msg.layout.dim.append(MAD(label="column_index", size=cols, stride=cols))
-        msg.data = arr.flatten(order="C").tolist()
+        contiguous = np.ascontiguousarray(arr)
+        msg.data = float_array("f")
+        msg.data.frombytes(contiguous.tobytes())
         return msg
 
     raise ValueError(f"Unknown layout '{layout}'")

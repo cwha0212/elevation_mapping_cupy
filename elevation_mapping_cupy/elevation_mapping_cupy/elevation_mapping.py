@@ -278,6 +278,8 @@ class ElevationMap:
             (self.elevation_map.shape[0], self.cell_n, self.cell_n),
             dtype=self.data_type,
         )
+        self.error = cp.zeros(1, dtype=cp.float32)
+        self.error_cnt = cp.zeros(1, dtype=cp.float32)
         self.traversability_input = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
         self.traversability_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
         self.min_filtered = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
@@ -347,10 +349,10 @@ class ElevationMap:
             position_noise (float):
             orientation_noise (float):
         """
-        self.new_map *= 0.0
-        error = cp.array([0.0], dtype=cp.float32)
-        error_cnt = cp.array([0], dtype=cp.float32)
-        points = points_all[:, :3]
+        self.new_map.fill(0.0)
+        self.error.fill(0.0)
+        self.error_cnt.fill(0.0)
+        points = cp.ascontiguousarray(points_all[:, :3])
 
         with self.map_lock:
             t = t.copy()
@@ -363,19 +365,19 @@ class ElevationMap:
                 R,
                 t,
                 self.new_map,
-                error,
-                error_cnt,
+                self.error,
+                self.error_cnt,
                 size=(points.shape[0]),
             )
             if (
                 self.param.enable_drift_compensation
-                and error_cnt > self.param.min_height_drift_cnt
+                and self.error_cnt > self.param.min_height_drift_cnt
                 and (
                     position_noise > self.param.position_noise_thresh
                     or orientation_noise > self.param.orientation_noise_thresh
                 )
             ):
-                self.mean_error = error / error_cnt
+                self.mean_error = self.error / self.error_cnt
                 self.additive_mean_error += self.mean_error
                 if np.abs(self.mean_error) < self.param.max_drift:
                     self.elevation_map[0] += self.mean_error * self.param.drift_compensation_alpha
@@ -477,14 +479,7 @@ class ElevationMap:
             None:
         """
         raw_points = cp.asarray(raw_points, dtype=self.data_type)
-        
-        # Check for the sanity of the raw points
-        min_points = cp.min(raw_points, axis=0)
-        max_points = cp.max(raw_points, axis=0)
-        mean_points = cp.mean(raw_points, axis=0)
-                
         additional_channels = channels[3:]
-        raw_points = raw_points[~cp.isnan(raw_points[:, :3]).any(axis=1)]
         self.update_map_with_kernel(
             raw_points,
             additional_channels,

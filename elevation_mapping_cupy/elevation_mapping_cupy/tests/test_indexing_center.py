@@ -1,4 +1,5 @@
 import cupy as cp
+import numpy as np
 
 from elevation_mapping_cupy.kernels.custom_kernels import map_utils
 
@@ -116,3 +117,24 @@ def test_is_inside_marks_border_false_and_near_border_true():
     assert int(out_inside[2].item()) == 1
     # x=99 -> right border col=199: outside
     assert int(out_inside[3].item()) == 0
+
+
+def test_large_world_offset_preserves_subcell_boundaries():
+    width = 202
+    resolution = 0.1
+    kernel = _probe_get_idx_kernel(axis="x", width=width, height=width, resolution=resolution)
+    coords_np = np.asarray(
+        [199.949, 199.951, 199.999, 200.0, 200.001, 200.049, 200.051],
+        dtype=np.float32,
+    )
+    center_np = np.float32(200.0)
+    coords = cp.asarray(coords_np)
+    center = cp.asarray([center_np])
+    out = cp.zeros(coords.shape, dtype=cp.int32)
+
+    kernel(coords, center, out, size=coords.size)
+
+    expected = np.floor(
+        (coords_np - center_np) / np.float32(resolution) + 0.5 * (width - 1) + 0.5
+    ).astype(np.int32)
+    np.testing.assert_array_equal(out.get(), expected)

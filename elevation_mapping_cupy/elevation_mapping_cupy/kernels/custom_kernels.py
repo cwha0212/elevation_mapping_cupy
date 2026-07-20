@@ -2,8 +2,10 @@
 # Copyright (c) 2022, Takahiro Miki. All rights reserved.
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
-import cupy as cp
 import string
+
+import cupy as cp
+from cupyx.scipy.ndimage import distance_transform_edt
 
 
 def map_utils(
@@ -19,16 +21,15 @@ def map_utils(
 ):
     util_preamble = string.Template(
         """
-        __device__ float16 clamp(float16 x, float16 min_x, float16 max_x) {
-
+        __device__ int clamp_index(int x, int min_x, int max_x) {
             return max(min(x, max_x), min_x);
         }
-        __device__ int get_x_idx(float16 x, float16 center) {
+        __device__ int get_x_idx(float x, float center) {
             float fi = (x - center) / ${resolution} + 0.5 * (${width} - 1);
             int i = (int)floorf(fi + 0.5f);
             return i;
         }
-        __device__ int get_y_idx(float16 y, float16 center) {
+        __device__ int get_y_idx(float y, float center) {
             float fi = (y - center) / ${resolution} + 0.5 * (${height} - 1);
             int i = (int)floorf(fi + 0.5f);
             return i;
@@ -49,9 +50,9 @@ def map_utils(
             }
             return true;
         }
-        __device__ int get_idx(float16 x, float16 y, float16 center_x, float16 center_y) {
-            int idx_x = clamp(get_x_idx(x, center_x), 0, ${width} - 1);
-            int idx_y = clamp(get_y_idx(y, center_y), 0, ${height} - 1);
+        __device__ int get_idx(float x, float y, float center_x, float center_y) {
+            int idx_x = clamp_index(get_x_idx(x, center_x), 0, ${width} - 1);
+            int idx_y = clamp_index(get_y_idx(y, center_y), 0, ${height} - 1);
             // Fixed: Row-Major (Row=Y, Col=X)
             return ${width} * idx_y + idx_x;
         }
@@ -59,27 +60,33 @@ def map_utils(
             const int layer = ${width} * ${height};
             return layer * layer_n + idx;
         }
-        __device__ float transform_p(float16 x, float16 y, float16 z,
-                                     float16 r0, float16 r1, float16 r2, float16 t) {
+        __device__ float transform_p(float x, float y, float z,
+                                     float r0, float r1, float r2, float t) {
             return r0 * x + r1 * y + r2 * z + t;
         }
-        __device__ float point_noise(float16 x, float16 y, float16 z){
+        __device__ float point_noise(float x, float y, float z){
             // Noise model based on squared range in the sensor frame.
             // This avoids v=0 for flat ground points (z=0) and works for both
             // depth-camera optical frames (where z is range) and generic frames.
             return ${sensor_noise_factor} * (x * x + y * y + z * z);
         }
 
-        __device__ float point_sensor_distance(float16 x, float16 y, float16 z,
-                                               float16 sx, float16 sy, float16 sz) {
+        __device__ float point_sensor_distance(float x, float y, float z,
+                                               float sx, float sy, float sz) {
             float d = (x - sx) * (x - sx) + (y - sy) * (y - sy) + (z - sz) * (z - sz);
             return d;
         }
 
-        __device__ bool is_valid(float16 x, float16 y, float16 z,
-                               float16 sx, float16 sy, float16 sz) {
+        __device__ bool is_valid(float x, float y, float z,
+                                 float sx, float sy, float sz) {
+            if (!isfinite(x) || !isfinite(y) || !isfinite(z)) {
+                return false;
+            }
             float d = point_sensor_distance(x, y, z, sx, sy, sz);
-            float dxy = max(sqrt((x - sx) * (x - sx) + (y - sy) * (y - sy)) - ${ramped_height_range_b}, 0.0);
+            float dxy = fmaxf(
+                sqrtf((x - sx) * (x - sx) + (y - sy) * (y - sy)) - ${ramped_height_range_b},
+                0.0f
+            );
             if (d < ${min_valid_distance} * ${min_valid_distance}) {
                 return false;
             }
@@ -91,13 +98,13 @@ def map_utils(
             }
         }
 
-        __device__ float ray_vector(float16 tx, float16 ty, float16 tz,
-                                    float16 px, float16 py, float16 pz,
-                                    float16& rx, float16& ry, float16& rz){
-            float16 vx = px - tx;
-            float16 vy = py - ty;
-            float16 vz = pz - tz;
-            float16 norm = sqrt(vx * vx + vy * vy + vz * vz);
+        __device__ float ray_vector(float tx, float ty, float tz,
+                                    float px, float py, float pz,
+                                    float& rx, float& ry, float& rz){
+            float vx = px - tx;
+            float vy = py - ty;
+            float vz = pz - tz;
+            float norm = sqrtf(vx * vx + vy * vy + vz * vz);
             if (norm > 0) {
                 rx = vx / norm;
                 ry = vy / norm;
@@ -111,8 +118,8 @@ def map_utils(
             return norm;
         }
 
-        __device__ float inner_product(float16 x1, float16 y1, float16 z1,
-                                       float16 x2, float16 y2, float16 z2) {
+        __device__ float inner_product(float x1, float y1, float z1,
+                                       float x2, float y2, float z2) {
 
             float product = (x1 * x2 + y1 * y2 + z1 * z2);
             return product;
@@ -176,8 +183,13 @@ def add_points_kernel(
             U z = transform_p(rx, ry, rz, R[6], R[7], R[8], t[2]);
             U v = point_noise(rx, ry, rz);
             int idx = get_idx(x, y, center_x[0], center_y[0]);
-            if (is_valid(x, y, z, t[0], t[1], t[2])) {
-                if (is_inside(idx)) {
+            bool valid = is_valid(x, y, z, t[0], t[1], t[2]);
+            p[i * 3] = idx;
+            p[i * 3 + 1] = valid;
+            p[i * 3 + 2] = is_inside(idx);
+            if (!valid) { return; }
+
+            if (is_inside(idx)) {
                     U map_h = map[get_map_idx(idx, 0)];
                     U map_v = map[get_map_idx(idx, 1)];
                     U num_points = newmap[get_map_idx(idx, 4)];
@@ -204,14 +216,13 @@ def add_points_kernel(
                         }
                         // visibility cleanup
                     }
-                }
             }
             if (${enable_visibility_cleanup}) {
-                float16 ray_x, ray_y, ray_z;
-                float16 ray_length = ray_vector(t[0], t[1], t[2], x, y, z, ray_x, ray_y, ray_z);
-                ray_length = min(ray_length, (float16)${max_ray_length});
+                float ray_x, ray_y, ray_z;
+                float ray_length = ray_vector(t[0], t[1], t[2], x, y, z, ray_x, ray_y, ray_z);
+                ray_length = fminf(ray_length, (float)${max_ray_length});
                 int last_nidx = -1;
-                for (float16 s=${ray_step}; s < ray_length; s+=${ray_step}) {
+                for (float s=${ray_step}; s < ray_length; s+=${ray_step}) {
                     // iterate through ray
                     U nx = t[0] + ray_x * s;
                     U ny = t[1] + ray_y * s;
@@ -224,8 +235,6 @@ def add_points_kernel(
                     U nmap_h = map[get_map_idx(nidx, 0)];
                     U nmap_v = map[get_map_idx(nidx, 1)];
                     U nmap_valid = map[get_map_idx(nidx, 2)];
-                    // traversability
-                    U nmap_trav = map[get_map_idx(nidx, 3)];
                     // Time layer
                     U non_updated_t = map[get_map_idx(nidx, 4)];
                     // upper bound
@@ -233,8 +242,8 @@ def add_points_kernel(
                     U nmap_is_upper = map[get_map_idx(nidx, 6)];
 
                     // If point is close or is farther away than ray length, skip.
-                    float16 d = (x - nx) * (x - nx) + (y - ny) * (y - ny) + (z - nz) * (z - nz);
-                    if (d < 0.1 || !is_valid(x, y, z, t[0], t[1], t[2])) {continue;}
+                    float d = (x - nx) * (x - nx) + (y - ny) * (y - ny) + (z - nz) * (z - nz);
+                    if (d < 0.1) {continue;}
 
                     // If invalid, do upper bound check, then skip
                     if (nmap_valid < 0.5) {
@@ -247,7 +256,7 @@ def add_points_kernel(
                     // If updated recently, skip
                     if (non_updated_t < 0.5) {continue;}
 
-                    if (nmap_h > nz + 0.01 - min(nmap_v, 1.0) * 0.05) {
+                    if (nmap_h > nz + 0.01 - fminf(nmap_v, 1.0f) * 0.05) {
                         // If ray and norm is vertical, skip
                         U norm_x = norm_map[get_map_idx(nidx, 0)];
                         U norm_y = norm_map[get_map_idx(nidx, 1)];
@@ -268,9 +277,6 @@ def add_points_kernel(
                     }
                 }
             }
-            p[i * 3]= idx;
-            p[i * 3 + 1] = is_valid(x, y, z, t[0], t[1], t[2]);
-            p[i * 3 + 2] = is_inside(idx);
             """
         ).substitute(
             mahalanobis_thresh=mahalanobis_thresh,
@@ -403,7 +409,15 @@ def average_map_kernel(width, height, max_variance, initial_variance):
 
 
 def dilation_filter_kernel(width, height, dilation_size):
-    dilation_filter_kernel = cp.ElementwiseKernel(
+    """Return an alias-safe nearest-valid-cell dilation operation.
+
+    Small neighborhoods use a direct kernel. Large neighborhoods use CuPy's
+    Euclidean distance transform so runtime does not grow with radius squared.
+    """
+    if dilation_size < 0:
+        raise ValueError("dilation_size must be non-negative")
+
+    direct_kernel = cp.ElementwiseKernel(
         in_params="raw U map, raw U mask",
         out_params="raw U newmap, raw U newmask",
         preamble=string.Template(
@@ -413,26 +427,8 @@ def dilation_filter_kernel(width, height, dilation_size):
                 return layer * layer_n + idx;
             }
 
-            __device__ int get_relative_map_idx(int idx, int dx, int dy, int layer_n) {
-                const int layer = ${width} * ${height};
-                const int relative_idx = idx + ${width} * dy + dx;
-                return layer * layer_n + relative_idx;
-            }
-            __device__ bool is_inside(int idx) {
-                // Fixed: Row-Major (Row=Y, Col=X)
-                // Row index (Y)
-                int idx_y = idx / ${width};
-                // Column index (X)
-                int idx_x = idx % ${width};
-                // Check Col bounds (Width)
-                if (idx_x <= 0 || idx_x >= ${width} - 1) {
-                    return false;
-                }
-                // Check Row bounds (Height)
-                if (idx_y <= 0 || idx_y >= ${height} - 1) {
-                    return false;
-                }
-                return true;
+            __device__ bool is_inside(int row, int col) {
+                return row > 0 && row < ${height} - 1 && col > 0 && col < ${width} - 1;
             }
             """
         ).substitute(width=width, height=height),
@@ -441,30 +437,68 @@ def dilation_filter_kernel(width, height, dilation_size):
             U h = map[get_map_idx(i, 0)];
             U valid = mask[get_map_idx(i, 0)];
             newmap[get_map_idx(i, 0)] = h;
+            newmask[get_map_idx(i, 0)] = valid;
             if (valid < 0.5) {
-                U distance = 100;
+                int row = i / ${width};
+                int col = i % ${width};
+                int distance_squared = ${dilation_size} * ${dilation_size} + 1;
                 U near_value = 0;
                 for (int dy = -${dilation_size}; dy <= ${dilation_size}; dy++) {
                     for (int dx = -${dilation_size}; dx <= ${dilation_size}; dx++) {
-                        int idx = get_relative_map_idx(i, dx, dy, 0);
-                        if (!is_inside(idx)) {continue;}
-                        U valid = mask[idx];
-                        if(valid > 0.5 && dx + dy < distance) {
-                            distance = dx + dy;
+                        int candidate_distance = dx * dx + dy * dy;
+                        if (candidate_distance >= distance_squared) {continue;}
+                        int candidate_row = row + dy;
+                        int candidate_col = col + dx;
+                        if (!is_inside(candidate_row, candidate_col)) {continue;}
+                        int idx = candidate_row * ${width} + candidate_col;
+                        U candidate_valid = mask[idx];
+                        if(candidate_valid > 0.5) {
+                            distance_squared = candidate_distance;
                             near_value = map[idx];
                         }
                     }
                 }
-                if(distance < 100) {
+                if(distance_squared <= ${dilation_size} * ${dilation_size}) {
                     newmap[get_map_idx(i, 0)] = near_value;
                     newmask[get_map_idx(i, 0)] = 1.0;
                 }
             }
             """
-        ).substitute(dilation_size=dilation_size),
-        name="dilation_filter_kernel",
+        ).substitute(
+            dilation_size=dilation_size,
+            width=width,
+            height=height,
+        ),
+        name=f"dilation_filter_{width}_{height}_{dilation_size}",
     )
-    return dilation_filter_kernel
+
+    def run(map_in, mask_in, map_out, mask_out, size=None):
+        if size is not None and size != width * height:
+            raise ValueError(f"Expected size {width * height}, got {size}")
+
+        if dilation_size <= 8:
+            source_map = map_in.copy() if map_in.data.ptr == map_out.data.ptr else map_in
+            source_mask = mask_in.copy() if mask_in.data.ptr == mask_out.data.ptr else mask_in
+            direct_kernel(source_map, source_mask, map_out, mask_out, size=width * height)
+            return
+
+        valid = mask_in > 0.5
+        seeds = valid.copy()
+        seeds[[0, -1], :] = False
+        seeds[:, [0, -1]] = False
+        distances, indices = distance_transform_edt(
+            ~seeds,
+            return_indices=True,
+            float64_distances=False,
+        )
+        rows = cp.clip(indices[0], 0, height - 1)
+        cols = cp.clip(indices[1], 0, width - 1)
+        nearest = map_in[rows, cols]
+        replace = ~valid & (distances <= dilation_size)
+        map_out[...] = cp.where(replace, nearest, map_in)
+        mask_out[...] = valid | replace
+
+    return run
 
 
 def normal_filter_kernel(width, height, resolution):

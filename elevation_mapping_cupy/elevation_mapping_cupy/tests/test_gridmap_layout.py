@@ -1,3 +1,5 @@
+from array import array as float_array
+
 import numpy as np
 from std_msgs.msg import Float32MultiArray, MultiArrayLayout, MultiArrayDimension
 
@@ -19,6 +21,7 @@ def test_encode_decode_column_major_roundtrip():
     arr = np.arange(12, dtype=np.float32).reshape((3, 4))
     msg = emn.encode_layer_to_multiarray(arr, layout="gridmap_column")
     out = emn.decode_multiarray_to_rows_cols("elevation", msg)
+    assert isinstance(msg.data, float_array)
     assert np.array_equal(arr, out)
 
 

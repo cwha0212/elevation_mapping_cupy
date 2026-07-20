@@ -153,7 +153,7 @@ class ElevationMappingNode(Node):
         self.time_interval = self.get_parameter('time_interval').get_parameter_value().double_value
         self.update_pose_fps = self.get_parameter('update_pose_fps').get_parameter_value().double_value
         if not self.has_parameter('cupy_memory_pool_trim_interval_s'):
-            self.declare_parameter('cupy_memory_pool_trim_interval_s', 5.0)
+            self.declare_parameter('cupy_memory_pool_trim_interval_s', 0.0)
         self.cupy_memory_pool_trim_interval_s = float(
             self.get_parameter('cupy_memory_pool_trim_interval_s').value
         )
@@ -448,6 +448,9 @@ class ElevationMappingNode(Node):
     def publish_map(self, key: str) -> None:
         if self._map_q is None:
             return
+        publisher = self._publishers_dict[key]
+        if publisher.get_subscription_count() == 0:
+            return
         center = self._get_map_center()
         gm = GridMap()
         gm.header.frame_id = self.map_frame
@@ -485,7 +488,7 @@ class ElevationMappingNode(Node):
 
         gm.outer_start_index = 0
         gm.inner_start_index = 0
-        self._publishers_dict[key].publish(gm)
+        publisher.publish(gm)
 
     def handle_masked_replace(self, request, response):
         try:
