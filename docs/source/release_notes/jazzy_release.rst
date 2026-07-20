@@ -38,6 +38,8 @@ Throughput
   bytes directly.
 * Skipped map construction for publishers without subscribers.
 * Switched to CuPy's device memory pool and made periodic trimming opt-in.
+* Pinned GridMap 2.2.2 as a CI source dependency so the GPU test image builds
+  message support against its own ROS 2 middleware ABI.
 
 Measured Results
 ==================================================================
@@ -62,15 +64,21 @@ results are in ``GPU_OPTIMIZATION_WORKLOG.md`` and
 Validation
 ==================================================================
 
-Local validation in the isolated ROS 2 Jazzy GPU workspace completed with:
+Validation in the isolated ROS 2 Jazzy GPU workspace completed with:
 
 * 126 direct GPU unit tests passed.
 * 77 colcon tests passed with no errors, failures, or skips.
 * TF/GridMap integration, save/load services, and the synthetic demo launch
   passed.
 
-The release tag is created only after the ``ros2`` branch's GitHub Actions
-checks pass for the release commit.
+The full CI script was also run locally on ``starship`` in the exact pinned
+GPU container image used by ``jazzy-docker-tests.yml``
+(``sha256:2bef0b5f33c844b6851a06027a1e8f05aae07d36e6962f8d93d129d7d2646963``).
+It built 10 packages, passed both semantic runtime smokes, and passed all 77
+tests. The GitHub documentation workflow passed. The remote ROS 2 workflow was
+cancelled while queued because this repository does not currently have a
+registered self-hosted runner; the equivalent container command above is the
+release gate used for this tag.
 
 Deployment Note
 ==================================================================

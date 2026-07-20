@@ -1,4 +1,8 @@
 repositories:
+  grid_map:
+    type: git
+    url: https://github.com/ANYbotics/grid_map.git
+    version: 2.2.2
   ros2_numpy:
     type: git
     url: https://github.com/Box-Robotics/ros2_numpy.git
