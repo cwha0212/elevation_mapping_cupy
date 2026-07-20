@@ -1,0 +1,83 @@
+{
+  "baseline": {
+    "requested_commit": "f6ed873a7ed0825028595d9ded6e456faf7be1f9",
+    "measured_commit": "deb1c86",
+    "note": "f6ed873 only adds ELEVATION_MAPPING_GPU_HANDOVER.md; executable code is identical to deb1c86"
+  },
+  "environment": {
+    "cupy": "13.6.0",
+    "driver": "580.159.03",
+    "gpu": "NVIDIA GeForce RTX 4090"
+  },
+  "method": {
+    "repetitions_per_run": 200,
+    "runs": 3,
+    "summary": "median of per-run p50 and p95",
+    "warmups_per_run": 30,
+    "workload": "deterministic synthetic LiDAR-like XYZ point clouds"
+  },
+  "optimized_code_commit": "4ff427d4e4d9215da46646178cca58cdf9a640d6",
+  "results_ms": {
+    "core_callback_wall": {
+      "10000": {
+        "baseline": {"p50": 1.005233, "p95": 1.987373},
+        "optimized": {"p50": 0.581470, "p95": 0.763992}
+      },
+      "50000": {
+        "baseline": {"p50": 1.266191, "p95": 1.744230},
+        "optimized": {"p50": 0.585821, "p95": 0.778832}
+      },
+      "100000": {
+        "baseline": {"p50": 1.787178, "p95": 2.309055},
+        "optimized": {"p50": 0.597271, "p95": 0.826702}
+      }
+    },
+    "dilation": {
+      "202x202_radius_3": {
+        "baseline": {"p50": 0.007168, "p95": 0.009216},
+        "optimized": {"p50": 0.006144, "p95": 0.008192}
+      },
+      "602x602_radius_70": {
+        "baseline": {"p50": 7.912448, "p95": 8.703795},
+        "optimized": {"p50": 0.417872, "p95": 0.589670}
+      }
+    },
+    "ros_pipeline": {
+      "10000": {
+        "callback": {
+          "baseline": {"p50": 1.443236, "p95": 1.838661},
+          "optimized": {"p50": 1.075804, "p95": 1.776957}
+        },
+        "callback_and_filtered_gridmap": {
+          "baseline": {"p50": 46.624136, "p95": 54.543935},
+          "optimized": {"p50": 25.023179, "p95": 40.194180}
+        }
+      },
+      "50000": {
+        "callback": {
+          "baseline": {"p50": 1.948853, "p95": 2.305845},
+          "optimized": {"p50": 1.244082, "p95": 1.733890}
+        },
+        "callback_and_filtered_gridmap": {
+          "baseline": {"p50": 28.862779, "p95": 32.035770},
+          "optimized": {"p50": 12.237263, "p95": 15.932993}
+        }
+      },
+      "100000": {
+        "callback": {
+          "baseline": {"p50": 3.070952, "p95": 3.428175},
+          "optimized": {"p50": 1.748331, "p95": 2.640541}
+        },
+        "callback_and_filtered_gridmap": {
+          "baseline": {"p50": 28.985870, "p95": 32.609203},
+          "optimized": {"p50": 9.896141, "p95": 11.146296}
+        }
+      }
+    },
+    "warp_finalizer": {
+      "202x202": {"cupy_p95": 0.013221, "best_warp_p95": 0.013312},
+      "602x602": {"cupy_p95": 0.021504, "best_warp_p95": 0.026624}
+    }
+  },
+  "scope_note": "ROS pipeline excludes executor scheduling, serialization, and DDS transport"
+}
