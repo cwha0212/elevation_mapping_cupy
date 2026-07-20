@@ -1,12 +1,32 @@
-*.pyc
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ROS 2 and CMake
+build/
+install/
+log/
+compile_commands.json
+
+# Documentation
+docs/build/
+docs/_build/
+
+# Editors
+.idea/
+.run/
+.vscode/
+
+# Local development artifacts
 *.bkp
 *.orig
-.idea*
-.pytest_cache
-.run/
-docs/build 
-_build
-.idea*
-.vscode*
-*.egg-info
-elevation_mapping_cupy/compile_commands.json
+*.log
+*.ncu-rep
+*.nsys-rep
+*.qdrep
+benchmarks/results/raw/
+profiling/

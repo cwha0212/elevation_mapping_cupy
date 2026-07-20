@@ -128,7 +128,6 @@ needs GPU access from the host driver.
 Release Validation Status
 ==================================================================
 
-The ``v2.1.0`` ROS2/Jazzy release validation was executed on a self-hosted
-NVIDIA runner using the ``moleworks_ros`` container. See
-:doc:`../release_notes/jazzy_release` for the exact test surface and remaining
-known issues.
+The ``v2.2.0`` ROS 2/Jazzy release validation used the pinned GPU CI container
+on an NVIDIA RTX 4090. See :doc:`../release_notes/jazzy_release` for the exact
+test surface and deployment note.

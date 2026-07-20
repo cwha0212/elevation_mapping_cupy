@@ -1,28 +1,27 @@
 ##################################################
-Elevation Mapping CuPy ROS2 Documentation
+Elevation Mapping CuPy
 ##################################################
 
-Welcome to the documentation for the official ROS2/Jazzy branch of
-``elevation_mapping_cupy``.
+Real-time, GPU-accelerated elevation mapping for ROS 2 Jazzy.
 
-.. image:: https://github.com/leggedrobotics/elevation_mapping_cupy/actions/workflows/jazzy-docker-tests.yml/badge.svg
-    :target: https://github.com/leggedrobotics/elevation_mapping_cupy/actions/workflows/jazzy-docker-tests.yml
-    :alt: ROS2 CI
+.. image:: https://img.shields.io/github/v/release/leggedrobotics/elevation_mapping_cupy?display_name=tag&sort=semver
+    :target: https://github.com/leggedrobotics/elevation_mapping_cupy/releases/latest
+    :alt: Latest release
 
 .. image:: https://github.com/leggedrobotics/elevation_mapping_cupy/actions/workflows/documentation.yml/badge.svg
     :target: https://github.com/leggedrobotics/elevation_mapping_cupy/actions/workflows/documentation.yml
     :alt: Documentation
 
-This documentation tracks the ``ros2`` branch, which is the actively maintained
-ROS2/Jazzy line. The legacy ROS1 line remains on ``main``.
+This documentation tracks the actively maintained ``ros2`` branch. The
+legacy ROS 1 line remains on ``main``.
 
 Highlights
 ---------------
 
 * GPU-accelerated elevation mapping with CuPy.
 * Geometry, RGB, semantic image, and semantic pointcloud fusion.
-* ROS2 launch files and tests validated on a self-hosted NVIDIA runner.
-* Maintained ROS2 branch owner: Lorenzo Terenzi.
+* ROS 2 launch files, GridMap services, and GPU integration tests.
+* Deterministic fusion and reproducible performance benchmarks.
 
 Start here
 ---------------
@@ -32,13 +31,11 @@ Start here
 | :doc:`getting_started/tutorial` - Launching the node, TurtleBot3 demo, and semantic demos
 | :doc:`release_notes/jazzy_release` - ROS2 Jazzy release status and validation summary
 
-The legacy plane-segmentation stack is not part of the current ROS2 workspace.
+The legacy plane-segmentation stack is not part of the current ROS 2 workspace.
 The supported release surface for this branch is the Python/CuPy elevation
 mapping pipeline plus the restored ``semantic_sensor`` package.
 
-.. image:: ../media/main_repo.png
-    :alt: Elevation map repository overview
-.. image:: ../media/main_mem.png
+.. image:: ../media/overview.png
     :alt: Multi-modal elevation mapping overview
 
 

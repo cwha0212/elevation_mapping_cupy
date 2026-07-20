@@ -13,7 +13,7 @@ GridMap message construction improved p95 by 26.3--65.8%.
 
 The baseline is `f6ed873a7ed0825028595d9ded6e456faf7be1f9`. Measurements were
 run from its code-equivalent parent `deb1c86`; `f6ed873` only adds
-`ELEVATION_MAPPING_GPU_HANDOVER.md`.
+`elevation_mapping_gpu_handover.md`.
 
 ## Changes
 

@@ -58,7 +58,7 @@ three independent processes. Tables report the median per-run p95.
 An equivalent deterministic finalizer was benchmarked in CuPy RawKernel and
 NVIDIA Warp. Warp did not provide a repeatable p95 benefit, so this release
 does not add Warp as a dependency. Full methodology and machine-readable
-results are in ``GPU_OPTIMIZATION_WORKLOG.md`` and
+results are in ``docs/development/elevation_mapping_gpu_optimization.md`` and
 ``benchmarks/results/rtx4090_20260720_summary.json``.
 
 Validation
