@@ -18,6 +18,32 @@
 
 #include <elevation_map_msgs/Statistics.h>
 
+namespace {
+
+bool isHeightLayerName(const std::string& layerName) {
+return layerName == "elevation" || layerName == "max_filter" || layerName == "min_filter" || layerName == "smooth" ||
+      layerName == "inpaint" || layerName == "upper_bound";
+}
+
+std::string getHeightLayerForTransform(const grid_map::GridMap& map, const std::vector<std::string>& requestedLayers) {
+for (const auto& layerName : requestedLayers) {
+  if (isHeightLayerName(layerName) && map.exists(layerName)) {
+    return layerName;
+  }
+}
+if (map.exists("elevation")) {
+  return "elevation";
+}
+for (const auto& layerName : requestedLayers) {
+  if (map.exists(layerName)) {
+    return layerName;
+  }
+}
+return "elevation";
+}
+
+}  // namespace
+
 namespace elevation_mapping_cupy {
 
 ElevationMappingNode::ElevationMappingNode(ros::NodeHandle& nh)
@@ -537,7 +563,12 @@ bool ElevationMappingNode::getSubmap(grid_map_msgs::GetGridMap::Request& request
   }
   const auto& length = subMap.getLength();
   if (requestedFrameId != mapFrameId_) {
-    subMap = subMap.getTransformedMap(transformationOdomToMap, "elevation", requestedFrameId);
+    const std::string heightLayerName = getHeightLayerForTransform(subMap, request.layers);
+    if (!subMap.exists(heightLayerName)) {
+      ROS_ERROR_STREAM("Cannot transform submap because height layer '" << heightLayerName << "' is not available.");
+      return false;
+    }
+    subMap = subMap.getTransformedMap(transformationOdomToMap, heightLayerName, requestedFrameId);
   }
 
   if (request.layers.empty()) {
