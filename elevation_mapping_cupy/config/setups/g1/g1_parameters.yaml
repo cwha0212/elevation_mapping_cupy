@@ -1,11 +1,18 @@
 /elevation_mapping_node:
   ros__parameters:
     #### Basic parameters ########
+    # Values below match the reference stack in working/ that maps reliably on
+    # this robot. 0.04 m over an 8 m map is 200x200 = 40k cells, ~2.25x more
+    # than 0.06, so the sparse MID360 scan leaves cells that never receive a
+    # point -> holes that never fill. The policies sample the map on a 0.1 m
+    # grid, so 0.06 is still finer than the observation spacing.
     resolution: 0.04
     map_length: 8.0
     sensor_noise_factor: 0.05
-    mahalanobis_thresh: 1.5
-    outlier_variance: 0.01
+    # Stricter than 2.0 rejects valid returns as outliers, so cells stop being
+    # updated and stale/empty patches persist.
+    mahalanobis_thresh: 3.0
+    outlier_variance: 0.015
     drift_compensation_variance_inlier: 0.05
     max_drift: 0.1
     drift_compensation_alpha: 0.1
@@ -25,6 +32,9 @@
     ramped_height_range_a: 0.3
     ramped_height_range_b: 1.0
     ramped_height_range_c: 0.2
+    # Halved rates from the reference stack. Doubling these on a Jetson NX
+    # starves the GPU pipeline, which shows up as the map falling behind and
+    # eventually appearing frozen while the node still looks healthy.
     update_variance_fps: 10.0
     update_pose_fps: 20.0
     time_interval: 0.1
@@ -42,8 +52,14 @@
     overlap_clear_range_xy: 4.0
     overlap_clear_range_z: 2.0
 
+    # map_frame stays namespaced: DLIO now runs under the "robot" namespace, so
+    # its odometry frame is robot/odom (the reference stack ran DLIO un-namespaced
+    # and called it plain "odom" — same physical frame).
     map_frame: "robot/odom"
-    base_frame: "robot/base_link"
+    # torso_link, as in the reference stack: this centres the map on the same
+    # body the controller samples the height scan around. robot/base_link is
+    # DLIO's lidar baselink, which centres the map on the sensor instead.
+    base_frame: "torso_link"
     corrected_map_frame: "odom_corrected"
 
     #### Feature toggles ########
@@ -62,10 +78,28 @@
     use_only_above_for_upper_bound: false
 
     #### Initializer ########
+    # DISABLED ON PURPOSE. _initialize_with_tf() bakes a flat plane through the
+    # ankle frames (z + initialize_tf_offset) exactly ONCE at start-up and then
+    # sets use_initializer_at_start=False, so whatever height the feet happened
+    # to be at in that instant is frozen into the map. The lidar can never see
+    # the ground under the robot (self-occlusion + min_valid_distance 0.6), so
+    # that disc is never re-measured while the robot stands still.
+    #
+    # Measured on hardware after a start-up with the robot raised on its stand:
+    # a dead-flat disc (0-3 mm spread) out to 0.8 m radius sitting 74 mm ABOVE
+    # the true floor, while the map beyond 0.8 m was correct to 5 mm. The
+    # controller's height scan is x +/-0.8, y +/-0.5 -- entirely inside that
+    # disc -- so every one of the 187 samples read 74 mm high.
+    #
+    # With the initializer off, the footprint stays NaN and is filled by the
+    # 'inpaint' plugin from the surrounding REAL floor, which is correct by
+    # construction; HeightMapHandler::getHeight() also substitutes the local
+    # ground plane (base_z - 0.76) for any NaN that survives. Both track the
+    # robot instead of freezing a start-up pose.
     initialize_method: "linear"
     initialize_frame_id: ["left_ankle_roll_link", "right_ankle_roll_link"]
     initialize_tf_offset: [-0.04, -0.04]
     dilation_size_initialize: 5
     initialize_tf_grid_size: 0.1
-    use_initializer_at_start: true
+    use_initializer_at_start: false
     always_clear_with_initializer: false
