@@ -32,9 +32,6 @@
     ramped_height_range_a: 0.3
     ramped_height_range_b: 1.0
     ramped_height_range_c: 0.2
-    # Halved rates from the reference stack. Doubling these on a Jetson NX
-    # starves the GPU pipeline, which shows up as the map falling behind and
-    # eventually appearing frozen while the node still looks healthy.
     update_variance_fps: 10.0
     update_pose_fps: 20.0
     time_interval: 0.1
@@ -78,28 +75,25 @@
     use_only_above_for_upper_bound: false
 
     #### Initializer ########
-    # DISABLED ON PURPOSE. _initialize_with_tf() bakes a flat plane through the
-    # ankle frames (z + initialize_tf_offset) exactly ONCE at start-up and then
-    # sets use_initializer_at_start=False, so whatever height the feet happened
-    # to be at in that instant is frozen into the map. The lidar can never see
-    # the ground under the robot (self-occlusion + min_valid_distance 0.6), so
-    # that disc is never re-measured while the robot stands still.
+    # ENABLED, as in the ROS 1 stack: seed the map with a plane through the two
+    # ankle frames, 0.04 m below them (initialize_tf_offset), so the footprint
+    # starts at real foot level instead of empty. The lidar cannot see the
+    # ground within ~1.3 m of the robot (see the inpainting note in
+    # g1_plugin_config.yaml), so without this the area the controller samples
+    # has no measured data at all until the robot has walked somewhere.
     #
-    # Measured on hardware after a start-up with the robot raised on its stand:
-    # a dead-flat disc (0-3 mm spread) out to 0.8 m radius sitting 74 mm ABOVE
-    # the true floor, while the map beyond 0.8 m was correct to 5 mm. The
-    # controller's height scan is x +/-0.8, y +/-0.5 -- entirely inside that
-    # disc -- so every one of the 187 samples read 74 mm high.
-    #
-    # With the initializer off, the footprint stays NaN and is filled by the
-    # 'inpaint' plugin from the surrounding REAL floor, which is correct by
-    # construction; HeightMapHandler::getHeight() also substitutes the local
-    # ground plane (base_z - 0.76) for any NaN that survives. Both track the
-    # robot instead of freezing a start-up pose.
+    # START WITH THE FEET ON THE GROUND. _initialize_with_tf() runs exactly ONCE
+    # and then clears use_initializer_at_start, so whatever height the feet are
+    # at in that instant is frozen in. Measured on hardware after starting with
+    # the robot raised on its stand: a dead-flat disc out to 0.8 m sitting 74 mm
+    # ABOVE the true floor, while the map beyond 0.8 m was correct to 5 mm --
+    # and the height scan (x +/-0.8, y +/-0.5) lies entirely inside that disc,
+    # so every sample read 74 mm high. On a stand, or after any start-up pose
+    # you do not trust, restart the mapping node once the robot is standing.
     initialize_method: "linear"
     initialize_frame_id: ["left_ankle_roll_link", "right_ankle_roll_link"]
     initialize_tf_offset: [-0.04, -0.04]
     dilation_size_initialize: 5
     initialize_tf_grid_size: 0.1
-    use_initializer_at_start: false
+    use_initializer_at_start: true
     always_clear_with_initializer: false
