@@ -10,19 +10,18 @@
       feat_.*: "exponential"
       sem_.*: "exponential"
 
+    # Publish only the layers something consumes; each one is a full float grid
+    # fetched from the GPU and serialised every publish.
+    #   inpaint           -> g1_ctrl height observation (deploy.yaml height_map)
+    #   min_smooth_filter -> g1_base_odom g1_height_scan_node (height_layer param)
     publishers:
       elevation_map_raw:
-        layers: ["elevation", "traversability", "variance", "upper_bound"]
-        basic_layers: ["elevation", "traversability"]
+        layers: ["elevation"]
+        basic_layers: ["elevation"]
         fps: 5.0
 
-      elevation_map_recordable:
-        layers: ["elevation", "traversability", "variance"]
-        basic_layers: ["elevation", "traversability"]
-        fps: 2.0
-
       filtered_elevation_map:
-        layers: ["inpaint", "smooth", "min_filter", "max_filter", "upper_bound", "min_smooth_filter"]
+        layers: ["inpaint", "min_smooth_filter"]
         basic_layers: ["inpaint"]
         fps: 5.0
 

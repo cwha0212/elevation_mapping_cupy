@@ -8,8 +8,11 @@ min_filter:
     dilation_size: 1
     iteration_n: 30
 
+# Disabled: nothing consumes these layers, and every enabled plugin costs GPU
+# work per map_acquire cycle on a node that is already compute-bound here.
+# Re-enable if you need them in RViz.
 max_filter:
-  enable: True
+  enable: False
   fill_nan: False
   is_height_layer: True
   layer_name: "max_filter"
@@ -18,7 +21,7 @@ max_filter:
     iteration_n: 10
 
 smooth_filter:
-  enable: True
+  enable: False
   fill_nan: False
   is_height_layer: True
   layer_name: "smooth"

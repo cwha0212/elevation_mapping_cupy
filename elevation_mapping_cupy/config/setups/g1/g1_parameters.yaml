@@ -4,8 +4,10 @@
     resolution: 0.04
     map_length: 8.0
     sensor_noise_factor: 0.05
-    mahalanobis_thresh: 1.5
-    outlier_variance: 0.01
+    # Loose enough not to reject valid MID360 returns as outliers, which would
+    # leave cells stale.
+    mahalanobis_thresh: 3.0
+    outlier_variance: 0.015
     drift_compensation_variance_inlier: 0.05
     max_drift: 0.1
     drift_compensation_alpha: 0.1
@@ -25,6 +27,9 @@
     ramped_height_range_a: 0.3
     ramped_height_range_b: 1.0
     ramped_height_range_c: 0.2
+    # Halved rates from the reference stack. Doubling these on a Jetson NX
+    # starves the GPU pipeline, which shows up as the map falling behind and
+    # eventually appearing frozen while the node still looks healthy.
     update_variance_fps: 10.0
     update_pose_fps: 20.0
     time_interval: 0.1
@@ -42,8 +47,12 @@
     overlap_clear_range_xy: 4.0
     overlap_clear_range_z: 2.0
 
+    # DLIO runs under the "robot" namespace, so its odometry frame is robot/odom.
     map_frame: "robot/odom"
-    base_frame: "robot/base_link"
+    # Centre the map on the same body the controller samples its height scan
+    # around. robot/base_link is DLIO's lidar baselink, which would centre the
+    # map on the sensor instead.
+    base_frame: "torso_link"
     corrected_map_frame: "odom_corrected"
 
     #### Feature toggles ########
@@ -62,10 +71,16 @@
     use_only_above_for_upper_bound: false
 
     #### Initializer ########
+    # Initializer DISABLED ON PURPOSE: it bakes a flat plane through the ankle
+    # frames into the map once at start-up, and the lidar can never re-measure
+    # the ground under the robot (self-occlusion + min_valid_distance), so that
+    # start-up height stays frozen underneath the whole height scan. Left off,
+    # the footprint stays NaN and the 'inpaint' plugin fills it from the
+    # surrounding real floor.
     initialize_method: "linear"
     initialize_frame_id: ["left_ankle_roll_link", "right_ankle_roll_link"]
     initialize_tf_offset: [-0.04, -0.04]
     dilation_size_initialize: 5
     initialize_tf_grid_size: 0.1
-    use_initializer_at_start: true
+    use_initializer_at_start: false
     always_clear_with_initializer: false
