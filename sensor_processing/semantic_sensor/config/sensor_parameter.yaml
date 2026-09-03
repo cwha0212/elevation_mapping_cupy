@@ -28,3 +28,33 @@ front_cam_image:
   image_topic: "/camera/rgb/image_raw"
   camera_info_topic: "/camera/depth/camera_info"
   resize: 0.5
+
+# Template for a camera that publishes no CameraInfo (e.g. compressed image only).
+# Filling camera_intrinsics.k switches the node off the CameraInfo topic; while it
+# is empty the node keeps subscribing to camera_info_topic as before.
+front_cam_image_static_info:
+  channels: []
+  publish_topic: "semantic_image"
+  publish_image_topic: "semantic_image_debug"
+  channel_info_topic: "channel_info"
+
+  semantic_segmentation: True
+  feature_extractor: False
+  segmentation_model: "lraspp_mobilenet_v3_large"
+  show_label_legend: False
+  # "compressed" anywhere in the topic name selects the CompressedImage subscriber.
+  image_topic: ""
+  # Not subscribed to when camera_intrinsics.k is set; still names the republished
+  # topic that elevation_mapping consumes ("<camera_info_topic>_resized").
+  camera_info_topic: ""
+  resize: 0.5
+
+  camera_intrinsics:
+    width: 0
+    height: 0
+    # "radtan" keeps d; every other name (including "plumb_bob") is treated as
+    # undistorted by the elevation mapping projection kernel.
+    distortion_model: "radtan"
+    k: []   # [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+    d: []   # [k1, k2, p1, p2, k3]
+    p: []   # derived from k when empty

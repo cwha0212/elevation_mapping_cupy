@@ -18,6 +18,24 @@ class FeatureExtractorParameter(Serializable):
 
 
 @dataclass
+class CameraIntrinsics(Serializable):
+    """Static camera calibration, used when no CameraInfo topic is available.
+
+    Leave ``k`` empty to keep subscribing to ``ImageParameter.camera_info_topic``
+    (the default). Filling ``k`` switches the node to this config instead.
+    """
+
+    width: int = 0
+    height: int = 0
+    # "radtan" keeps the distortion coefficients; the elevation mapping kernel
+    # zeroes them for every other model name, including ROS' own "plumb_bob".
+    distortion_model: str = "radtan"
+    k: list = field(default_factory=list)  # 9 values, row-major
+    d: list = field(default_factory=list)  # 5 values, defaults to zeros
+    p: list = field(default_factory=list)  # 12 values, derived from k when empty
+
+
+@dataclass
 class ImageParameter(Serializable):
     image_topic: str = "/alphasense_driver_ros/cam4/debayered"
     semantic_segmentation: bool = True
@@ -35,3 +53,4 @@ class ImageParameter(Serializable):
     feat_channel_info_topic: str = "feat_channel_info"
     resize: float = None
     camera_info_topic: str = "camera_info"
+    camera_intrinsics: CameraIntrinsics = field(default_factory=CameraIntrinsics)

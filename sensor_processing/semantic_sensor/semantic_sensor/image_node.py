@@ -37,6 +37,17 @@ class SemanticImageNode(Node):
         self.semseg_color_map = None
         self.camera_info_output_topic = self._camera_info_output_topic()
 
+        # Cameras that publish no CameraInfo can carry their calibration in the
+        # sensor config instead. Seeding self.info here reuses the resize logic
+        # in image_info_callback, so nothing downstream changes.
+        self._static_info = self._build_static_camera_info()
+        if self._static_info is not None:
+            self.image_info_callback(self._static_info)
+            self.get_logger().info(
+                f"Using static camera intrinsics from config for '{sensor_name}' "
+                f"(no subscription to '{self.param.camera_info_topic}')."
+            )
+
         self.feature_extractor = None
         self.semantic_model = None
         self.initialize_semantics()
@@ -62,7 +73,8 @@ class SemanticImageNode(Node):
             self.feature_extractor = resolve_model(self.param.feature_config.name, self.param.feature_config)
 
     def register_sub_pub(self) -> None:
-        self.create_subscription(CameraInfo, self.param.camera_info_topic, self.image_info_callback, 2)
+        if self._static_info is None:
+            self.create_subscription(CameraInfo, self.param.camera_info_topic, self.image_info_callback, 2)
 
         if "compressed" in self.param.image_topic:
             self.compressed = True
@@ -83,6 +95,33 @@ class SemanticImageNode(Node):
             self.feature_pub = self.create_publisher(Image, self.param.feature_topic, 2)
             self.feat_im_pub = self.create_publisher(Image, self.param.feat_image_topic, 2)
             self.feat_channel_info_pub = self.create_publisher(ChannelInfo, self.param.feat_channel_info_topic, 2)
+
+    def _build_static_camera_info(self) -> CameraInfo | None:
+        """Build a CameraInfo from the configured intrinsics, or None to use the topic."""
+        ci = self.param.camera_intrinsics
+        if not ci.k:
+            return None
+        if len(ci.k) != 9:
+            raise ValueError(f"camera_intrinsics.k must hold 9 values, got {len(ci.k)}.")
+        if ci.p and len(ci.p) != 12:
+            raise ValueError(f"camera_intrinsics.p must hold 12 values, got {len(ci.p)}.")
+        if not ci.width or not ci.height:
+            raise ValueError("camera_intrinsics.width and .height must be set.")
+
+        msg = CameraInfo()
+        msg.width = int(ci.width)
+        msg.height = int(ci.height)
+        msg.distortion_model = ci.distortion_model
+        msg.k = [float(v) for v in ci.k]
+        msg.d = [float(v) for v in ci.d] if ci.d else [0.0] * 5
+        msg.r = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        if ci.p:
+            msg.p = [float(v) for v in ci.p]
+        else:
+            # image_info_callback derives the resized k from p, so p must be filled.
+            k = np.array(msg.k, dtype=np.float64).reshape(3, 3)
+            msg.p = np.hstack([k, np.zeros((3, 1))]).reshape(-1).tolist()
+        return msg
 
     def _camera_info_output_topic(self) -> str:
         if not self.param.camera_info_topic:
