@@ -30,6 +30,7 @@ from elevation_mapping_cupy.kernels import polygon_mask_kernel
 
 from elevation_mapping_cupy.map_initializer import MapInitializer
 from elevation_mapping_cupy.plugins.plugin_manager import PluginManager
+from elevation_mapping_cupy.semantic_map import SemanticMap
 from elevation_mapping_cupy.traversability_polygon import (
     get_masked_traversability,
     is_traversable,
@@ -148,6 +149,10 @@ class ElevationMap:
             self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
         self.untraversable_polygon = xp.zeros((1, 2))
 
+        # Semantic layers fed by image and pointcloud channels.
+        self.semantic_map = SemanticMap(param)
+        self.semantic_map.initialize_fusion()
+
         # Plugins
         self.plugin_manager = PluginManager(cell_n=self.cell_n, resolution=self.resolution)
         self.plugin_manager.load_plugin_settings(param.plugin_config_file)
@@ -160,6 +165,7 @@ class ElevationMap:
             self.elevation_map *= 0.0
             # Initial variance
             self.elevation_map[1] += self.initial_variance
+            self.semantic_map.clear()
             self.plugin_manager.reset_layers()
 
         self.mean_error = 0.0
@@ -256,6 +262,7 @@ class ElevationMap:
             self.elevation_map = cp.roll(self.elevation_map, shift_value, axis=(1, 2))
             self.pad_value(self.elevation_map, shift_value, value=0.0)
             self.pad_value(self.elevation_map, shift_value, idx=1, value=self.initial_variance)
+            self.semantic_map.shift_map_xy(shift_value)
             # Plugin layers are computed on-demand; invalidate cache when shifting.
             self.plugin_manager.reset_layers()
 
@@ -414,6 +421,9 @@ class ElevationMap:
                 self.elevation_map,
                 size=(self.cell_n * self.cell_n),
             )
+
+            # Semantic channels carried alongside xyz, if the cloud has any.
+            self.semantic_map.update_layers_pointcloud(points_all, channels, R, t, self.new_map)
 
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)
@@ -742,6 +752,8 @@ class ElevationMap:
         """
         if name in self.layer_names:
             return True
+        elif name in self.semantic_map.layer_names:
+            return True
         elif name in self.plugin_manager.layer_names:
             return True
         else:
@@ -779,6 +791,8 @@ class ElevationMap:
                 m = self.normal_map.copy()[1, 1:-1, 1:-1]
             elif name == "normal_z":
                 m = self.normal_map.copy()[2, 1:-1, 1:-1]
+            elif name in self.semantic_map.layer_names:
+                m = self.semantic_map.get_map_with_name(name)
             elif name in self.plugin_manager.layer_names:
                 self.plugin_manager.update_with_name(
                     name,
@@ -905,6 +919,9 @@ class ElevationMap:
         if name in self.layer_names:
             idx = self.layer_names.index(name)
             return_map = self.elevation_map[idx]
+        elif name in self.semantic_map.layer_names:
+            idx = self.semantic_map.layer_names.index(name)
+            return_map = self.semantic_map.semantic_map[idx]
         elif name in self.plugin_manager.layer_names:
             self.plugin_manager.update_with_name(
                 name,
