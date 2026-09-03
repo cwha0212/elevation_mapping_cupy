@@ -34,7 +34,7 @@ install(PROGRAMS
 )
 
 install(
-  DIRECTORY launch config rviz
+  DIRECTORY launch config rviz gazebo
   DESTINATION share/${PROJECT_NAME}
 )
 

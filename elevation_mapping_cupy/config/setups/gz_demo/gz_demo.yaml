@@ -1,0 +1,43 @@
+# =============================================================================
+# Gazebo Fortress demo -- differential-drive robot with a tilted RGBD camera
+# driving past a ramp, a stair flight, and a curb.
+#
+# Launch with elevation_mapping_cupy/launch/gz_fortress_demo.launch.py, which
+# starts the simulator, bridges the topics, and runs this node.
+#
+# Resolution matches the haechi setup on purpose: 0.05 m is what it takes to
+# keep a 0.12 m curb from smearing into the ground, and running the demo at the
+# same setting makes its GPU cost representative.
+# =============================================================================
+/elevation_mapping_node:
+  ros__parameters:
+    map_frame: 'odom'
+    base_frame: 'base_link'
+    corrected_map_frame: 'odom'
+
+    resolution: 0.05
+    map_length: 10.0
+
+    # The simulator's odometry is exact, so there is no drift to compensate.
+    enable_drift_compensation: false
+
+    initialize_method: 'linear'
+    initialize_frame_id: ['base_link']
+    initialize_tf_offset: [0.0]
+    use_initializer_at_start: true
+
+    subscribers:
+      depth_cam:
+        # Bridged from the Fortress rgbd_camera sensor (/camera/points).
+        topic_name: '/camera/points'
+        data_type: pointcloud
+
+    publishers:
+      elevation_map_raw:
+        layers: ['elevation', 'traversability', 'variance']
+        basic_layers: ['elevation']
+        fps: 5.0
+      elevation_map_filter:
+        layers: ['elevation', 'smooth', 'traversability', 'erosion']
+        basic_layers: ['smooth']
+        fps: 3.0
