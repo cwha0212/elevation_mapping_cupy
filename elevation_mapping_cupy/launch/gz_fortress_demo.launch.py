@@ -36,6 +36,12 @@ CAMERA_FRAME = "robot/base_link/depth"
 CAMERA_XYZ = (0.20, 0.0, 0.12)
 CAMERA_PITCH = 0.3491  # 20 degrees down
 
+# The colour camera sits apart from the depth sensor on purpose, mirroring how
+# haechi's camera is mounted well ahead of the lidar origin.
+COLOR_FRAME = "robot/base_link/color"
+COLOR_XYZ = (0.25, 0.0, 0.28)
+COLOR_PITCH = 0.3491
+
 # On L4T the glvnd vendor directory ships only Mesa, so ogre2 loads the Mesa
 # EGL, fails to reach nvidia-drm, and the camera renders nothing -- silently,
 # since the sensor simply never publishes. NVIDIA's vendor file lives outside
@@ -88,6 +94,8 @@ def generate_launch_description():
             "/camera/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
             "/camera/image@sensor_msgs/msg/Image[ignition.msgs.Image",
             "/camera/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
+            "/color_cam@sensor_msgs/msg/Image[ignition.msgs.Image",
+            "/color_cam/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
             "/model/robot/odometry@nav_msgs/msg/Odometry[ignition.msgs.Odometry",
             "/model/robot/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V",
             "/model/robot/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist",
@@ -96,6 +104,7 @@ def generate_launch_description():
             ("/model/robot/tf", "/tf"),
             ("/model/robot/odometry", "/odom"),
             ("/model/robot/cmd_vel", "/cmd_vel"),
+            ("/color_cam", "/color_cam/image"),
         ],
         parameters=[{"use_sim_time": True}],
     )
@@ -117,6 +126,24 @@ def generate_launch_description():
             "--yaw", "0",
             "--frame-id", "base_link",
             "--child-frame-id", CAMERA_FRAME,
+        ],
+        parameters=[{"use_sim_time": True}],
+    )
+
+    color_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="base_link_to_color",
+        output="screen",
+        arguments=[
+            "--x", str(COLOR_XYZ[0]),
+            "--y", str(COLOR_XYZ[1]),
+            "--z", str(COLOR_XYZ[2]),
+            "--roll", "0",
+            "--pitch", str(COLOR_PITCH),
+            "--yaw", "0",
+            "--frame-id", "base_link",
+            "--child-frame-id", COLOR_FRAME,
         ],
         parameters=[{"use_sim_time": True}],
     )
@@ -162,6 +189,7 @@ def generate_launch_description():
             gz_gui,
             bridge,
             camera_tf,
+            color_tf,
             elevation_mapping_node,
             rviz_node,
         ]

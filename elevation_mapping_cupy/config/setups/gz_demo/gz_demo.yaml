@@ -26,15 +26,31 @@
     initialize_tf_offset: [0.0]
     use_initializer_at_start: true
 
+    # 'color' packs rgb into one float per cell; 'exponential' is the only other
+    # image fusion registered (see Parameter.fusion_algorithms).
+    image_channel_fusions:
+      rgb: 'color'
+      default: 'exponential'
+
     subscribers:
       depth_cam:
         # Bridged from the Fortress rgbd_camera sensor (/camera/points).
         topic_name: '/camera/points'
         data_type: pointcloud
 
+      # Separate colour camera, mounted apart from the depth sensor the way
+      # haechi's camera sits ahead of the lidar origin. Its rgb lands on the
+      # elevation surface, so where a known-coloured marker ends up on the map
+      # tells us whether the projection's R/t convention is right.
+      color_cam:
+        topic_name: '/color_cam/image'
+        camera_info_topic_name: '/color_cam/camera_info'
+        channels: ['rgb']
+        data_type: image
+
     publishers:
       elevation_map_raw:
-        layers: ['elevation', 'traversability', 'variance']
+        layers: ['elevation', 'traversability', 'variance', 'rgb']
         basic_layers: ['elevation']
         fps: 5.0
       elevation_map_filter:
