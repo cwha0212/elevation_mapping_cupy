@@ -14,7 +14,9 @@ Requires gz-fortress (apt) and ros_gz_sim built from source -- ros_gz_sim has
 no Humble binary, unlike ros_gz_bridge which does. Source that overlay before
 launching.
 
-Set gui:=false to run headless, which is what you want over ssh.
+RViz is where the map shows up; the Gazebo window just shows the world. Both
+are on by default -- pass gui:=false to drop Gazebo's window, launch_rviz:=false
+to drop RViz, or set both false to run fully headless over ssh.
 """
 
 import os
@@ -141,13 +143,20 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "gui",
-                default_value="false",
-                description="Run the Gazebo GUI. Leave false over ssh.",
+                default_value="true",
+                description="Show the Gazebo window. Set false over ssh.",
             ),
-            DeclareLaunchArgument("launch_rviz", default_value="false"),
+            DeclareLaunchArgument(
+                "launch_rviz",
+                default_value="true",
+                description="Show the map in RViz. This is the demo's actual output; "
+                "the Gazebo window only shows the world being driven through.",
+            ),
             DeclareLaunchArgument(
                 "rviz_config",
-                default_value=PathJoinSubstitution([share_dir, "rviz", "synthetic_demo.rviz"]),
+                # Not synthetic_demo.rviz: that one is fixed to the map frame and
+                # the /elevation_map topic, so against this demo it draws nothing.
+                default_value=PathJoinSubstitution([share_dir, "rviz", "gz_demo.rviz"]),
             ),
             gz_server,
             gz_gui,
