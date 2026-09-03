@@ -27,6 +27,7 @@ from elevation_mapping_cupy.kernels import finalize_map_kernel
 from elevation_mapping_cupy.kernels import dilation_filter_kernel
 from elevation_mapping_cupy.kernels import normal_filter_kernel
 from elevation_mapping_cupy.kernels import polygon_mask_kernel
+from elevation_mapping_cupy.kernels import image_to_map_correspondence_kernel
 
 from elevation_mapping_cupy.map_initializer import MapInitializer
 from elevation_mapping_cupy.plugins.plugin_manager import PluginManager
@@ -139,6 +140,7 @@ class ElevationMap:
         self.additive_mean_error = 0.0
 
         self.compile_kernels()
+        self.compile_image_kernels()
 
         # No shell substitutions in research code: param.weight_file is expected to be a real path.
         param.load_weights(param.weight_file)
@@ -345,6 +347,26 @@ class ElevationMap:
         )
         self.polygon_mask_kernel = polygon_mask_kernel(self.cell_n, self.cell_n, self.resolution)
         self.normal_filter_kernel = normal_filter_kernel(self.cell_n, self.cell_n, self.resolution)
+
+    def compile_image_kernels(self):
+        """Allocate the correspondence buffers and compile the projection kernel.
+
+        Only when a subscriber actually feeds images: the buffers are cell_n^2
+        each and the kernel costs a JIT compile at startup.
+        """
+        for config in self.param.subscriber_cfg.values():
+            if config.get("data_type") == "image":
+                self.valid_correspondence = cp.zeros((self.cell_n, self.cell_n), dtype=cp.bool_)
+                self.uv_correspondence = cp.zeros(
+                    (2, self.cell_n, self.cell_n), dtype=cp.float32
+                )
+                self.image_to_map_correspondence_kernel = image_to_map_correspondence_kernel(
+                    resolution=self.resolution,
+                    width=self.cell_n,
+                    height=self.cell_n,
+                    tolerance_z_collision=0.10,
+                )
+                break
 
     def shift_translation_to_map_center(self, t):
         """Deduct the map center to get the translation of a point w.r.t. the map center.
