@@ -95,7 +95,9 @@ def generate_launch_description():
             "/camera/image@sensor_msgs/msg/Image[ignition.msgs.Image",
             "/camera/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
             "/color_cam@sensor_msgs/msg/Image[ignition.msgs.Image",
-            "/color_cam/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
+            # A plain camera sensor puts its info on the bare /camera_info,
+            # not under <topic>/camera_info the way rgbd_camera does.
+            "/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
             "/model/robot/odometry@nav_msgs/msg/Odometry[ignition.msgs.Odometry",
             "/model/robot/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V",
             "/model/robot/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist",
@@ -105,6 +107,7 @@ def generate_launch_description():
             ("/model/robot/odometry", "/odom"),
             ("/model/robot/cmd_vel", "/cmd_vel"),
             ("/color_cam", "/color_cam/image"),
+            ("/camera_info", "/color_cam/camera_info"),
         ],
         parameters=[{"use_sim_time": True}],
     )
