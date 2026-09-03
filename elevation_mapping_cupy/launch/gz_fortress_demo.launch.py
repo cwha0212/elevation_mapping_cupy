@@ -34,6 +34,18 @@ CAMERA_FRAME = "robot/base_link/depth"
 CAMERA_XYZ = (0.20, 0.0, 0.12)
 CAMERA_PITCH = 0.3491  # 20 degrees down
 
+# On L4T the glvnd vendor directory ships only Mesa, so ogre2 loads the Mesa
+# EGL, fails to reach nvidia-drm, and the camera renders nothing -- silently,
+# since the sensor simply never publishes. NVIDIA's vendor file lives outside
+# that directory, so point the loader at it directly.
+TEGRA_EGL_VENDOR = "/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json"
+
+
+def _render_env():
+    if os.path.exists(TEGRA_EGL_VENDOR):
+        return {"__EGL_VENDOR_LIBRARY_FILENAMES": TEGRA_EGL_VENDOR}
+    return {}
+
 
 def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
@@ -50,14 +62,17 @@ def generate_launch_description():
 
     # ign gazebo is driven directly rather than through ros_gz_sim's launch
     # file, so the demo only needs ros_gz_sim's binaries on the path.
+    render_env = _render_env()
     gz_server = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-s", "-v", "2", world_path],
         output="screen",
+        additional_env=render_env,
         condition=UnlessCondition(gui),
     )
     gz_gui = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-v", "2", world_path],
         output="screen",
+        additional_env=render_env,
         condition=IfCondition(gui),
     )
 
