@@ -1,0 +1,60 @@
+# =============================================================================
+# haechi front camera -- semantic image sensor
+#
+# The camera publishes a compressed stream only and no CameraInfo, so the
+# calibration is carried here instead of on a topic.
+#
+# Source of truth: ~/haechi_data/calib/haechi_calibration.yaml  (2026-09-03),
+# section `camera`. Re-running the calibration means updating the values below;
+# the extrinsic from the same file lives in
+# elevation_mapping_cupy/launch/haechi.launch.py as a static transform.
+# =============================================================================
+
+haechi_front_cam:
+  # "compressed" in the name selects the CompressedImage subscriber.
+  image_topic: /camera/image_raw/compressed
+  # Not subscribed to (camera_intrinsics below takes over). Kept relative so the
+  # republished "<name>_resized" resolves inside the node namespace, which is
+  # what elevation_mapping subscribes to.
+  camera_info_topic: camera_info
+
+  publish_topic: semantic_image
+  publish_image_topic: semantic_image_debug
+  channel_info_topic: channel_info
+
+  camera_intrinsics:
+    width: 1280
+    height: 720
+    # The projection kernel keeps the coefficients for "radtan" and silently
+    # zeroes them for every other model name, ROS' own "plumb_bob" included.
+    distortion_model: radtan
+    k:
+      - 632.05027422
+      - 0.0
+      - 626.09047259
+      - 0.0
+      - 633.89951429
+      - 343.05708742
+      - 0.0
+      - 0.0
+      - 1.0
+    d: [-0.35046478, 0.10225851, 0.00380753, -0.00022507]   # k1, k2, p1, p2
+    # p is derived from k.
+
+  # t_lidar = t_camera + 0.019554 s, measured during the imu-cam calibration.
+  time_offset_s: 0.019554
+
+  # Half resolution keeps the segmentation affordable next to FAST-LIO on the
+  # Orin; the intrinsics are scaled to match when republished.
+  resize: 0.5
+
+  semantic_segmentation: True
+  feature_extractor: False
+  # PLACEHOLDER. The goal is road/sidewalk, but the torchvision weights wired
+  # into networks.resolve_model carry COCO_WITH_VOC labels, which have neither
+  # class -- configuring them raises at startup. These three are real VOC
+  # classes, so the pipeline runs end to end today; swap both this list and
+  # segmentation_model once the Cityscapes model lands.
+  segmentation_model: lraspp_mobilenet_v3_large
+  channels: ["person", "car", "bicycle"]
+  show_label_legend: False

@@ -96,6 +96,19 @@ class SemanticImageNode(Node):
             self.feat_im_pub = self.create_publisher(Image, self.param.feat_image_topic, 2)
             self.feat_channel_info_pub = self.create_publisher(ChannelInfo, self.param.feat_channel_info_topic, 2)
 
+    def _shift_stamp(self, header):
+        """Apply the calibrated camera-to-reference clock offset."""
+        if not self.param.time_offset_s:
+            return header
+        shifted = copy.deepcopy(header)
+        ns = (
+            shifted.stamp.sec * 1_000_000_000
+            + shifted.stamp.nanosec
+            + int(round(self.param.time_offset_s * 1e9))
+        )
+        shifted.stamp.sec, shifted.stamp.nanosec = divmod(ns, 1_000_000_000)
+        return shifted
+
     def _build_static_camera_info(self) -> CameraInfo | None:
         """Build a CameraInfo from the configured intrinsics, or None to use the topic."""
         ci = self.param.camera_intrinsics
@@ -174,7 +187,7 @@ class SemanticImageNode(Node):
         if self.param.resize is not None:
             image = cv2.resize(image, dsize=(self.info.width, self.info.height))
 
-        self.header = rgb_msg.header
+        self.header = self._shift_stamp(rgb_msg.header)
         image_cp = cp.asarray(image)
         self.process_image(image_cp)
 

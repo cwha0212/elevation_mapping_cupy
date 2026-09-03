@@ -54,3 +54,7 @@ class ImageParameter(Serializable):
     resize: float = None
     camera_info_topic: str = "camera_info"
     camera_intrinsics: CameraIntrinsics = field(default_factory=CameraIntrinsics)
+    # Added to the image stamp before republishing, so downstream TF lookups
+    # land on the pose the frame was actually taken at. Calibrated as
+    # t_reference = t_camera + time_offset_s.
+    time_offset_s: float = 0.0

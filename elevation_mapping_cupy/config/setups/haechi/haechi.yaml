@@ -1,0 +1,86 @@
+# =============================================================================
+# haechi -- quadruped, 3 LiDARs (RSAIRY front + 2x Livox MID360) merged by
+# navi_lidar_node, plus one front RGB camera for semantics.
+#
+# Launch with elevation_mapping_cupy/launch/haechi.launch.py, which also brings
+# up the semantic image node and the camera static transform.
+# =============================================================================
+/elevation_mapping_node:
+  ros__parameters:
+    #### Frames ########
+    # navi publishes two odometry frames: `odom` carries the full 3D body pose,
+    # `odom_2d` drops roll/pitch/z. `base_link` hangs off `odom_2d`, so using it
+    # here would tilt the map every time the robot leans. `lidar_frame` is the
+    # merged-cloud frame (origin = left MID360 IMU, axes = robot FLU) and sits
+    # on the 3D chain, so the map center follows the real body pose.
+    map_frame: 'odom'
+    base_frame: 'lidar_frame'
+    corrected_map_frame: 'odom'
+
+    #### Map geometry ########
+    # 0.05 m resolves the 10-20 cm curbs that separate roadway from sidewalk;
+    # the 0.1 m default smears them. 10 m square keeps the cell count (and the
+    # GPU cost) down next to FAST-LIO and the segmentation network.
+    resolution: 0.05
+    map_length: 10.0
+
+    #### Drift ########
+    # FAST-LIO already corrects the body pose. Running the built-in compensation
+    # on top of it means two estimators fighting over the same z.
+    enable_drift_compensation: false
+
+    #### Initializer ########
+    # Fills the blind zone under the body, which no LiDAR sees (the merged cloud
+    # keeps close returns, but the belly is still occluded).
+    initialize_method: 'linear'
+    initialize_frame_id: ['lidar_frame']
+    initialize_tf_offset: [0.0]
+    use_initializer_at_start: true
+
+    #### Fusion ########
+    # Only "color" and "exponential" are registered for image channels (see
+    # Parameter.fusion_algorithms); the bayesian variants are pointcloud-only.
+    pointcloud_channel_fusions:
+      rgb: 'color'
+      default: 'class_average'
+    image_channel_fusions:
+      rgb: 'color'
+      default: 'exponential'
+
+    #### Subscribers ########
+    subscribers:
+      # Geometry, 360 degrees. The deskewed topic is the rotation-corrected
+      # merge of all three LiDARs; header frame is `lidar_frame`.
+      merged_lidar:
+        topic_name: '/points/merged_deskewed'
+        data_type: pointcloud
+
+      # Semantics, front cone only. The labels are painted onto the map cells
+      # and persist as the robot walks, so coverage accumulates over time.
+      # Published by semantic_sensor/image_node (namespace front_cam), which
+      # also republishes the resized CameraInfo this needs.
+      front_cam:
+        topic_name: '/front_cam/semantic_image'
+        camera_info_topic_name: '/front_cam/camera_info_resized'
+        channel_info_topic_name: '/front_cam/channel_info'
+        channels: ['person', 'car', 'bicycle']   # must match semantic_sensor/config/haechi.yaml
+        data_type: image
+
+    #### Publishers ########
+    publishers:
+      elevation_map_raw:
+        layers: ['elevation', 'traversability', 'variance']
+        basic_layers: ['elevation']
+        fps: 5.0
+      # The plugin chain shipped in config/core/plugin_config.yaml is tuned for
+      # digging. Its layers are side branches -- `elevation` itself is untouched
+      # -- so publishing these is safe, but note `inpaint` fills unobserved
+      # holes, which is wrong for navigation: do not feed it to a costmap.
+      elevation_map_filter:
+        layers: ['elevation', 'smooth', 'traversability', 'erosion']
+        basic_layers: ['smooth']
+        fps: 3.0
+      elevation_map_semantic:
+        layers: ['person', 'car', 'bicycle']
+        basic_layers: []
+        fps: 3.0
