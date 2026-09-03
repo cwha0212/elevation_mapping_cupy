@@ -40,7 +40,12 @@ CAMERA_PITCH = 0.3491  # 20 degrees down
 # haechi's camera is mounted well ahead of the lidar origin.
 COLOR_FRAME = "robot/base_link/color"
 COLOR_XYZ = (0.25, 0.0, 0.28)
-COLOR_PITCH = 0.3491
+# The projection multiplies by K, so the frame it resolves has to be the
+# optical one: x right, y down, z forward. A plain 20 degree pitch would be the
+# body convention and puts everything in front of the robot behind the camera.
+# This is the same convention haechi's calibration already uses. Quaternion
+# rather than rpy because it is the composition of the tilt with body->optical.
+COLOR_QUAT_XYZW = (-0.579234890, 0.579234890, -0.405569897, 0.405569897)
 
 # On L4T the glvnd vendor directory ships only Mesa, so ogre2 loads the Mesa
 # EGL, fails to reach nvidia-drm, and the camera renders nothing -- silently,
@@ -142,9 +147,10 @@ def generate_launch_description():
             "--x", str(COLOR_XYZ[0]),
             "--y", str(COLOR_XYZ[1]),
             "--z", str(COLOR_XYZ[2]),
-            "--roll", "0",
-            "--pitch", str(COLOR_PITCH),
-            "--yaw", "0",
+            "--qx", str(COLOR_QUAT_XYZW[0]),
+            "--qy", str(COLOR_QUAT_XYZW[1]),
+            "--qz", str(COLOR_QUAT_XYZW[2]),
+            "--qw", str(COLOR_QUAT_XYZW[3]),
             "--frame-id", "base_link",
             "--child-frame-id", COLOR_FRAME,
         ],
