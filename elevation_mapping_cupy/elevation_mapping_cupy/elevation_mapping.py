@@ -537,10 +537,19 @@ class ElevationMap:
         if len(image.shape) == 2:
             image = image[None]
 
+        # Build the projection on the host. These are 3x3 and 3x4 matrices, and
+        # running them through cupy pulls in cuBLAS just to create its handle --
+        # which fails with CUBLAS_STATUS_ALLOC_FAILED on Jetson once the
+        # simulator and RViz already hold CUDA contexts, even with most of the
+        # memory free. numpy is also simply faster at this size.
+        K_h = np.asarray(K, dtype=np.float32).reshape(3, 3)
+        R_h = np.asarray(R, dtype=np.float32).reshape(3, 3)
+        t_h = np.asarray(t, dtype=np.float32).reshape(3)
+        P_h = K_h @ np.concatenate([R_h, t_h[:, None]], axis=1)
+        t_cam_map = -R_h.T @ t_h - cp.asnumpy(self.center)
+
         image = cp.asarray(image, dtype=self.data_type)
         K = cp.asarray(K, dtype=self.data_type)
-        R = cp.asarray(R, dtype=self.data_type)
-        t = cp.asarray(t, dtype=self.data_type)
         D = cp.asarray(D, dtype=self.data_type)
         image_height = cp.float32(image_height)
         image_width = cp.float32(image_width)
@@ -559,9 +568,7 @@ class ElevationMap:
         else:
             D *= 0
 
-        P = cp.asarray(K @ cp.concatenate([R, t[:, None]], 1), dtype=np.float32)
-        t_cam_map = -R.T @ t - self.center
-        t_cam_map = t_cam_map.get()
+        P = cp.asarray(P_h, dtype=np.float32)
         x1 = cp.uint32((self.cell_n / 2) + (t_cam_map[0] / self.resolution))
         y1 = cp.uint32((self.cell_n / 2) + (t_cam_map[1] / self.resolution))
         z1 = cp.float32(t_cam_map[2])
