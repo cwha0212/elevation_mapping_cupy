@@ -158,9 +158,15 @@ class SemanticImageNode(Node):
                 b = b | (bitget(c, 2) << 7 - j)
                 c = c >> 3
             cmap[i] = np.array([r, g, b])
-        cmap[1] = np.array([81, 113, 162])
-        cmap[2] = np.array([81, 113, 162])
-        cmap[3] = np.array([188, 63, 59])
+        # Hand-picked colours for the first few entries, applied only as far as
+        # the palette actually goes: writing all three unconditionally made any
+        # sensor with fewer than three channels fail at startup, which is every
+        # sensor that names one or two classes.
+        for idx, colour in enumerate(
+            ([81, 113, 162], [81, 113, 162], [188, 63, 59]), start=1
+        ):
+            if idx < len(cmap):
+                cmap[idx] = np.array(colour)
         return cmap[1:] / 255 if normalized else cmap[1:]
 
     def image_info_callback(self, msg: CameraInfo) -> None:
