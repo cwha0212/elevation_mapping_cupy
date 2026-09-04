@@ -47,6 +47,7 @@ obstacle costs nothing; a stale one it erodes, which is the point.
 
 import numpy as np
 import rclpy
+from scipy import ndimage
 from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
 from rclpy.node import Node
@@ -82,6 +83,11 @@ class TraversabilityCloudNode(Node):
         self.bearings = int(self.declare_parameter("bearings", 720).value)
         self.march_range = float(self.declare_parameter("march_range", 4.4).value)
         self.far_range = float(self.declare_parameter("far_range", 6.0).value)
+        # How far the stairs exclusion spills past the flagged cells, cells.
+        # The flag needs its sustained-climb window mostly over the flight, so
+        # the first riser's own cells sit just outside it -- unflagged but
+        # unsafe, they drew an obstacle line straight across the entrance.
+        self.stairs_dilation = int(self.declare_parameter("stairs_dilation", 3).value)
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -108,12 +114,16 @@ class TraversabilityCloudNode(Node):
             st = np.array(
                 msg.data[layers.index("stairs")].data, dtype=np.float32
             ).reshape(h, w)
+            mask = np.isfinite(st) & (st > 0.5)
+            if self.stairs_dilation > 0:
+                # Cover the entrance: the flag's climb window keeps the first
+                # riser's cells unflagged, and without this they drew an
+                # obstacle line straight across the way in.
+                mask = ndimage.binary_dilation(mask, iterations=self.stairs_dilation)
             # Conditionally traversable, so not an obstacle for the planner's
             # map; the keepout mask owns the veto. Lifting the value clear of
             # the threshold makes the march walk straight through the flight.
-            values = np.where(
-                np.isfinite(st) & (st > 0.5), self.threshold + 1.0, values
-            )
+            values = np.where(mask, self.threshold + 1.0, values)
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x
