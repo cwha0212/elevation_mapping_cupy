@@ -56,10 +56,13 @@
       </link>
     </model>
 
-    <!-- Ramp: 12 degrees, for the slope term of traversability. -->
+    <!-- Ramp: 12 degrees. Centered so the west end of the top face meets the
+         ground (z = L/2*sin(12deg) - t/2/cos(12deg)): the robot can drive
+         straight onto it, and the whole face is above ground for the lidar.
+         The old pose centered it at z=0, burying most of it. -->
     <model name="ramp">
       <static>true</static>
-      <pose>4.0 -1.5 0.0 0 -0.2094 0</pose>
+      <pose>4.0 -1.5 0.2607 0 -0.2094 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry><box><size>3.0 2.0 0.1</size></box></geometry>
