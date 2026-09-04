@@ -21,7 +21,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -197,6 +197,10 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
+    # The GridMap display resolves its topic when it is created and does
+    # not come back to it, so an RViz that starts before the mapper shows
+    # an empty world for the rest of the session. Everything else in the
+    # config recovers on its own; these do not.
     rviz_node = Node(
         package="rviz2", executable="rviz2", name="rviz2",
         arguments=["-d", LaunchConfiguration("rviz_config")],
@@ -236,5 +240,6 @@ def generate_launch_description():
             default_value=PathJoinSubstitution([share_dir, "rviz", "semantic_demo.rviz"]),
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
-        downsample, semantic_node, elevation_mapping_node, rviz_node, image_view, octomap,
+        downsample, semantic_node, elevation_mapping_node, image_view, octomap,
+        TimerAction(period=20.0, actions=[rviz_node]),
     ])
