@@ -29,6 +29,13 @@ class StairsFilter(PluginBase):
                       and fails; four 0.15 m risers gain ~0.45 m over the same
                       metre and pass.
 
+      no wall nearby  no cell within the window may carry a step above
+                      max_riser. This is what keeps object edges out: a foot
+                      window clipping a box side at an angle can land inside
+                      the riser band by accident, but the cells straight at
+                      that edge measure the full face height -- and a real
+                      flight contains no unclimbable edge anywhere in it.
+
     Output: 1.0 on stair cells, 0.0 on other observed cells, NaN unobserved.
 
     Args:
@@ -84,6 +91,7 @@ class StairsFilter(PluginBase):
             raise ValueError("stairs_filter: input layer 'step' not found.")
 
         riser = cp.isfinite(step) & (step >= self.min_riser) & (step <= self.max_riser)
+        wall = cp.isfinite(step) & (step > self.max_riser)
 
         w = self.gain_window
         neg = cp.where(valid, elevation, -cp.inf).astype(cp.float32)
@@ -101,5 +109,8 @@ class StairsFilter(PluginBase):
             & (observed >= self.min_valid_ratio)
         )
 
-        stairs = (riser & sustained).astype(cp.float32)
+        wall_near = ndimage.maximum_filter(
+            wall.astype(cp.float32), size=w, mode="nearest"
+        ) > 0.5
+        stairs = (riser & sustained & ~wall_near).astype(cp.float32)
         return cp.where(valid, stairs, cp.nan).astype(cp.float32)

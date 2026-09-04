@@ -23,6 +23,15 @@ Points go out at z=0 in a robot-centred, rotation-free frame, so every ray is
 horizontal and the projection is exactly the traversability decision at any
 altitude.
 
+Stair cells are deliberately NOT obstacles here. Baked into the main grid
+they would survive into the saved global map as permanently impassable, and
+no stair route could ever be planned -- even in the gait that climbs them.
+So the march treats stairs as passable ground, the main grid leaves them
+free, and the blocking moves to where it can be revoked: the stairs grid,
+held closed by Nav2's KeepoutFilter until the supervisor switches gait.
+The same cells stay flagged in /stairs/projected_map, so nothing is lost;
+what changes is which map carries the veto.
+
 Free space is emitted explicitly, as a synthetic scan. Emitting only obstacle
 endpoints left free space to the rays that happened to pass toward an
 obstacle: ground the robot had driven straight across stayed unknown forever,
@@ -95,6 +104,16 @@ class TraversabilityCloudNode(Node):
         h = data.layout.dim[0].size
         w = data.layout.dim[1].size
         values = np.array(data.data, dtype=np.float32).reshape(h, w)
+        if "stairs" in layers:
+            st = np.array(
+                msg.data[layers.index("stairs")].data, dtype=np.float32
+            ).reshape(h, w)
+            # Conditionally traversable, so not an obstacle for the planner's
+            # map; the keepout mask owns the veto. Lifting the value clear of
+            # the threshold makes the march walk straight through the flight.
+            values = np.where(
+                np.isfinite(st) & (st > 0.5), self.threshold + 1.0, values
+            )
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x
