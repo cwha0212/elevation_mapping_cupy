@@ -883,15 +883,20 @@ class ElevationMappingNode(Node):
             t_np = np.zeros(3, dtype=np.float32)
             R = np.eye(3, dtype=np.float32)
         else:
-            transform_camera_to_map = self.safe_lookup_transform(
-                self.map_frame,
+            # input_image projects map cells through K @ [R|t], so it needs
+            # map->camera. tf2's lookup_transform(target, source) returns
+            # source->target, so the camera frame is the target here -- the
+            # opposite order from pointcloud_callback, which really does want
+            # sensor->map to carry its points across.
+            transform_map_to_camera = self.safe_lookup_transform(
                 frame_sensor_id,
+                self.map_frame,
                 camera_msg.header.stamp,
             )
-            if transform_camera_to_map is None:
+            if transform_map_to_camera is None:
                 return
-            t = transform_camera_to_map.transform.translation
-            q = transform_camera_to_map.transform.rotation
+            t = transform_map_to_camera.transform.translation
+            q = transform_map_to_camera.transform.rotation
             t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
             R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
 
