@@ -21,8 +21,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
-from sensor_msgs.msg import PointCloud2
-from sensor_msgs_py import point_cloud2
+from sensor_msgs.msg import PointCloud2, PointField
 
 
 class VoxelDownsampleNode(Node):
@@ -49,10 +48,8 @@ class VoxelDownsampleNode(Node):
         )
 
     def on_cloud(self, msg: PointCloud2) -> None:
-        pts = point_cloud2.read_points_numpy(
-            msg, field_names=("x", "y", "z"), skip_nans=True
-        )
-        if pts.size == 0:
+        pts = self._xyz(msg)
+        if pts is None or pts.size == 0:
             self.pub.publish(msg)
             return
 
@@ -80,18 +77,55 @@ class VoxelDownsampleNode(Node):
         )
         self.pub.publish(self._make_cloud(kept, msg))
 
+    def _xyz(self, msg: PointCloud2):
+        """Read x, y, z out of the raw buffer.
+
+        sensor_msgs_py's numpy reader refuses any cloud whose fields are not
+        all one datatype, which rules out every real lidar message -- theirs
+        carry intensity, ring and timestamp alongside float32 xyz. Reading the
+        three offsets directly costs nothing and does not care.
+        """
+        offsets = {}
+        for field in msg.fields:
+            if field.name in ("x", "y", "z"):
+                if field.datatype != PointField.FLOAT32 or field.count != 1:
+                    self.get_logger().warning(
+                        f"Field '{field.name}' is not a single float32; passing "
+                        "the cloud through untouched.",
+                        throttle_duration_sec=10.0,
+                    )
+                    return None
+                offsets[field.name] = field.offset
+        if len(offsets) != 3:
+            self.get_logger().warning(
+                "Cloud has no float32 xyz; passing it through untouched.",
+                throttle_duration_sec=10.0,
+            )
+            return None
+
+        n = msg.width * msg.height
+        raw = np.frombuffer(msg.data, dtype=np.uint8, count=n * msg.point_step)
+        raw = raw.reshape(n, msg.point_step)
+        cols = [
+            raw[:, o:o + 4].copy().view(np.float32).reshape(n)
+            for o in (offsets["x"], offsets["y"], offsets["z"])
+        ]
+        pts = np.stack(cols, axis=1)
+        return pts[np.isfinite(pts).all(axis=1)]
+
     @staticmethod
     def _make_cloud(points: np.ndarray, source: PointCloud2) -> PointCloud2:
         out = PointCloud2()
         out.header = source.header
         out.height = 1
         out.width = int(points.shape[0])
-        out.fields = [f for f in source.fields if f.name in ("x", "y", "z")]
-        # Rewrite the offsets: the kept fields are now packed xyz with nothing
-        # between them, whatever the source layout was.
-        for i, field in enumerate(out.fields):
-            field.offset = 4 * i
-        out.is_bigendian = source.is_bigendian
+        # Built fresh rather than copied: the output is packed float32 xyz
+        # whatever the source carried alongside it.
+        out.fields = [
+            PointField(name=n, offset=4 * i, datatype=PointField.FLOAT32, count=1)
+            for i, n in enumerate(("x", "y", "z"))
+        ]
+        out.is_bigendian = False
         out.point_step = 12
         out.row_step = 12 * out.width
         out.is_dense = True
