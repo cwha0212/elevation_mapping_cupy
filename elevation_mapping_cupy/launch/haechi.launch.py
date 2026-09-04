@@ -38,7 +38,10 @@ def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
     core_param_path = os.path.join(share_dir, "config", "core", "core_param.yaml")
     robot_param_path = os.path.join(share_dir, "config", "setups", "haechi", "haechi.yaml")
-    for path in (core_param_path, robot_param_path):
+    # Navigation terrain chain (slope/step/roughness/drivability), not the
+    # digging chain the core config would load by default.
+    plugin_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config.yaml")
+    for path in (core_param_path, robot_param_path, plugin_config_path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Config file {path} does not exist")
 
@@ -93,7 +96,11 @@ def generate_launch_description():
         executable="elevation_mapping_node.py",
         name="elevation_mapping_node",
         output="screen",
-        parameters=[core_param_path, robot_param_path, {"use_sim_time": use_sim_time}],
+        parameters=[
+            core_param_path,
+            robot_param_path,
+            {"use_sim_time": use_sim_time, "plugin_config_file": plugin_config_path},
+        ],
     )
 
     return LaunchDescription(

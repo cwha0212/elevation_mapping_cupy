@@ -72,13 +72,11 @@
         layers: ['elevation', 'traversability', 'variance']
         basic_layers: ['elevation']
         fps: 5.0
-      # The plugin chain shipped in config/core/plugin_config.yaml is tuned for
-      # digging. Its layers are side branches -- `elevation` itself is untouched
-      # -- so publishing these is safe, but note `inpaint` fills unobserved
-      # holes, which is wrong for navigation: do not feed it to a costmap.
-      elevation_map_filter:
-        layers: ['elevation', 'smooth', 'traversability', 'erosion']
-        basic_layers: ['smooth']
+      # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
+      # launch selects it over the digging chain via plugin_config_file).
+      elevation_map_terrain:
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability']
+        basic_layers: ['elevation']
         fps: 3.0
       elevation_map_semantic:
         layers: ['person', 'car', 'bicycle']
