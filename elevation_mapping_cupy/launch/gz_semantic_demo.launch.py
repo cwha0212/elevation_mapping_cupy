@@ -18,6 +18,7 @@ contributes labels that land on the surface the lidar built.
 """
 
 import os
+import tempfile
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -41,17 +42,22 @@ COLOR_QUAT_XYZW = (-0.521341815, 0.521341815, -0.477705675, 0.477705675)
 TEGRA_EGL_VENDOR = "/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json"
 
 
-def _resource_env(share_dir: str):
-    """Where Gazebo looks for the world's textures.
+def _world_with_textures(world_path: str, share_dir: str) -> str:
+    """Write the world out with absolute texture paths.
 
-    The albedo maps are given relative to the gazebo directory, so that
-    directory has to be on the resource path or the surfaces load untextured
-    and silently -- which is the same thing as having no textures at all, only
-    harder to notice.
+    Gazebo resolves a mesh's textures relative to the mesh, but an albedo_map
+    written straight into a world file is looked up against the resource path
+    and the install layout does not put it where that search reaches -- the
+    surfaces then load untextured, with one error line and no other sign.
+    Absolute paths avoid the search entirely.
     """
-    gazebo_dir = os.path.join(share_dir, "gazebo")
-    existing = os.environ.get("IGN_GAZEBO_RESOURCE_PATH", "")
-    return gazebo_dir + (os.pathsep + existing if existing else "")
+    textures = os.path.join(share_dir, "gazebo", "materials", "textures")
+    with open(world_path) as handle:
+        body = handle.read().replace("@TEXTURES@", textures)
+    out = os.path.join(tempfile.gettempdir(), "semantic_demo_resolved.sdf")
+    with open(out, "w") as handle:
+        handle.write(body)
+    return out
 
 
 def _render_env(headless: bool):
@@ -95,17 +101,15 @@ def generate_launch_description():
     gui = LaunchConfiguration("gui")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
-    resources = {"IGN_GAZEBO_RESOURCE_PATH": _resource_env(share_dir)}
+    resolved_world = _world_with_textures(world_path, share_dir)
     gz_server = ExecuteProcess(
-        cmd=["ign", "gazebo", "-r", "-s", "-v", "2", world_path],
-        output="screen",
-        additional_env={**_render_env(headless=True), **resources},
+        cmd=["ign", "gazebo", "-r", "-s", "-v", "2", resolved_world],
+        output="screen", additional_env=_render_env(headless=True),
         condition=UnlessCondition(gui),
     )
     gz_gui = ExecuteProcess(
-        cmd=["ign", "gazebo", "-r", "-v", "2", world_path],
-        output="screen",
-        additional_env={**_render_env(headless=False), **resources},
+        cmd=["ign", "gazebo", "-r", "-v", "2", resolved_world],
+        output="screen", additional_env=_render_env(headless=False),
         condition=IfCondition(gui),
     )
 
