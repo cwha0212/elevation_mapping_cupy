@@ -2,9 +2,11 @@
 
     ros2 launch elevation_mapping_cupy gz_octomap.launch.py
 
-This is the flat-world baseline the navi stack builds its 2D grid with: feed
-the lidar into octomap, project occupied voxels inside a fixed height band to
-an OccupancyGrid (/projected_map). On one floor it works; the point of running
+This is the flat-world baseline the navi stack builds its 2D grid with: the
+in-house octomap_server2 (source ~/dependencies/octomap_ws/install/setup.bash
+before launching -- same node name and parameter surface as the classic
+server). The lidar goes into octomap; occupied voxels inside a fixed height
+band project to an OccupancyGrid (/projected_map). On one floor it works; the point of running
 it next to the elevation map is to watch what happens when the floor itself
 moves -- drive up the ramp and the surface you stand on enters the obstacle
 band, because "obstacle" was defined as a z-interval of the map frame, not as
@@ -20,18 +22,18 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     octomap = Node(
-        package="octomap_server",
-        executable="octomap_server_node",
+        package="octomap_server2",
+        executable="octomap_server",
         name="octomap_server",
         output="screen",
         parameters=[{
             "use_sim_time": True,
             "frame_id": "odom",
             "base_frame_id": "base_link",
-            "resolution": 0.05,
             # Raw 360 lidar in; octomap raycasts free space itself.
-            "sensor_model.max_range": 12.0,
+            "sensor_model/max_range": 12.0,
             "filter_ground": False,
+            "resolution": 0.05,
             # Occupied voxels inside this odom-frame band become obstacles in
             # /projected_map. 5 cm floor clearance, robot height on top: the
             # standard single-floor band, kept deliberately so the climbing
