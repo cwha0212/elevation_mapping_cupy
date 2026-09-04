@@ -67,8 +67,13 @@
         <visual name="visual">
           <geometry><plane><normal>0 0 1</normal><size>80 80</size></plane></geometry>
           <material>
-            <ambient>0.18 0.18 0.19 1</ambient>
-            <diffuse>0.24 0.24 0.26 1</diffuse>
+            <diffuse>1 1 1</diffuse>
+            <specular>0.05 0.05 0.05</specular>
+            <pbr><metal>
+              <albedo_map>materials/textures/asphalt.png</albedo_map>
+              <roughness>0.9</roughness>
+              <metalness>0.0</metalness>
+            </metal></pbr>
           </material>
         </visual>
       </link>
@@ -85,8 +90,38 @@
         <visual name="visual">
           <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
           <material>
-            <ambient>0.62 0.60 0.57 1</ambient>
-            <diffuse>0.80 0.78 0.74 1</diffuse>
+            <diffuse>1 1 1</diffuse>
+            <specular>0.05 0.05 0.05</specular>
+            <pbr><metal>
+              <albedo_map>materials/textures/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness>
+              <metalness>0.0</metalness>
+            </metal></pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- A building front along the far side of the walk. Cityscapes learned
+         streets as a layout, not as a pair of surfaces, and a road with
+         nothing standing beside it is not a street it was ever shown. -->
+    <model name="facade">
+      <static>true</static>
+      <pose>10.0 3.9 2.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>40.0 0.4 4.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>40.0 0.4 4.0</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <specular>0.05 0.05 0.05</specular>
+            <pbr><metal>
+              <albedo_map>materials/textures/facade.png</albedo_map>
+              <roughness>0.9</roughness>
+              <metalness>0.0</metalness>
+            </metal></pbr>
           </material>
         </visual>
       </link>

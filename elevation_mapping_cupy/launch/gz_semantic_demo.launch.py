@@ -41,6 +41,19 @@ COLOR_QUAT_XYZW = (-0.521341815, 0.521341815, -0.477705675, 0.477705675)
 TEGRA_EGL_VENDOR = "/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json"
 
 
+def _resource_env(share_dir: str):
+    """Where Gazebo looks for the world's textures.
+
+    The albedo maps are given relative to the gazebo directory, so that
+    directory has to be on the resource path or the surfaces load untextured
+    and silently -- which is the same thing as having no textures at all, only
+    harder to notice.
+    """
+    gazebo_dir = os.path.join(share_dir, "gazebo")
+    existing = os.environ.get("IGN_GAZEBO_RESOURCE_PATH", "")
+    return gazebo_dir + (os.pathsep + existing if existing else "")
+
+
 def _render_env(headless: bool):
     """EGL vendor override, and only where it is needed.
 
@@ -82,14 +95,17 @@ def generate_launch_description():
     gui = LaunchConfiguration("gui")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
+    resources = {"IGN_GAZEBO_RESOURCE_PATH": _resource_env(share_dir)}
     gz_server = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-s", "-v", "2", world_path],
-        output="screen", additional_env=_render_env(headless=True),
+        output="screen",
+        additional_env={**_render_env(headless=True), **resources},
         condition=UnlessCondition(gui),
     )
     gz_gui = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-v", "2", world_path],
-        output="screen", additional_env=_render_env(headless=False),
+        output="screen",
+        additional_env={**_render_env(headless=False), **resources},
         condition=IfCondition(gui),
     )
 
