@@ -162,13 +162,17 @@
           <lidar>
             <scan>
               <horizontal>
-                <samples>720</samples>
+                <samples>360</samples>
                 <resolution>1</resolution>
                 <min_angle>-3.14159</min_angle>
                 <max_angle>3.14159</max_angle>
               </horizontal>
               <vertical>
-                <samples>32</samples>
+                <!-- 360x16 rather than 720x32. Every raycast runs on the same
+                     GPU as the camera, the segmentation and RViz, and at the
+                     full count RViz stopped repainting. A 0.05 m map does not
+                     resolve more than this anyway. -->
+                <samples>16</samples>
                 <resolution>1</resolution>
                 <min_angle>-0.5236</min_angle>
                 <max_angle>0.1745</max_angle>
@@ -187,7 +191,12 @@
              the network resizes anyway and detail matters more than rate. -->
         <sensor name="color" type="camera">
           <pose>0.25 0 0.28 0 0.0873 0</pose>
-          <update_rate>10</update_rate>
+          <!-- 4 Hz, not 10. Everything here renders on the same GPU: the
+               simulator's own view, this camera, the lidar's raycast, the
+               segmentation and RViz. At 10 Hz the total sat at 97% and RViz
+               stopped repainting. Labels persist in the map, so a slower
+               camera costs coverage nothing. -->
+          <update_rate>4</update_rate>
           <always_on>true</always_on>
           <topic>color_cam</topic>
           <camera>
