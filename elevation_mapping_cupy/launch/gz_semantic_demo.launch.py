@@ -160,6 +160,23 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
+    # The map is 0.05 m, so points finer than that are averaged into cells
+    # they already share. Thinning here rather than in navi_lidar keeps SLAM's
+    # own input at full density.
+    downsample = Node(
+        package="elevation_mapping_cupy",
+        executable="voxel_downsample_node.py",
+        name="lidar_downsample",
+        output="screen",
+        parameters=[{
+            "input_topic": "/lidar/points",
+            "output_topic": "/lidar/points_downsampled",
+            "voxel_size": 0.05,
+            "max_range": 8.0,
+            "use_sim_time": True,
+        }],
+    )
+
     # SAM-TP: continuous traversability from the same camera, alongside the
     # class head. The engine is machine-specific and lives outside the repo.
     samtp_node = Node(
