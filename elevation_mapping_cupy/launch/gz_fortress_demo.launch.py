@@ -103,13 +103,15 @@ def generate_launch_description():
             # A plain camera sensor puts its info on the bare /camera_info,
             # not under <topic>/camera_info the way rgbd_camera does.
             "/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
-            "/model/robot/odometry@nav_msgs/msg/Odometry[ignition.msgs.Odometry",
-            "/model/robot/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V",
+            # Full 3D pose from OdometryPublisher; the planar DiffDrive
+            # odometry stays unbridged on purpose (see the world file).
+            "/model/robot/odom3d@nav_msgs/msg/Odometry[ignition.msgs.Odometry",
+            "/model/robot/pose3d@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V",
             "/model/robot/cmd_vel@geometry_msgs/msg/Twist]ignition.msgs.Twist",
         ],
         remappings=[
-            ("/model/robot/tf", "/tf"),
-            ("/model/robot/odometry", "/odom"),
+            ("/model/robot/pose3d", "/tf"),
+            ("/model/robot/odom3d", "/odom"),
             ("/model/robot/cmd_vel", "/cmd_vel"),
             ("/color_cam", "/color_cam/image"),
             ("/camera_info", "/color_cam/camera_info"),

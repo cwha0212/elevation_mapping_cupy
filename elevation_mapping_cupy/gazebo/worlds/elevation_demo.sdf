@@ -302,8 +302,21 @@
         <parent>base_link</parent><child>caster</child>
       </joint>
 
-      <!-- Publishes odom on /model/robot/odometry and the odom->base_link
-           transform on /model/robot/tf, both bridged in the launch file. -->
+      <!-- Wheel odometry from DiffDrive is planar: climb the ramp and its
+           z and pitch stay zero, which would corrupt both maps through TF and
+           make the climbing comparison meaningless. haechi gets a full 3D pose
+           from its LIO, so the demo publishes the true 3D pose here and the
+           launch bridges THIS to /tf, not the DiffDrive one. -->
+      <plugin filename="ignition-gazebo-odometry-publisher-system"
+              name="ignition::gazebo::systems::OdometryPublisher">
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <dimensions>3</dimensions>
+        <odom_publish_frequency>50</odom_publish_frequency>
+        <odom_topic>/model/robot/odom3d</odom_topic>
+        <tf_topic>/model/robot/pose3d</tf_topic>
+      </plugin>
+
       <plugin filename="ignition-gazebo-diff-drive-system"
               name="ignition::gazebo::systems::DiffDrive">
         <left_joint>left_wheel_joint</left_joint>
