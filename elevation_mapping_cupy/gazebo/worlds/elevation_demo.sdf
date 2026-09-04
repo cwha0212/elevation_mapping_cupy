@@ -26,7 +26,7 @@
             name="ignition::gazebo::systems::UserCommands"/>
     <plugin filename="ignition-gazebo-scene-broadcaster-system"
             name="ignition::gazebo::systems::SceneBroadcaster"/>
-    <!-- Renders the RGBD camera. Without this the sensor stays silent. -->
+    <!-- Renders the lidar and the camera. Without this they stay silent. -->
     <plugin filename="ignition-gazebo-sensors-system"
             name="ignition::gazebo::systems::Sensors">
       <render_engine>ogre2</render_engine>
@@ -167,7 +167,8 @@
       </link>
     </model>
 
-    <!-- Differential-drive robot carrying a downward-tilted RGBD camera. -->
+    <!-- Differential-drive robot: 360 degree lidar for geometry, a forward
+         colour camera for semantics. Same split as haechi. -->
     <model name="robot">
       <pose>0 0 0.12 0 0 0</pose>
       <self_collide>false</self_collide>
@@ -189,18 +190,36 @@
           </material>
         </visual>
 
-        <!-- Tilted 20 degrees down, like the MID360 mounts on the real robot,
-             so the near ground is densely covered. -->
-        <sensor name="depth" type="rgbd_camera">
-          <pose>0.20 0 0.12 0 0.3491 0</pose>
+        <!-- Geometry comes from a 360 degree lidar, as it does on haechi: the
+             map has to fill in all around the robot, not just inside a camera
+             cone. The vertical span leans downward so the near ground is
+             covered the way the tilted MID360 mounts cover it. -->
+        <sensor name="lidar" type="gpu_lidar">
+          <pose>0 0 0.25 0 0 0</pose>
           <update_rate>10</update_rate>
           <always_on>true</always_on>
-          <topic>camera</topic>
-          <camera>
-            <horizontal_fov>1.2217</horizontal_fov>
-            <image><width>320</width><height>240</height><format>R8G8B8</format></image>
-            <clip><near>0.15</near><far>12.0</far></clip>
-          </camera>
+          <topic>lidar</topic>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>720</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.14159</min_angle>
+                <max_angle>3.14159</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>32</samples>
+                <resolution>1</resolution>
+                <min_angle>-0.5236</min_angle>
+                <max_angle>0.1745</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.15</min>
+              <max>20.0</max>
+              <resolution>0.01</resolution>
+            </range>
+          </lidar>
         </sensor>
 
         <sensor name="color" type="camera">

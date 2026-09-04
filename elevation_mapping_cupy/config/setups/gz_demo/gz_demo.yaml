@@ -1,6 +1,10 @@
 # =============================================================================
-# Gazebo Fortress demo -- differential-drive robot with a tilted RGBD camera
-# driving past a ramp, a stair flight, and a curb.
+# Gazebo Fortress demo -- differential-drive robot with a 360 degree lidar
+# and a forward colour camera, driving past a ramp, stairs, and a curb.
+#
+# The split matters: geometry arrives from all around, semantics only from
+# the front cone, and the map is what carries the labels round to the sides
+# and behind as the robot moves. That is haechi's situation exactly.
 #
 # Launch with elevation_mapping_cupy/launch/gz_fortress_demo.launch.py, which
 # starts the simulator, bridges the topics, and runs this node.
@@ -33,9 +37,10 @@
       default: 'exponential'
 
     subscribers:
-      depth_cam:
-        # Bridged from the Fortress rgbd_camera sensor (/camera/points).
-        topic_name: '/camera/points'
+      lidar:
+        # 360 degree geometry, the way haechi's three merged lidars supply it.
+        # The map fills in all around the robot, not only inside a camera cone.
+        topic_name: '/lidar/points'
         data_type: pointcloud
 
       # Separate colour camera, mounted apart from the depth sensor the way

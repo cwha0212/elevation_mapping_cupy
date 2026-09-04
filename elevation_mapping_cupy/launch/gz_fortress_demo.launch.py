@@ -28,13 +28,13 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
-# Where the RGBD sensor's own pose sits relative to base_link, copied from the
-# sensor <pose> in the world file. Fortress stamps sensor messages with the
-# scoped name <model>/<link>/<sensor>, so that is the frame the transform has
-# to land on for elevation mapping's TF lookup to resolve.
-CAMERA_FRAME = "robot/base_link/depth"
-CAMERA_XYZ = (0.20, 0.0, 0.12)
-CAMERA_PITCH = 0.3491  # 20 degrees down
+# Sensor poses relative to base_link, copied from the world file. Fortress
+# stamps sensor messages with the scoped name <model>/<link>/<sensor>, so those
+# are the frames the transforms have to land on for the TF lookups to resolve.
+#
+# The lidar keeps the body convention its points come in: x forward, z up.
+LIDAR_FRAME = "robot/base_link/lidar"
+LIDAR_XYZ = (0.0, 0.0, 0.25)
 
 # The colour camera sits apart from the depth sensor on purpose, mirroring how
 # haechi's camera is mounted well ahead of the lidar origin.
@@ -96,9 +96,7 @@ def generate_launch_description():
         output="screen",
         arguments=[
             "/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock",
-            "/camera/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
-            "/camera/image@sensor_msgs/msg/Image[ignition.msgs.Image",
-            "/camera/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
+            "/lidar/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
             "/color_cam@sensor_msgs/msg/Image[ignition.msgs.Image",
             # A plain camera sensor puts its info on the bare /camera_info,
             # not under <topic>/camera_info the way rgbd_camera does.
@@ -117,23 +115,23 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
-    # DiffDrive only publishes odom->base_link; the sensor frame is ours to
-    # declare. Fortress point clouds come out in the sensor's own frame, so the
-    # rotation here is the mount tilt only.
-    camera_tf = Node(
+    # DiffDrive only publishes odom->base_link; the sensor frames are ours to
+    # declare. The lidar is mounted level, and its points arrive in its own
+    # body-convention frame, so this is a pure translation.
+    lidar_tf = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
-        name="base_link_to_camera",
+        name="base_link_to_lidar",
         output="screen",
         arguments=[
-            "--x", str(CAMERA_XYZ[0]),
-            "--y", str(CAMERA_XYZ[1]),
-            "--z", str(CAMERA_XYZ[2]),
+            "--x", str(LIDAR_XYZ[0]),
+            "--y", str(LIDAR_XYZ[1]),
+            "--z", str(LIDAR_XYZ[2]),
             "--roll", "0",
-            "--pitch", str(CAMERA_PITCH),
+            "--pitch", "0",
             "--yaw", "0",
             "--frame-id", "base_link",
-            "--child-frame-id", CAMERA_FRAME,
+            "--child-frame-id", LIDAR_FRAME,
         ],
         parameters=[{"use_sim_time": True}],
     )
@@ -197,7 +195,7 @@ def generate_launch_description():
             gz_server,
             gz_gui,
             bridge,
-            camera_tf,
+            lidar_tf,
             color_tf,
             elevation_mapping_node,
             rviz_node,
