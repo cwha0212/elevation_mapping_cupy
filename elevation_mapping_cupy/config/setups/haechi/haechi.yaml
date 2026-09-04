@@ -59,11 +59,15 @@
       # and persist as the robot walks, so coverage accumulates over time.
       # Published by semantic_sensor/image_node (namespace front_cam), which
       # also republishes the resized CameraInfo this needs.
+      # SAM-TP traversability, replacing the class segmentation outright: the
+      # channel is the negated raw logit (high = hard ground, 0 = the model's
+      # own boundary), published by samtp_node with the calibration file's
+      # intrinsics since this camera emits no CameraInfo.
       front_cam:
-        topic_name: '/front_cam/semantic_image'
-        camera_info_topic_name: '/front_cam/camera_info_resized'
-        channel_info_topic_name: '/front_cam/channel_info'
-        channels: ['person', 'car', 'bicycle']   # must match semantic_sensor/config/haechi.yaml
+        topic_name: '/front_cam/samtp_score'
+        camera_info_topic_name: '/front_cam/samtp_camera_info'
+        channel_info_topic_name: '/front_cam/samtp_channel_info'
+        channels: ['untrav']
         data_type: image
 
     #### Publishers ########
@@ -75,10 +79,10 @@
       # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
       # launch selects it over the digging chain via plugin_config_file).
       elevation_map_terrain:
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability']
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
         basic_layers: ['elevation']
         fps: 3.0
       elevation_map_semantic:
-        layers: ['person', 'car', 'bicycle']
-        basic_layers: []
+        layers: ['elevation', 'untrav']
+        basic_layers: ['elevation']
         fps: 3.0

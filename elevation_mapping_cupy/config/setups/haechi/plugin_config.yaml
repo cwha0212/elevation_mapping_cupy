@@ -39,3 +39,16 @@ drivability_filter:
   extra_params:
     layers: ["slope", "step", "roughness"]
     limits: [25.0, 0.20, 0.05]
+semantic_safety_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "safety"                      # 1 safe .. 0 forbidden
+  extra_params:
+    base_layer: "drivability"
+    # SAM-TP's negated raw logit: zero is the model's own decision boundary,
+    # penalty saturates three logits past it. Absent (camera off) the layer
+    # silently equals drivability.
+    hazard_layers: ["untrav"]
+    hazard_low: 0.0
+    hazard_high: 3.0

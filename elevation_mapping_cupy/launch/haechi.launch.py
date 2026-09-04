@@ -11,9 +11,10 @@ Camera extrinsic below is copied from ~/haechi_data/calib/haechi_calibration.yam
 (2026-09-03), section `camera.extrinsic`, which is T_lidarframe_camera. Its
 rotation maps camera x/y/z onto lidar_frame -Y / -Z / +X, i.e. right/down/front:
 the optical convention, so it publishes directly against the camera's own
-`camera_color_optical_frame`. Intrinsics from the same file live in
-semantic_sensor/config/haechi.yaml; re-running the calibration means updating
-both.
+`camera_color_optical_frame`. Intrinsics from the same file ride in as
+samtp_node parameters below; re-running the calibration means updating both.
+SAM-TP replaced the class segmentation outright -- the classifier's verdict
+flipped run to run in simulation, while the traversability score held.
 """
 
 import math
@@ -45,10 +46,6 @@ def generate_launch_description():
         if not os.path.exists(path):
             raise FileNotFoundError(f"Config file {path} does not exist")
 
-    semantic_config_path = os.path.join(
-        get_package_share_directory("semantic_sensor"), "config", "haechi.yaml"
-    )
-
     use_semantics = LaunchConfiguration("use_semantics")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
@@ -73,19 +70,28 @@ def generate_launch_description():
         ],
     )
 
-    # Namespaced so the republished camera_info lands on
-    # /front_cam/camera_info_resized, which the elevation mapping config expects.
-    semantic_node = Node(
-        package="semantic_sensor",
-        executable="image_node",
+    # SAM-TP replaces the class segmentation. The camera publishes no
+    # CameraInfo, so the calibration file's intrinsics ride in as parameters,
+    # and the 19.554 ms camera-to-reference clock offset is applied to the
+    # republished stamps the same way the old node applied it.
+    samtp_node = Node(
+        package="elevation_mapping_cupy",
+        executable="samtp_node.py",
         namespace="front_cam",
-        name="semantic_image_node",
+        name="samtp_node",
         output="screen",
         condition=IfCondition(use_semantics),
         parameters=[
             {
-                "sensor_name": "haechi_front_cam",
-                "config_path": semantic_config_path,
+                "image_topic": "/camera/image_raw/compressed",
+                "engine_path": LaunchConfiguration("samtp_engine"),
+                "camera_size": [1280, 720],
+                "camera_k": [632.05027422, 0.0, 626.09047259,
+                             0.0, 633.89951429, 343.05708742,
+                             0.0, 0.0, 1.0],
+                "time_offset_s": 0.019554,
+                "output_scale": 0.5,
+                "max_rate": 4.0,
                 "use_sim_time": use_sim_time,
             }
         ],
@@ -112,8 +118,13 @@ def generate_launch_description():
                 "up LiDAR-only geometry first.",
             ),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
+            DeclareLaunchArgument(
+                "samtp_engine",
+                default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
+                description="TensorRT engine (machine-specific, not in the repo).",
+            ),
             camera_tf,
-            semantic_node,
+            samtp_node,
             elevation_mapping_node,
         ]
     )
