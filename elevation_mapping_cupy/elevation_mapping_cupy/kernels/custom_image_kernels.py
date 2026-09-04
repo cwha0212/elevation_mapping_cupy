@@ -40,13 +40,19 @@ def image_to_map_correspondence_kernel(resolution, width, height, tolerance_z_co
                 return;
             }
             
-            // get current cell position
+            // Cell indices. The map is row-major with Row=Y and Col=X, the same
+            // convention custom_kernels.py states; x0 is therefore the row (Y)
+            // and y0 the column (X), and the Bresenham walk below keeps that
+            // pairing when it rebuilds the flat index as y0 + x0 * width.
             int y0 = i % ${width};
             int x0 = i / ${width};
             
-            // gridcell 3D point in worldframe TODO reverse x and y
-            float p1 = (x0-(${width}/2)) * ${resolution} + center[0];
-            float p2 = (y0-(${height}/2)) * ${resolution} + center[1];
+            // Gridcell 3D point in the world frame. X comes from the column and
+            // Y from the row: reading them the other way round transposes every
+            // cell about the map centre, which throws the whole projection off
+            // the image and leaves nothing to paint.
+            float p1 = (y0-(${width}/2)) * ${resolution} + center[0];
+            float p2 = (x0-(${height}/2)) * ${resolution} + center[1];
             float p3 = map[cell_idx] +  center[2];
             
             // reproject 3D point into image plane

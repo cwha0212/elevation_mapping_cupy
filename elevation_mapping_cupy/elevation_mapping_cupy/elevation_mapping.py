@@ -591,8 +591,10 @@ class ElevationMap:
             D *= 0
 
         P = cp.asarray(P_h, dtype=np.float32)
-        x1 = cp.uint32((self.cell_n / 2) + (t_cam_map[0] / self.resolution))
-        y1 = cp.uint32((self.cell_n / 2) + (t_cam_map[1] / self.resolution))
+        # Camera cell for the kernel's occlusion walk, in the same Row=Y, Col=X
+        # order the kernel indexes with: the row follows world Y, the column X.
+        x1 = cp.uint32((self.cell_n / 2) + (t_cam_map[1] / self.resolution))
+        y1 = cp.uint32((self.cell_n / 2) + (t_cam_map[0] / self.resolution))
         z1 = cp.float32(t_cam_map[2])
 
         self.uv_correspondence *= 0
