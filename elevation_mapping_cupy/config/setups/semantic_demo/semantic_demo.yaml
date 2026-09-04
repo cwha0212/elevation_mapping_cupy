@@ -1,0 +1,53 @@
+# Semantic projection demo: 360 lidar for the surface, front camera for labels.
+#
+# The camera does not go straight into the map here. It goes through
+# semantic_sensor, which runs the segmentation and republishes a multi-channel
+# probability image plus the resized CameraInfo -- the same path haechi uses,
+# and the one that had never been executed until now.
+#
+# Channels are the shipped model's, not the ones we want. torchvision's
+# COCO_WITH_VOC weights have no road or sidewalk, and naming an absent class
+# raises at startup, so the test uses what the vocabulary contains.
+/elevation_mapping_node:
+  ros__parameters:
+    map_frame: 'odom'
+    base_frame: 'base_link'
+    corrected_map_frame: 'odom'
+
+    resolution: 0.05
+    map_length: 12.0
+
+    enable_drift_compensation: false
+
+    initialize_method: 'linear'
+    initialize_frame_id: ['base_link']
+    initialize_tf_offset: [0.0]
+    use_initializer_at_start: true
+
+    # 'exponential' accumulates class evidence over time, which is the whole
+    # point: the camera only ever sees a cone, and the map is what carries a
+    # label round to the side and behind once the robot has moved on.
+    image_channel_fusions:
+      rgb: 'color'
+      default: 'exponential'
+
+    subscribers:
+      lidar:
+        topic_name: '/lidar/points'
+        data_type: pointcloud
+      semantic_cam:
+        topic_name: '/front_cam/semantic_image'
+        camera_info_topic_name: '/front_cam/camera_info_resized'
+        channel_info_topic_name: '/front_cam/channel_info'
+        channels: ['person', 'car']   # must match the semantic_sensor config
+        data_type: image
+
+    publishers:
+      elevation_map_raw:
+        layers: ['elevation', 'traversability', 'variance']
+        basic_layers: ['elevation']
+        fps: 5.0
+      elevation_map_semantic:
+        layers: ['elevation', 'person', 'car']
+        basic_layers: ['elevation']
+        fps: 3.0

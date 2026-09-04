@@ -1,0 +1,26 @@
+# Simulated forward camera for the semantic projection demo.
+#
+# Gazebo publishes a raw Image and a CameraInfo, so unlike haechi this one has
+# no need of the static-intrinsics path -- the point here is the segmentation
+# and the projection, not the calibration plumbing, which was checked
+# separately against the real camera's bag.
+gz_front_cam:
+  image_topic: /color_cam/image
+  camera_info_topic: camera_info          # republished as <name>_resized
+  publish_topic: semantic_image
+  publish_image_topic: semantic_image_debug
+  channel_info_topic: channel_info
+
+  # Half of 640x480. The network resizes internally anyway, and the map is
+  # 0.05 m, so pixels beyond this buy nothing but GPU time next to the
+  # elevation mapping already running.
+  resize: 0.5
+
+  semantic_segmentation: True
+  feature_extractor: False
+  segmentation_model: lraspp_mobilenet_v3_large
+  # From the model's own 21 VOC categories. Roadway and sidewalk are the
+  # classes this is ultimately for and neither is in there; these are what
+  # the shipped weights can actually name.
+  channels: ["person", "car"]
+  show_label_legend: False
