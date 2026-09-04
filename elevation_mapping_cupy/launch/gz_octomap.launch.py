@@ -1,46 +1,100 @@
-"""Octomap-based 2D occupancy grid, run alongside gz_fortress_demo.launch.py.
+"""Octomap 2D occupancy grid, run alongside gz_fortress_demo.launch.py.
 
     ros2 launch elevation_mapping_cupy gz_octomap.launch.py
+    ros2 launch elevation_mapping_cupy gz_octomap.launch.py source:=lidar
 
-This is the flat-world baseline the navi stack builds its 2D grid with: the
-in-house octomap_server2 (source ~/dependencies/octomap_ws/install/setup.bash
-before launching -- same node name and parameter surface as the classic
-server). The lidar goes into octomap; occupied voxels inside a fixed height
-band project to an OccupancyGrid (/projected_map). On one floor it works; the point of running
-it next to the elevation map is to watch what happens when the floor itself
-moves -- drive up the ramp and the surface you stand on enters the obstacle
-band, because "obstacle" was defined as a z-interval of the map frame, not as
-something the robot cannot traverse.
+Two ways to feed the same in-house octomap_server2 (source
+~/dependencies/octomap_ws/install/setup.bash before launching):
 
-The elevation pipeline never uses that assumption: slope/step/roughness are
-relative measures, so a 12 degree ramp stays drivable at any altitude.
+  source:=traversability  (default)
+      The drivability layer becomes the obstacle cloud. "Obstacle" means a
+      cell the robot cannot drive on, at any altitude, so a ramp stays free
+      while a curb does not. octomap accumulates those cells with its log-odds
+      sensor model, making /projected_map a probabilistic costmap over
+      traversability -- and a global one, outliving the elevation map's
+      rolling window.
+
+  source:=lidar
+      The raw cloud with a fixed odom-frame height band, which is how the
+      navi stack builds its grid today. Kept for comparison: it defines
+      obstacles by height, so climbing the ramp puts the robot's own surface
+      at 98% occupied. Measured, not hypothetical.
 """
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    octomap = Node(
+    source = LaunchConfiguration("source")
+    threshold = LaunchConfiguration("threshold")
+    is_lidar = PythonExpression(["'", source, "' == 'lidar'"])
+
+    trav_cloud = Node(
+        package="elevation_mapping_cupy",
+        executable="traversability_cloud_node.py",
+        name="traversability_cloud",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{"use_sim_time": True, "threshold": threshold}],
+    )
+
+    # The cloud is already flat and robot-centred, so the band only has to
+    # cover z=0. Nothing is excluded by height because nothing carries height.
+    trav_octomap = Node(
         package="octomap_server2",
         executable="octomap_server",
         name="octomap_server",
         output="screen",
+        condition=UnlessCondition(is_lidar),
         parameters=[{
             "use_sim_time": True,
             "frame_id": "odom",
             "base_frame_id": "base_link",
-            # Raw 360 lidar in; octomap raycasts free space itself.
+            "resolution": 0.05,
+            "sensor_model/max_range": 8.0,
+            "filter_ground": False,
+            "occupancy_min_z": -0.10,
+            "occupancy_max_z": 0.10,
+        }],
+        remappings=[("cloud_in", "/traversability/obstacles")],
+    )
+
+    lidar_octomap = Node(
+        package="octomap_server2",
+        executable="octomap_server",
+        name="octomap_server",
+        output="screen",
+        condition=IfCondition(is_lidar),
+        parameters=[{
+            "use_sim_time": True,
+            "frame_id": "odom",
+            "base_frame_id": "base_link",
+            "resolution": 0.05,
             "sensor_model/max_range": 12.0,
             "filter_ground": False,
-            "resolution": 0.05,
-            # Occupied voxels inside this odom-frame band become obstacles in
-            # /projected_map. 5 cm floor clearance, robot height on top: the
-            # standard single-floor band, kept deliberately so the climbing
-            # experiment shows its failure mode instead of hiding it.
+            # Obstacles by height in the odom frame: the assumption under test.
             "occupancy_min_z": 0.05,
             "occupancy_max_z": 1.2,
         }],
         remappings=[("cloud_in", "/lidar/points")],
     )
-    return LaunchDescription([octomap])
+
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            "source",
+            default_value="traversability",
+            description="traversability (drivability layer) or lidar (raw cloud, height band).",
+        ),
+        DeclareLaunchArgument(
+            "threshold",
+            default_value="0.4",
+            description="drivability below this becomes an obstacle (traversability source).",
+        ),
+        trav_cloud,
+        trav_octomap,
+        lidar_octomap,
+    ])
