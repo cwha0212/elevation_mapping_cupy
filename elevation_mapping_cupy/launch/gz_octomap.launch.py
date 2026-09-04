@@ -55,7 +55,12 @@ def generate_launch_description():
             "frame_id": "odom",
             "base_frame_id": "base_link",
             "resolution": 0.05,
-            "sensor_model/max_range": 8.0,
+            # Below the cloud's far_range (6.0) on purpose: a clear bearing's
+            # endpoint must land BEYOND max_range so octomap truncates it into
+            # a pure free ray. At 8.0 the same point would be inserted as an
+            # obstacle at 6 m. Matches the 4.4 m march, so nothing is declared
+            # free that was not actually checked.
+            "sensor_model/max_range": 4.5,
             "filter_ground": False,
             "occupancy_min_z": -0.10,
             "occupancy_max_z": 0.10,

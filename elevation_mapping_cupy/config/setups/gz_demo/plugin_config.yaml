@@ -61,6 +61,10 @@ semantic_safety_filter:
     # and 0.00 on the roadway, poisoning the robot's own footing. A policy
     # signal that unstable belongs behind a real-footage evaluation, not in
     # the safety product.
-    hazard_layers: ["untrav", "person", "car"]
-    hazard_low: 0.25
-    hazard_high: 0.60
+    hazard_layers: ["untrav"]
+    # untrav is a NEGATED RAW LOGIT now (the sigmoid crushed SAM-TP's
+    # contrast out of the map): 0 is the model's own decision boundary,
+    # positive is increasingly bad. Penalty starts right at the boundary and
+    # saturates three logits past it.
+    hazard_low: 0.0
+    hazard_high: 3.0

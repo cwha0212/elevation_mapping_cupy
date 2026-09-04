@@ -8,11 +8,18 @@ traversability logit. That is a different judgement from a class label -- not
 in-the-wild navigation footage, which is why it survives surfaces that break a
 Cityscapes classifier.
 
-This node runs the TensorRT engine and publishes ``1 - sigmoid(logit)`` as a
+This node runs the TensorRT engine and publishes the NEGATED RAW LOGIT as a
 single float channel named ``untrav``: high means hard or impossible ground.
-elevation_mapping ingests it through the same image path as any semantic
-channel, accumulates it on the map, and semantic_safety_filter treats it as
-one more hazard. Nothing downstream knows a network changed.
+Not a sigmoid -- confident logits live at +2..+5, and the sigmoid crushes
+that span into 0.88..0.99, so by the time the map accumulated the score the
+contrast SAM-TP clearly produces had been squeezed out of it. The exponential
+image fusion is a plain EMA and handles signed values as they are.
+
+A colorized heatmap (per-frame normalized, jet: red = easy, blue = hard, the
+same rendering the module's own tooling uses) goes out beside it for the
+human. elevation_mapping ingests the channel through the ordinary image path,
+and semantic_safety_filter treats it as one more hazard; nothing downstream
+knows a network changed.
 
 The engine file is machine-specific (TensorRT serializes for one GPU and one
 version) and therefore lives outside the repo. Rebuild with:
@@ -23,6 +30,7 @@ version) and therefore lives outside the repo. Rebuild with:
 
 import os
 
+import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
@@ -47,21 +55,35 @@ class SamTPNode(Node):
         # Inference costs ~21 ms; the map accumulates, so a few Hz suffices and
         # the GPU is shared with the mapper. 0 disables the limit.
         self.max_rate = float(self.declare_parameter("max_rate", 4.0).value)
+        # Cameras without a CameraInfo topic (haechi) carry their calibration
+        # here instead; k empty keeps the topic subscription. Mirrors the
+        # convention semantic_sensor established.
+        self.static_k = list(self.declare_parameter("camera_k", [0.0]).value or [])
+        self.static_size = list(self.declare_parameter("camera_size", [0, 0]).value)
+        # t_reference = t_camera + time_offset_s, from the imu-cam calibration.
+        self.time_offset_s = float(self.declare_parameter("time_offset_s", 0.0).value)
 
         self._load_engine()
 
         self.bridge = CvBridge()
         self.info = None
+        if len(self.static_k) == 9:
+            info = CameraInfo()
+            info.width, info.height = int(self.static_size[0]), int(self.static_size[1])
+            info.k = [float(v) for v in self.static_k]
+            self.info = info
         self._last_stamp_ns = 0
         self._frames = 0
 
         self.score_pub = self.create_publisher(Image, "samtp_score", 2)
+        self.heatmap_pub = self.create_publisher(Image, "samtp_heatmap", 2)
         self.info_pub = self.create_publisher(CameraInfo, "samtp_camera_info", 2)
         self.channel_pub = self.create_publisher(ChannelInfo, "samtp_channel_info", 2)
 
-        self.create_subscription(
-            CameraInfo, self.camera_info_topic, self._on_info, 2
-        )
+        if len(self.static_k) != 9:
+            self.create_subscription(
+                CameraInfo, self.camera_info_topic, self._on_info, 2
+            )
         if "compressed" in self.image_topic:
             self.create_subscription(
                 CompressedImage, self.image_topic, self._on_image, 2
@@ -143,19 +165,33 @@ class SamTPNode(Node):
         # The logit map corresponds to the square-stretched input, so resizing
         # it to the image's own aspect undoes the stretch and the original
         # intrinsics apply again (scaled below).
-        untrav = 1.0 - torch.sigmoid(
-            torch.nn.functional.interpolate(
-                self.out_t, size=(out_h, out_w), mode="bilinear", align_corners=False
-            )
+        logit = torch.nn.functional.interpolate(
+            self.out_t, size=(out_h, out_w), mode="bilinear", align_corners=False
         )[0, 0]
-        score = untrav.cpu().numpy().astype(np.float32)
+        score = (-logit).cpu().numpy().astype(np.float32)
+
+        header = msg.header
+        if self.time_offset_s:
+            ns = (header.stamp.sec * 10**9 + header.stamp.nanosec
+                  + int(round(self.time_offset_s * 1e9)))
+            header.stamp.sec, header.stamp.nanosec = divmod(ns, 10**9)
 
         out = self.bridge.cv2_to_imgmsg(score, encoding="32FC1")
-        out.header = msg.header
+        out.header = header
         self.score_pub.publish(out)
 
+        # The human-facing view, rendered the way the module's own tooling
+        # does: per-frame normalized so the contrast is visible regardless of
+        # the absolute logit range. jet maps low (traversable) to red.
+        lo, hi = float(score.min()), float(score.max())
+        norm = ((score - lo) / (hi - lo + 1e-8) * 255).astype(np.uint8)
+        hm = cv2.applyColorMap(255 - norm, cv2.COLORMAP_JET)
+        hm_msg = self.bridge.cv2_to_imgmsg(hm, encoding="bgr8")
+        hm_msg.header = header
+        self.heatmap_pub.publish(hm_msg)
+
         info = CameraInfo()
-        info.header = msg.header
+        info.header = header
         info.width, info.height = out_w, out_h
         sx = out_w / float(self.info.width)
         sy = out_h / float(self.info.height)
@@ -163,17 +199,22 @@ class SamTPNode(Node):
         k[0, :] *= sx
         k[1, :] *= sy
         info.k = k.reshape(-1).tolist()
-        p = np.array(self.info.p, dtype=np.float64).reshape(3, 4)
-        p[0, :] *= sx
-        p[1, :] *= sy
-        info.p = p.reshape(-1).tolist()
+        src_p = np.array(self.info.p, dtype=np.float64)
+        if src_p.size == 12 and src_p.any():
+            pmat = src_p.reshape(3, 4)
+        else:
+            pmat = np.hstack([np.array(self.info.k).reshape(3, 3), np.zeros((3, 1))])
+        pmat = pmat.copy()
+        pmat[0, :] *= sx
+        pmat[1, :] *= sy
+        info.p = pmat.reshape(-1).tolist()
         info.d = list(self.info.d)
-        info.distortion_model = self.info.distortion_model
-        info.r = list(self.info.r)
+        info.distortion_model = self.info.distortion_model or "radtan"
+        info.r = list(self.info.r) if any(self.info.r) else [1.,0.,0.,0.,1.,0.,0.,0.,1.]
         self.info_pub.publish(info)
 
         channels = ChannelInfo()
-        channels.header = msg.header
+        channels.header = header
         channels.channels = ["untrav"]
         self.channel_pub.publish(channels)
 

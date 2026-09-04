@@ -47,7 +47,9 @@ def generate_launch_description():
             "resolution": 0.05,
             # The elevation map is 10 m square, so nothing useful arrives from
             # further than its half-width.
-            "sensor_model/max_range": 5.0,
+            # Below the cloud's far_range so clear bearings truncate into
+            # free rays, and matching its 4.4 m march.
+            "sensor_model/max_range": 4.5,
             "filter_ground": False,
             # The cloud is flat by construction; the band only covers z=0.
             "occupancy_min_z": -0.10,

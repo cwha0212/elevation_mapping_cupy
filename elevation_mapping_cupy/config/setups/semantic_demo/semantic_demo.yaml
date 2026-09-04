@@ -36,16 +36,11 @@
       lidar:
         topic_name: '/lidar/points_downsampled'
         data_type: pointcloud
-      semantic_cam:
-        topic_name: '/front_cam/semantic_image'
-        camera_info_topic_name: '/front_cam/camera_info_resized'
-        channel_info_topic_name: '/front_cam/channel_info'
-        channels: ['road', 'sidewalk', 'person', 'car']   # must match the semantic_sensor config
-        data_type: image
-
-      # SAM-TP: one continuous channel, high = hard or impossible ground. A
-      # learned judgement of the surface itself, not a class label, so it
-      # holds up where the Cityscapes head does not.
+      # SAM-TP is the semantic input, full stop. The Cityscapes classifier it
+      # replaced answered "what class is this pixel" and flipped run to run on
+      # this scene; SAM-TP answers "can this be driven on" as a continuous
+      # score and holds steady. The channel carries the negated raw logit:
+      # high = hard ground, 0 = the model's own decision boundary.
       samtp_cam:
         topic_name: '/front_cam/samtp_score'
         camera_info_topic_name: '/front_cam/samtp_camera_info'
@@ -59,7 +54,7 @@
         basic_layers: ['elevation']
         fps: 5.0
       elevation_map_semantic:
-        layers: ['elevation', 'road', 'sidewalk', 'person', 'car', 'untrav']
+        layers: ['elevation', 'untrav']
         basic_layers: ['elevation']
         fps: 3.0
       # Feeds the octomap grid: people and the car are untraversable, so they

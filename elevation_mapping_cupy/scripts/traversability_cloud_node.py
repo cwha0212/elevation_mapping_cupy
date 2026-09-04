@@ -21,9 +21,19 @@ global octree, it also outlives the elevation map's rolling window.
 
 Points go out at z=0 in a robot-centred, rotation-free frame, so every ray is
 horizontal and the projection is exactly the traversability decision at any
-altitude. Free space comes from those rays, the same way it does for a laser
-scan: ground with no obstacle anywhere behind it stays unknown rather than
-free, which is the honest answer for a cell nothing has ever been seen past.
+altitude.
+
+Free space is emitted explicitly, as a synthetic scan. Emitting only obstacle
+endpoints left free space to the rays that happened to pass toward an
+obstacle: ground the robot had driven straight across stayed unknown forever,
+a vanished obstacle could only be erased if some farther obstacle put a ray
+through it, and everything behind an object read as a wall of unknown. So the
+node marches the safety grid outward along a fan of bearings; a bearing that
+hits an unsafe cell contributes an obstacle endpoint there, and a bearing
+that stays known-safe for its whole march contributes a beyond-max-range
+point, which octomap truncates into a pure free ray. Same-frame obstacle
+insertions win over free rays inside octomap, so a free ray crossing a live
+obstacle costs nothing; a stale one it erodes, which is the point.
 """
 
 import numpy as np
@@ -57,6 +67,12 @@ class TraversabilityCloudNode(Node):
         self.threshold = self.declare_parameter("threshold", 0.4).value
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
+        # The free-space fan. march_range must stay below octomap's
+        # sensor_model/max_range so a clear bearing's endpoint lands beyond it
+        # and truncates into a pure free ray; far_range is anything past that.
+        self.bearings = int(self.declare_parameter("bearings", 720).value)
+        self.march_range = float(self.declare_parameter("march_range", 4.4).value)
+        self.far_range = float(self.declare_parameter("far_range", 6.0).value)
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -84,13 +100,36 @@ class TraversabilityCloudNode(Node):
         cx = msg.info.pose.position.x
         cy = msg.info.pose.position.y
 
-        # grid_map convention, as published: row runs along -Y, column along -X
-        # about the map centre.
-        rows, cols = np.nonzero(np.isfinite(values) & (values < self.threshold))
-        # Straight to the robot-centred frame, so the offsets below are already
-        # what the cloud carries.
-        dx = -(cols.astype(np.float32) - w / 2.0 + 0.5) * res
-        dy = -(rows.astype(np.float32) - h / 2.0 + 0.5) * res
+        # March a fan of bearings outward from the map centre over the safety
+        # grid (grid_map convention: row along -Y, column along -X). Sampled
+        # at the cell size, vectorized over all bearings at once.
+        steps = np.arange(res, self.march_range, res, dtype=np.float32)
+        theta = np.linspace(0.0, 2 * np.pi, self.bearings, endpoint=False)
+        ux, uy = np.cos(theta, dtype=np.float32), np.sin(theta, dtype=np.float32)
+        px = ux[:, None] * steps[None, :]              # (B, R) offsets from centre
+        py = uy[:, None] * steps[None, :]
+        cc = np.clip((w / 2.0 - 0.5 - px / res).round().astype(np.int32), 0, w - 1)
+        rr = np.clip((h / 2.0 - 0.5 - py / res).round().astype(np.int32), 0, h - 1)
+        sampled = values[rr, cc]                       # (B, R)
+
+        unsafe = np.isfinite(sampled) & (sampled < self.threshold)
+        unknown = ~np.isfinite(sampled)
+        blocked = unsafe | unknown
+        first_block = np.where(blocked.any(axis=1), blocked.argmax(axis=1), steps.size)
+
+        idx = np.arange(self.bearings)
+        hit_unsafe = (first_block < steps.size) & unsafe[idx, np.minimum(first_block, steps.size - 1)]
+        clear = first_block == steps.size
+
+        # Obstacles: the first unsafe cell along the bearing.
+        r_obs = steps[np.minimum(first_block[hit_unsafe], steps.size - 1)]
+        dx = ux[hit_unsafe] * r_obs
+        dy = uy[hit_unsafe] * r_obs
+        # Free space: bearings that stayed known-safe for the whole march emit
+        # a beyond-range point; octomap truncates it to a free ray. Bearings
+        # stopped by UNKNOWN emit nothing at all -- unknown stays unknown.
+        dx = np.concatenate([dx, ux[clear] * self.far_range]).astype(np.float32)
+        dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
 
         stamp = msg.header.stamp
         tf = TransformStamped()
@@ -106,7 +145,9 @@ class TraversabilityCloudNode(Node):
         self.pub.publish(self._make_cloud(dx, dy, stamp))
         self._published += 1
         self.get_logger().info(
-            f"Obstacle cells this frame: {dx.size} (frames: {self._published})",
+            f"Bearings: {int(hit_unsafe.sum())} obstacle, {int(clear.sum())} free, "
+            f"{int(self.bearings - hit_unsafe.sum() - clear.sum())} stopped at unknown "
+            f"(frames: {self._published})",
             throttle_duration_sec=5.0,
         )
 

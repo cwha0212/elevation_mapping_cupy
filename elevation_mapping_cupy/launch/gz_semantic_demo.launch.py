@@ -3,15 +3,15 @@
     ros2 launch elevation_mapping_cupy gz_semantic_demo.launch.py
     ros2 run teleop_twist_keyboard teleop_twist_keyboard
 
-Runs the full camera path end to end for the first time: Gazebo camera ->
-semantic_sensor segmentation -> elevation mapping projection -> class layers
-on the map. That is haechi's path; the only piece swapped out is where the
-intrinsics come from, since Gazebo publishes a CameraInfo and haechi does not.
+Runs the camera path end to end: Gazebo camera -> SAM-TP traversability ->
+elevation mapping projection -> untrav layer -> safety -> octomap grid. That
+is haechi's path; the only piece swapped out is where the intrinsics come
+from, since Gazebo publishes a CameraInfo and haechi does not.
 
-The world puts people and a car at known positions, because the model shipped
-with the repo speaks COCO_WITH_VOC and knows those. Roadway and sidewalk, the
-classes this is ultimately for, are not in its vocabulary -- swapping in a
-Cityscapes model changes the channel lists and nothing else here.
+SAM-TP replaced the Cityscapes classifier outright: the classifier flipped
+its road/sidewalk verdict between runs on this synthetic scene, while the
+score answers the traversability question directly and holds steady. Class
+labels can return for policy questions once evaluated on real footage.
 
 Geometry stays with the lidar. The camera never contributes a surface; it
 contributes labels that land on the surface the lidar built.
@@ -94,10 +94,6 @@ def generate_launch_description():
         if not os.path.exists(path):
             raise FileNotFoundError(f"Missing file: {path}")
 
-    semantic_config_path = os.path.join(
-        get_package_share_directory("semantic_sensor"), "config", "gz_demo.yaml"
-    )
-
     gui = LaunchConfiguration("gui")
     launch_rviz = LaunchConfiguration("launch_rviz")
 
@@ -164,35 +160,6 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
-    # Namespaced so its outputs land on /front_cam/..., which is what the
-    # elevation mapping config subscribes to.
-    semantic_node = Node(
-        package="semantic_sensor", executable="image_node",
-        namespace="front_cam", name="semantic_image_node", output="screen",
-        parameters=[{
-            "sensor_name": "gz_front_cam",
-            "config_path": semantic_config_path,
-            "use_sim_time": True,
-        }],
-    )
-
-    # The map is 0.05 m, so points finer than that are averaged into cells
-    # they already share. Thinning here rather than in navi_lidar keeps SLAM's
-    # own input at full density.
-    downsample = Node(
-        package="elevation_mapping_cupy",
-        executable="voxel_downsample_node.py",
-        name="lidar_downsample",
-        output="screen",
-        parameters=[{
-            "input_topic": "/lidar/points",
-            "output_topic": "/lidar/points_downsampled",
-            "voxel_size": 0.05,
-            "max_range": 8.0,
-            "use_sim_time": True,
-        }],
-    )
-
     # SAM-TP: continuous traversability from the same camera, alongside the
     # class head. The engine is machine-specific and lives outside the repo.
     samtp_node = Node(
@@ -230,7 +197,7 @@ def generate_launch_description():
         package="rqt_image_view",
         executable="rqt_image_view",
         name="segmentation_view",
-        arguments=["/front_cam/semantic_image_debug"],
+        arguments=["/front_cam/samtp_heatmap"],
         output="screen",
         condition=IfCondition(LaunchConfiguration("image_view")),
         parameters=[{"use_sim_time": True}],
@@ -289,6 +256,6 @@ def generate_launch_description():
             default_value=PathJoinSubstitution([share_dir, "rviz", "semantic_demo.rviz"]),
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
-        downsample, semantic_node, samtp_node, elevation_mapping_node, image_view, octomap,
+        downsample, samtp_node, elevation_mapping_node, image_view, octomap,
         TimerAction(period=20.0, actions=[rviz_node]),
     ])
