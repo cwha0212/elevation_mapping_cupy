@@ -1,0 +1,44 @@
+# Navigation terrain-analysis chain for the Fortress demo.
+#
+# The default core/plugin_config.yaml is a digging chain (spike removal,
+# inpainting). Driving needs the opposite priorities: measure slope, steps,
+# and roughness explicitly, keep unobserved cells unknown, and grade the
+# result instead of patching the surface. Selected per robot through the
+# plugin_config_file parameter, so the digging chain stays untouched.
+#
+# Ground truth in the demo world for checking the numbers: a 12 degree ramp,
+# 0.15 m stair risers, a 0.12 m curb, flat ground everywhere else.
+slope_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "slope"                       # degrees
+  extra_params:
+    window_size: 3
+    min_valid_ratio: 0.5
+step_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "step"                        # meters, max-min in the window
+  extra_params:
+    window_size: 5                          # 0.25 m reach at 0.05 m cells
+    min_valid_count: 4
+roughness_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "roughness"                   # meters, RMS off the local plane
+  extra_params:
+    window_size: 5
+    min_valid_count: 6
+drivability_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "drivability"                 # 1 flat .. 0 at any limit
+  extra_params:
+    layers: ["slope", "step", "roughness"]
+    # Quadruped-scale envelope, matching what haechi will get. The 0.15 m
+    # stair risers land at 0.25 here: climbable, but barely.
+    limits: [25.0, 0.20, 0.05]

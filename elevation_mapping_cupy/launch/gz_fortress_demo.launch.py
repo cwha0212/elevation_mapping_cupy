@@ -64,8 +64,10 @@ def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
     core_param_path = os.path.join(share_dir, "config", "core", "core_param.yaml")
     setup_param_path = os.path.join(share_dir, "config", "setups", "gz_demo", "gz_demo.yaml")
+    # The navigation terrain chain, not the digging chain the core config loads.
+    plugin_config_path = os.path.join(share_dir, "config", "setups", "gz_demo", "plugin_config.yaml")
     world_path = os.path.join(share_dir, "gazebo", "worlds", "elevation_demo.sdf")
-    for path in (core_param_path, setup_param_path, world_path):
+    for path in (core_param_path, setup_param_path, plugin_config_path, world_path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Missing file: {path}")
 
@@ -160,7 +162,11 @@ def generate_launch_description():
         executable="elevation_mapping_node.py",
         name="elevation_mapping_node",
         output="screen",
-        parameters=[core_param_path, setup_param_path, {"use_sim_time": True}],
+        parameters=[
+            core_param_path,
+            setup_param_path,
+            {"use_sim_time": True, "plugin_config_file": plugin_config_path},
+        ],
     )
 
     rviz_node = Node(

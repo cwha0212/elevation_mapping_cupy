@@ -58,7 +58,10 @@
         layers: ['elevation', 'traversability', 'variance', 'rgb']
         basic_layers: ['elevation']
         fps: 5.0
-      elevation_map_filter:
-        layers: ['elevation', 'smooth', 'traversability', 'erosion']
-        basic_layers: ['smooth']
+      # Terrain analysis from the navigation plugin chain (plugin_config.yaml
+      # next to this file; smooth/erosion belong to the digging chain and do
+      # not exist here).
+      elevation_map_terrain:
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability']
+        basic_layers: ['elevation']
         fps: 3.0

@@ -218,15 +218,23 @@ class PluginManager(object):
                 raise RuntimeError(f"Cyclic plugin dependency detected while computing '{name}'")
             _active_stack.add(name)
             try:
-                input_layer_name = getattr(self.plugins[idx], "input_layer_name", None)
-                if input_layer_name in self.layer_names:
-                    dependency_idx = self.get_layer_index_with_name(input_layer_name)
+                # A plugin declares what it reads either as a single
+                # input_layer_name or, for combiners, as an input_layer_names
+                # list. Both recurse through the same lazy update.
+                dependencies = list(getattr(self.plugins[idx], "input_layer_names", []) or [])
+                single = getattr(self.plugins[idx], "input_layer_name", None)
+                if single:
+                    dependencies.append(single)
+                for dependency in dependencies:
+                    if dependency not in self.layer_names:
+                        continue
+                    dependency_idx = self.get_layer_index_with_name(dependency)
                     if (
                         dependency_idx is not None
                         and self._layer_generations[dependency_idx] != self._generation
                     ):
                         self.update_with_name(
-                            input_layer_name,
+                            dependency,
                             elevation_map,
                             layer_names,
                             semantic_map=semantic_map,
