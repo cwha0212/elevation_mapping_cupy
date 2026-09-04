@@ -916,6 +916,12 @@ class ElevationMappingNode(Node):
             camera_info_msg.width,
         )
         self._image_process_counter += 1
+        # TF lookups that fail drop the frame and warn only every 5 s, so a
+        # camera can go half-ignored without anything obvious in the log.
+        self.get_logger().info(
+            f"Projected image frames from '{sub_key}': {self._image_process_counter}",
+            throttle_duration_sec=5.0,
+        )
 
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
         self._last_t = msg.header.stamp
@@ -1001,6 +1007,10 @@ class ElevationMappingNode(Node):
 
         self._map.input_pointcloud(pts, channels, R, t_np, 0, 0)
         self._pointcloud_process_counter += 1
+        self.get_logger().info(
+            f"Fused point clouds from '{sub_key}': {self._pointcloud_process_counter}",
+            throttle_duration_sec=5.0,
+        )
 
     def pose_update(self) -> None:
         if self._last_t is None:
