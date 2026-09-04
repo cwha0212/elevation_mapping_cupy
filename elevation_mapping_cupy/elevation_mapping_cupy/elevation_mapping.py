@@ -836,7 +836,10 @@ class ElevationMap:
                     name,
                     self.elevation_map,
                     self.layer_names,
+                    semantic_map=self.semantic_map.semantic_map,
+                    semantic_params=self.semantic_map.layer_names,
                     rotation=self.base_rotation,
+                    elements_to_shift=self.semantic_map.elements_to_shift,
                 )
                 m = self.plugin_manager.get_map_with_name(name)
                 p = self.plugin_manager.get_param_with_name(name)
@@ -965,7 +968,10 @@ class ElevationMap:
                 name,
                 self.elevation_map,
                 self.layer_names,
+                semantic_map=self.semantic_map.semantic_map,
+                semantic_params=self.semantic_map.layer_names,
                 rotation=self.base_rotation,
+                elements_to_shift=self.semantic_map.elements_to_shift,
             )
             return_map = self.plugin_manager.get_map_with_name(name)
         else:
