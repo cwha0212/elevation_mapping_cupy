@@ -62,6 +62,6 @@
       # next to this file; smooth/erosion belong to the digging chain and do
       # not exist here).
       elevation_map_terrain:
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability']
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
         basic_layers: ['elevation']
         fps: 3.0

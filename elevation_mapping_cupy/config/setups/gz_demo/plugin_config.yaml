@@ -42,3 +42,17 @@ drivability_filter:
     # Quadruped-scale envelope, matching what haechi will get. The 0.15 m
     # stair risers land at 0.25 here: climbable, but barely.
     limits: [25.0, 0.20, 0.05]
+semantic_safety_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "safety"                      # 1 safe .. 0 forbidden
+  extra_params:
+    base_layer: "drivability"
+    # Classes that make a cell unsafe whatever the geometry says. The shipped
+    # model knows these; the ones this is really for are roadway and vehicle
+    # lanes, and they arrive with the model swap. Setups without a camera have
+    # none of these layers, and there safety just equals drivability.
+    hazard_layers: ["person", "car"]
+    hazard_low: 0.25
+    hazard_high: 0.60

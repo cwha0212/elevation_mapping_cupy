@@ -54,6 +54,6 @@
       # Feeds the octomap grid: people and the car are untraversable, so they
       # become obstacles there while the semantic layers say what they are.
       elevation_map_terrain:
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability']
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
         basic_layers: ['elevation']
         fps: 3.0
