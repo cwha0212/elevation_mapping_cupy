@@ -193,6 +193,25 @@ def generate_launch_description():
         }],
     )
 
+    # SAM-TP: continuous traversability from the same camera, alongside the
+    # class head. The engine is machine-specific and lives outside the repo.
+    samtp_node = Node(
+        package="elevation_mapping_cupy",
+        executable="samtp_node.py",
+        namespace="front_cam",
+        name="samtp_node",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("use_samtp")),
+        parameters=[{
+            "image_topic": "/color_cam/image",
+            "camera_info_topic": "/front_cam/camera_info",
+            "engine_path": LaunchConfiguration("samtp_engine"),
+            "output_scale": 0.5,
+            "max_rate": 4.0,
+            "use_sim_time": True,
+        }],
+    )
+
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy", executable="elevation_mapping_node.py",
         name="elevation_mapping_node", output="screen",
@@ -249,6 +268,16 @@ def generate_launch_description():
             description="traversability (drivability layer) or lidar (height band).",
         ),
         DeclareLaunchArgument("gui", default_value="true"),
+        DeclareLaunchArgument(
+            "use_samtp",
+            default_value="true",
+            description="Run SAM-TP traversability scoring on the camera.",
+        ),
+        DeclareLaunchArgument(
+            "samtp_engine",
+            default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
+            description="TensorRT engine path (machine-specific, not in the repo).",
+        ),
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(
             "image_view",
@@ -260,6 +289,6 @@ def generate_launch_description():
             default_value=PathJoinSubstitution([share_dir, "rviz", "semantic_demo.rviz"]),
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
-        downsample, semantic_node, elevation_mapping_node, image_view, octomap,
+        downsample, semantic_node, samtp_node, elevation_mapping_node, image_view, octomap,
         TimerAction(period=20.0, actions=[rviz_node]),
     ])

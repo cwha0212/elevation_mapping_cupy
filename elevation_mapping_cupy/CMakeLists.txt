@@ -32,6 +32,7 @@ install(PROGRAMS
   scripts/synthetic_pointcloud_tf_publisher.py
   scripts/traversability_cloud_node.py
   scripts/voxel_downsample_node.py
+  scripts/samtp_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

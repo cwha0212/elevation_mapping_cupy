@@ -43,13 +43,23 @@
         channels: ['road', 'sidewalk', 'person', 'car']   # must match the semantic_sensor config
         data_type: image
 
+      # SAM-TP: one continuous channel, high = hard or impossible ground. A
+      # learned judgement of the surface itself, not a class label, so it
+      # holds up where the Cityscapes head does not.
+      samtp_cam:
+        topic_name: '/front_cam/samtp_score'
+        camera_info_topic_name: '/front_cam/samtp_camera_info'
+        channel_info_topic_name: '/front_cam/samtp_channel_info'
+        channels: ['untrav']
+        data_type: image
+
     publishers:
       elevation_map_raw:
         layers: ['elevation', 'traversability', 'variance']
         basic_layers: ['elevation']
         fps: 5.0
       elevation_map_semantic:
-        layers: ['elevation', 'road', 'sidewalk', 'person', 'car']
+        layers: ['elevation', 'road', 'sidewalk', 'person', 'car', 'untrav']
         basic_layers: ['elevation']
         fps: 3.0
       # Feeds the octomap grid: people and the car are untraversable, so they

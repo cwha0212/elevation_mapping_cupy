@@ -53,10 +53,12 @@ semantic_safety_filter:
     # model knows these; the ones this is really for are roadway and vehicle
     # lanes, and they arrive with the model swap. Setups without a camera have
     # none of these layers, and there safety just equals drivability.
-    # road is the point of the exercise: flat, crossable, and off limits.
-    # person and car are here as the control, being things the geometry
-    # refuses anyway. sidewalk is deliberately absent -- that is where the
-    # robot belongs.
-    hazard_layers: ["road", "person", "car"]
+    # untrav is SAM-TP's continuous surface judgement -- high means hard or
+    # impossible ground, whatever its class. person and car stay as the
+    # discrete hazards the classifier gets right. road is out: on synthetic
+    # textures the Cityscapes head called the robot's own footing road and
+    # inverted the whole verdict, measured at 38% of the map unsafe against
+    # 2.6% by geometry.
+    hazard_layers: ["untrav", "person", "car"]
     hazard_low: 0.25
     hazard_high: 0.60
