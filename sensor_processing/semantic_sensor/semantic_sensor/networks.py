@@ -159,12 +159,33 @@ class SegformerModel:
         self.model = SegformerForSemanticSegmentation.from_pretrained(checkpoint)
         self.model.eval()
         self.model.to(device=self.device)
+        # SegFormer is attention-based, so its first Linear asks cuBLAS for a
+        # handle -- and on Jetson that allocation fails once the simulator,
+        # RViz and cupy already hold CUDA contexts, killing the node on the
+        # first camera frame rather than at startup. Claim the handle now,
+        # while there is still room, and fall back to CPU if even that fails:
+        # a slow segmentation beats a dead node.
+        self._warm_up()
         labels = self.model.config.id2label
         self.categories = [labels[i] for i in sorted(labels)]
         # ImageNet statistics, which is what the checkpoint was trained with.
         self._mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(3, 1, 1)
         self._std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(3, 1, 1)
         self.resolve_categories()
+
+    def _warm_up(self) -> None:
+        probe = torch.zeros(1, 3, 128, 128, device=self.device)
+        try:
+            with torch.no_grad():
+                self.model(pixel_values=probe)
+        except RuntimeError as exc:
+            if self.device.type != "cuda":
+                raise
+            print(f"[SegformerModel] CUDA unusable ({exc}); running on CPU.")
+            self.device = torch.device("cpu")
+            self.model.to(device=self.device)
+            with torch.no_grad():
+                self.model(pixel_values=probe.to(self.device))
 
     def resolve_categories(self) -> None:
         class_to_idx = {cls: idx for idx, cls in enumerate(self.get_classes())}
