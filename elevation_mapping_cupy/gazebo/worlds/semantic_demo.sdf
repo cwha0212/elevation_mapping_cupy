@@ -16,6 +16,7 @@
     person     (3.0, +1.8)         on the sidewalk
     car        (7.0, -1.6)         on the roadway
     obstacle   (5.0, +2.4)         a wall segment on the sidewalk
+    stairs     x 10.2..11.8        four 0.15 m risers up from the sidewalk
 
   The road surface is deliberately at ground level and the sidewalk raised, so
   a robot on the sidewalk faces a drop rather than a climb: the direction
@@ -144,6 +145,62 @@
             <diffuse>0.60 0.40 0.33 1</diffuse>
           </material>
         </visual>
+      </link>
+    </model>
+
+    <!-- A stair flight rising from the sidewalk: four 0.15 m risers, the same
+         geometry the terrain demo verified the step layer against (median
+         0.140 measured vs 0.15 true). Here it faces the full stack at once:
+         the lidar builds the steps, the step/drivability chain judges them,
+         SAM-TP scores their appearance, and the 2D grid shows the verdict. -->
+    <model name="stairs">
+      <static>true</static>
+      <pose>10.2 1.9 0.12 0 0 0</pose>
+      <link name="link">
+        <collision name="s1"><pose>0.2 0 0.075 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.15</size></box></geometry></collision>
+        <visual name="v1"><pose>0.2 0 0.075 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.15</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="s2"><pose>0.6 0 0.150 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.30</size></box></geometry></collision>
+        <visual name="v2"><pose>0.6 0 0.150 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.30</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="s3"><pose>1.0 0 0.225 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.45</size></box></geometry></collision>
+        <visual name="v3"><pose>1.0 0 0.225 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.45</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="s4"><pose>1.4 0 0.300 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.60</size></box></geometry></collision>
+        <visual name="v4"><pose>1.4 0 0.300 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.60</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
       </link>
     </model>
 
