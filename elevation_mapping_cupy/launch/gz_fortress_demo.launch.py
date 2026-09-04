@@ -170,6 +170,23 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
+    # The map is 0.05 m, so points finer than that are averaged into cells
+    # they already share. Thinning here rather than in navi_lidar keeps SLAM's
+    # own input at full density.
+    downsample = Node(
+        package="elevation_mapping_cupy",
+        executable="voxel_downsample_node.py",
+        name="lidar_downsample",
+        output="screen",
+        parameters=[{
+            "input_topic": "/lidar/points",
+            "output_topic": "/lidar/points_downsampled",
+            "voxel_size": 0.05,
+            "max_range": 8.0,
+            "use_sim_time": True,
+        }],
+    )
+
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy",
         executable="elevation_mapping_node.py",
@@ -238,6 +255,7 @@ def generate_launch_description():
             bridge,
             lidar_tf,
             color_tf,
+            downsample,
             elevation_mapping_node,
             rviz_node,
             octomap,

@@ -34,7 +34,7 @@
 
     subscribers:
       lidar:
-        topic_name: '/lidar/points'
+        topic_name: '/lidar/points_downsampled'
         data_type: pointcloud
       semantic_cam:
         topic_name: '/front_cam/semantic_image'

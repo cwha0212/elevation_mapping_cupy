@@ -40,7 +40,7 @@
       lidar:
         # 360 degree geometry, the way haechi's three merged lidars supply it.
         # The map fills in all around the robot, not only inside a camera cone.
-        topic_name: '/lidar/points'
+        topic_name: '/lidar/points_downsampled'
         data_type: pointcloud
 
       # Separate colour camera, mounted apart from the depth sensor the way

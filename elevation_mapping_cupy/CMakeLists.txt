@@ -31,6 +31,7 @@ install(PROGRAMS
   scripts/elevation_mapping_node.py
   scripts/synthetic_pointcloud_tf_publisher.py
   scripts/traversability_cloud_node.py
+  scripts/voxel_downsample_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
