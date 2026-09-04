@@ -96,7 +96,10 @@ def generate_launch_description():
             ("/model/robot/odom3d", "/odom"),
             ("/model/robot/cmd_vel", "/cmd_vel"),
             ("/color_cam", "/color_cam/image"),
-            ("/camera_info", "/color_cam/camera_info"),
+            # image_node resolves its relative camera_info topic inside its
+            # own namespace, and republishes the resized one beside it, which
+            # is where the elevation mapping config looks. Land it there.
+            ("/camera_info", "/front_cam/camera_info"),
         ],
         parameters=[{"use_sim_time": True}],
     )
