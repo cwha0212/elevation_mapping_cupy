@@ -498,6 +498,17 @@ class ElevationMappingNode(Node):
         gm.basic_layers = self.my_publishers[key]["basic_layers"]
 
         for layer in self.my_publishers[key].get("layers", []):
+            # A layer named in the config but absent from the map used to take
+            # the whole node down mid-publish. Warn and carry the rest: losing
+            # one layer is a configuration problem, losing the mapper is an
+            # outage.
+            if not self._map.exists_layer(layer):
+                self.get_logger().warning(
+                    f"Publisher '{key}' asks for layer '{layer}', which the map "
+                    f"does not have. Skipping it.",
+                    throttle_duration_sec=5.0,
+                )
+                continue
             gm.layers.append(layer)
             self._map.get_map_with_name_ref(layer, self._map_data)
             # After fixing CUDA kernels and removing flips in elevation_mapping.py, no flip needed here

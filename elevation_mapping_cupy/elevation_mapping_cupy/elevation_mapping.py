@@ -154,6 +154,13 @@ class ElevationMap:
         # Semantic layers fed by image and pointcloud channels.
         self.semantic_map = SemanticMap(param)
         self.semantic_map.initialize_fusion()
+        # Semantic layers are otherwise created by the first message carrying
+        # the channel, so a publisher firing before any camera frame asks for a
+        # layer that does not exist yet. Declare the configured ones up front:
+        # they read NaN until something fills them, which is the truth anyway.
+        for config in param.subscriber_cfg.values():
+            for channel in config.get("channels", []) or []:
+                self.semantic_map.add_layer(channel)
 
         # Plugins
         self.plugin_manager = PluginManager(cell_n=self.cell_n, resolution=self.resolution)
