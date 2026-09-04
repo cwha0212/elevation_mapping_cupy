@@ -33,6 +33,7 @@ install(PROGRAMS
   scripts/traversability_cloud_node.py
   scripts/voxel_downsample_node.py
   scripts/samtp_node.py
+  scripts/stairs_cloud_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -52,3 +52,14 @@ semantic_safety_filter:
     hazard_layers: ["untrav"]
     hazard_low: 0.0
     hazard_high: 3.0
+stairs_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "stairs"                      # 1 = climbable stair flight
+  extra_params:
+    min_riser: 0.09                         # below: rough ground / ramp
+    max_riser: 0.22                         # above: a wall, no gait helps
+    gain_window: 21                         # 1.05 m sustained-climb window
+    min_total_gain: 0.25                    # a 0.12 m curb fails, stairs pass
+    min_valid_ratio: 0.4
