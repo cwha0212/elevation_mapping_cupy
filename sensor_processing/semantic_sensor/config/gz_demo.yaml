@@ -12,12 +12,10 @@ gz_front_cam:
   publish_image_topic: semantic_image_debug
   channel_info_topic: channel_info
 
-  # Quarter of 640x480. torch's GPU matmul is broken on this Jetson -- conv
-  # works, cublasCreate does not -- so the attention layers fall back to CPU,
-  # where 320x240 costs 1.5 s a frame and 160x120 costs 0.7 s. The map is
-  # 0.05 m and the robot is meant to crawl past these objects, so the coarser
-  # input costs little and buys back the frame rate.
-  resize: 0.25
+  # Half of 640x480. SegFormer-B0 runs this in 15 ms on the Orin GPU, so the
+  # camera rate is the limit rather than the network. The map is 0.05 m and
+  # more pixels than this buy nothing.
+  resize: 0.5
 
   semantic_segmentation: True
   feature_extractor: False

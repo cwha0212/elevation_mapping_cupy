@@ -187,10 +187,7 @@
              the network resizes anyway and detail matters more than rate. -->
         <sensor name="color" type="camera">
           <pose>0.25 0 0.28 0 0.0873 0</pose>
-          <!-- Matched to what the segmentation can actually consume, so
-               frames are not queued behind an inference that takes longer
-               than the interval. -->
-          <update_rate>2</update_rate>
+          <update_rate>10</update_rate>
           <always_on>true</always_on>
           <topic>color_cam</topic>
           <camera>
