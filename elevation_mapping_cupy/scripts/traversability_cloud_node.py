@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Turn the drivability layer into an obstacle cloud for octomap.
+"""Turn the safety layer into an obstacle cloud for octomap.
 
 Feeding octomap the raw lidar makes it define "obstacle" as a height band in
 the odom frame, which cannot tell a ramp from a wall: drive up the ramp and the
 surface under the robot reads 98% occupied. The terrain chain already answers
-the right question per cell -- can this be driven on -- so this node hands
-octomap that answer instead of the geometry it was derived from.
+the right question per cell, so this node hands octomap that answer instead of
+the geometry it was derived from.
 
-Cells below the drivability threshold become endpoints; everything else emits
-nothing. octomap then accumulates them with its usual log-odds sensor model,
-so the resulting /projected_map is a probabilistic 2D costmap whose obstacles
-are untraversable terrain rather than tall terrain. Being a global octree, it
-also outlives the elevation map's rolling window.
+It reads safety rather than drivability. Drivability is geometry alone, and a
+roadway is geometrically perfect -- flat, crossable, and exactly where the
+robot must not go. Taking the geometric layer here would drop the semantic
+verdict before it ever reached the costmap, which is the one place it has to
+arrive.
+
+Cells below the threshold become endpoints and everything else emits nothing.
+octomap accumulates them with its usual log-odds sensor model, so
+/projected_map is a probabilistic 2D costmap whose obstacles are cells the
+robot should not enter rather than cells that happen to be tall. Being a
+global octree, it also outlives the elevation map's rolling window.
 
 Points go out at z=0 in a robot-centred, rotation-free frame, so every ray is
 horizontal and the projection is exactly the traversability decision at any
@@ -38,7 +44,11 @@ class TraversabilityCloudNode(Node):
         self.output_topic = self.declare_parameter(
             "output_topic", "/traversability/obstacles"
         ).value
-        self.layer = self.declare_parameter("layer", "drivability").value
+        # safety, not drivability: drivability is geometry alone, and a
+        # roadway is geometrically fine. Reading the geometric layer here
+        # would drop the semantic verdict before it ever reached the
+        # costmap, which is the one place it needs to arrive.
+        self.layer = self.declare_parameter("layer", "safety").value
         # Below this a cell becomes an octomap obstacle. It is a policy knob,
         # not a physical one: the limits in the plugin config decide what the
         # score means, this decides where to cut. 0.15 m stair risers score
