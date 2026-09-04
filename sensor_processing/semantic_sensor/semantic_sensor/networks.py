@@ -181,7 +181,10 @@ class SegformerModel:
         except RuntimeError as exc:
             if self.device.type != "cuda":
                 raise
-            print(f"[SegformerModel] CUDA unusable ({exc}); running on CPU.")
+            print(
+                f"[SegformerModel] CUDA unusable ({exc}); running on CPU.",
+                flush=True,
+            )
             self.device = torch.device("cpu")
             self.model.to(device=self.device)
             with torch.no_grad():
