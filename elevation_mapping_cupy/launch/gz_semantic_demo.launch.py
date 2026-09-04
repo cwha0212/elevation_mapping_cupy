@@ -166,6 +166,20 @@ def generate_launch_description():
         ],
     )
 
+    # RViz can show the segmentation too, but its Image displays live in dock
+    # panels that a config without a saved window layout tends to bury. This
+    # opens in its own window, so the segmentation is visible without hunting
+    # for a panel.
+    image_view = Node(
+        package="rqt_image_view",
+        executable="rqt_image_view",
+        name="segmentation_view",
+        arguments=["/front_cam/semantic_image_debug"],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("image_view")),
+        parameters=[{"use_sim_time": True}],
+    )
+
     rviz_node = Node(
         package="rviz2", executable="rviz2", name="rviz2",
         arguments=["-d", LaunchConfiguration("rviz_config")],
@@ -196,9 +210,14 @@ def generate_launch_description():
         DeclareLaunchArgument("gui", default_value="true"),
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(
+            "image_view",
+            default_value="true",
+            description="Open the segmentation output in its own window.",
+        ),
+        DeclareLaunchArgument(
             "rviz_config",
             default_value=PathJoinSubstitution([share_dir, "rviz", "semantic_demo.rviz"]),
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
-        semantic_node, elevation_mapping_node, rviz_node, octomap,
+        semantic_node, elevation_mapping_node, rviz_node, image_view, octomap,
     ])

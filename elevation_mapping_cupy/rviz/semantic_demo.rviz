@@ -95,7 +95,7 @@ Visualization Manager:
       Autocompute Intensity Bounds: true
       Class: grid_map_rviz_plugin/GridMap
       Color: 200; 200; 200
-      Color Layer: person
+      Color Layer: road
       Color Transformer: IntensityLayer
       Enabled: true
       Height Layer: elevation
@@ -106,7 +106,7 @@ Visualization Manager:
       Max Intensity: 1
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: Person
+      Name: Road
       Show Grid Lines: true
       Topic:
         Depth: 5
@@ -121,7 +121,7 @@ Visualization Manager:
       Autocompute Intensity Bounds: true
       Class: grid_map_rviz_plugin/GridMap
       Color: 200; 200; 200
-      Color Layer: car
+      Color Layer: sidewalk
       Color Transformer: IntensityLayer
       Enabled: false
       Height Layer: elevation
@@ -132,7 +132,7 @@ Visualization Manager:
       Max Intensity: 1
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: Car
+      Name: Sidewalk
       Show Grid Lines: true
       Topic:
         Depth: 5
@@ -255,7 +255,15 @@ Visualization Manager:
       Value: Orbit (rviz)
       Yaw: 0.800000011920929
 Window Geometry:
+  CameraRaw:
+    collapsed: false
+  Displays:
+    collapsed: false
   Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: false
+  SegmentationDebug:
+    collapsed: false
   Width: 1400
   X: 50
   Y: 50

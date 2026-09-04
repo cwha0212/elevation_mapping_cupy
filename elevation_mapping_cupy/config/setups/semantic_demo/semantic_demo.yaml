@@ -5,9 +5,10 @@
 # probability image plus the resized CameraInfo -- the same path haechi uses,
 # and the one that had never been executed until now.
 #
-# Channels are the shipped model's, not the ones we want. torchvision's
-# COCO_WITH_VOC weights have no road or sidewalk, and naming an absent class
-# raises at startup, so the test uses what the vocabulary contains.
+# Cityscapes classes: road and sidewalk are the pair that geometry cannot
+# separate, since a curb is the only thing between them and a quadruped steps
+# off a curb without noticing. person and car ride along as the control -- the
+# geometry catches those on its own.
 /elevation_mapping_node:
   ros__parameters:
     map_frame: 'odom'
@@ -39,7 +40,7 @@
         topic_name: '/front_cam/semantic_image'
         camera_info_topic_name: '/front_cam/camera_info_resized'
         channel_info_topic_name: '/front_cam/channel_info'
-        channels: ['person', 'car']   # must match the semantic_sensor config
+        channels: ['road', 'sidewalk', 'person', 'car']   # must match the semantic_sensor config
         data_type: image
 
     publishers:
@@ -48,7 +49,7 @@
         basic_layers: ['elevation']
         fps: 5.0
       elevation_map_semantic:
-        layers: ['elevation', 'person', 'car']
+        layers: ['elevation', 'road', 'sidewalk', 'person', 'car']
         basic_layers: ['elevation']
         fps: 3.0
       # Feeds the octomap grid: people and the car are untraversable, so they

@@ -2,23 +2,25 @@
 <!--
   Gazebo Fortress world for the semantic projection demo.
 
-  elevation_demo.sdf answers geometric questions and has nothing in it a
-  segmentation network can name. This world exists to give the camera
-  something the shipped model actually recognises: the torchvision weights
-  wired into semantic_sensor carry COCO_WITH_VOC labels, so people and cars
-  are in its vocabulary and roadway and sidewalk are not. Those are the
-  classes we want eventually; these are the ones available to test the
-  pipeline with today.
+  A sidewalk, a curb, and a roadway beside it, with obstacles on both. This is
+  the arrangement the whole semantic branch exists for: the roadway is as flat
+  and as crossable as the sidewalk, a quadruped steps off the curb without
+  noticing, and nothing in the geometry says it should not. Only the label
+  does.
 
-  Objects sit at known world positions, so where their label lands on the map
-  is checkable the same way the colour markers were.
+  Layout, all known positions so the map can be checked against them:
 
-    person A   (3.0, +1.2)
-    person B   (5.0, -1.5)
-    car        (7.5, +1.0)
+    sidewalk   y in [ 0.4,  3.4]   flat, 0.12 m above the road
+    curb       y = 0.4             0.12 m riser, the geometric boundary
+    roadway    y in [-3.6,  0.4]   flat, asphalt dark
+    person     (3.0, +1.8)         on the sidewalk
+    car        (7.0, -1.6)         on the roadway
+    obstacle   (5.0, +2.4)         a wall segment on the sidewalk
 
-  Ground is flat on purpose. Terrain is elevation_demo.sdf's job; mixing the
-  two would leave a failed projection and a failed slope reading looking alike.
+  The road surface is deliberately at ground level and the sidewalk raised, so
+  a robot on the sidewalk faces a drop rather than a climb: the direction
+  that matters, since falling into traffic is the failure being guarded
+  against.
 -->
 <sdf version="1.9">
   <world name="semantic_demo">
@@ -55,17 +57,56 @@
       <direction>0.6 -0.3 -0.7</direction>
     </light>
 
-    <model name="ground_plane">
+    <!-- Roadway: flat, at z=0, dark asphalt. -->
+    <model name="roadway">
       <static>true</static>
       <link name="link">
         <collision name="collision">
-          <geometry><plane><normal>0 0 1</normal><size>60 60</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>80 80</size></plane></geometry>
         </collision>
         <visual name="visual">
-          <geometry><plane><normal>0 0 1</normal><size>60 60</size></plane></geometry>
+          <geometry><plane><normal>0 0 1</normal><size>80 80</size></plane></geometry>
           <material>
-            <ambient>0.5 0.5 0.5 1</ambient>
-            <diffuse>0.6 0.6 0.6 1</diffuse>
+            <ambient>0.18 0.18 0.19 1</ambient>
+            <diffuse>0.24 0.24 0.26 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Sidewalk: raised 0.12 m, pale paving. Its edge at y=0.4 is the curb. -->
+    <model name="sidewalk">
+      <static>true</static>
+      <pose>10.0 1.9 0.06 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
+          <material>
+            <ambient>0.62 0.60 0.57 1</ambient>
+            <diffuse>0.80 0.78 0.74 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- A wall segment on the sidewalk: an obstacle the geometry alone should
+         already refuse, so the semantic and geometric verdicts can be told
+         apart in the same scene. -->
+    <model name="obstacle">
+      <static>true</static>
+      <pose>5.0 2.4 0.47 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.6 0.6 0.7</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.6 0.6 0.7</size></box></geometry>
+          <material>
+            <ambient>0.45 0.30 0.25 1</ambient>
+            <diffuse>0.60 0.40 0.33 1</diffuse>
           </material>
         </visual>
       </link>
@@ -73,19 +114,19 @@
 
     <include>
       <name>person_a</name>
-      <pose>3.0 1.2 0 0 0 3.14159</pose>
+      <pose>3.0 1.8 0.12 0 0 3.14159</pose>
       <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Casual female</uri>
     </include>
 
     <include>
       <name>person_b</name>
-      <pose>5.0 -1.5 0 0 0 3.14159</pose>
+      <pose>8.5 2.6 0.12 0 0 3.14159</pose>
       <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing person</uri>
     </include>
 
     <include>
       <name>car</name>
-      <pose>7.5 1.0 0 0 0 1.5708</pose>
+      <pose>7.0 -1.6 0 0 0 0</pose>
       <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback</uri>
     </include>
 
@@ -93,7 +134,7 @@
          camera for labels. The camera here feeds semantic_sensor rather than
          going straight into the map as raw rgb. -->
     <model name="robot">
-      <pose>0 0 0.12 0 0 0</pose>
+      <pose>0 1.9 0.24 0 0 0</pose>
       <self_collide>false</self_collide>
 
       <link name="base_link">

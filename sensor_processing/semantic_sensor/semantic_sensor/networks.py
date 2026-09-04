@@ -18,6 +18,17 @@ from semantic_sensor.pointcloud_parameters import FeatureExtractorParameter
 
 
 def resolve_model(name, config=None):
+    if name == "segformer_cityscapes":
+        # The torchvision options all carry COCO_WITH_VOC labels, which have no
+        # road and no sidewalk -- the two classes separating where a robot may
+        # drive from where it merely can. Cityscapes has them as classes 0 and
+        # 1, and this is the smallest widely available model trained on it.
+        return {
+            "name": name,
+            "model": SegformerModel(
+                "nvidia/segformer-b0-finetuned-cityscapes-1024-1024", config
+            ),
+        }
     if name == "fcn_resnet50":
         return {
             "name": name,
@@ -127,6 +138,60 @@ class PytorchModel:
 
     def get_classes(self):
         return self.weights.meta["categories"]
+
+
+class SegformerModel:
+    """HuggingFace SegFormer, for the Cityscapes label set.
+
+    Same contract as PytorchModel: take an image, return per-channel
+    probabilities for the requested classes in the requested order.
+
+    SegFormer emits logits at a quarter of the input resolution, so they are
+    upsampled back before the softmax -- a downstream projection reads these
+    per pixel and expects them to line up with the image it was given.
+    """
+
+    def __init__(self, checkpoint: str, param):
+        from transformers import SegformerForSemanticSegmentation
+
+        self.param = param
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.model = SegformerForSemanticSegmentation.from_pretrained(checkpoint)
+        self.model.eval()
+        self.model.to(device=self.device)
+        labels = self.model.config.id2label
+        self.categories = [labels[i] for i in sorted(labels)]
+        # ImageNet statistics, which is what the checkpoint was trained with.
+        self._mean = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(3, 1, 1)
+        self._std = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(3, 1, 1)
+        self.resolve_categories()
+
+    def resolve_categories(self) -> None:
+        class_to_idx = {cls: idx for idx, cls in enumerate(self.get_classes())}
+        requested = _semantic_channels(self.param)
+        missing = [channel for channel in requested if channel not in class_to_idx]
+        if missing:
+            raise ValueError(
+                f"Semantic classes {missing} are not available in model categories {self.get_classes()}."
+            )
+        self.segmentation_channels = {channel: class_to_idx[channel] for channel in requested}
+        self.actual_channels = requested
+
+    def __call__(self, image, *args, **kwargs):
+        batch = _cupy_or_numpy_to_torch(image, self.device).permute(2, 0, 1)
+        batch = TF.convert_image_dtype(batch, torch.float32)
+        batch = ((batch - self._mean) / self._std).unsqueeze(0)
+        with torch.no_grad():
+            logits = self.model(pixel_values=batch).logits
+            logits = NF.interpolate(
+                logits, size=batch.shape[-2:], mode="bilinear", align_corners=False
+            )
+            normalized_masks = torch.squeeze(logits.softmax(dim=1), dim=0)
+            selected = normalized_masks[list(self.segmentation_channels.values())]
+        return cp.asarray(selected)
+
+    def get_classes(self):
+        return self.categories
 
 
 class DetectronModel:

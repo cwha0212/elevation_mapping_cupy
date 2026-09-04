@@ -53,6 +53,10 @@ semantic_safety_filter:
     # model knows these; the ones this is really for are roadway and vehicle
     # lanes, and they arrive with the model swap. Setups without a camera have
     # none of these layers, and there safety just equals drivability.
-    hazard_layers: ["person", "car"]
+    # road is the point of the exercise: flat, crossable, and off limits.
+    # person and car are here as the control, being things the geometry
+    # refuses anyway. sidewalk is deliberately absent -- that is where the
+    # robot belongs.
+    hazard_layers: ["road", "person", "car"]
     hazard_low: 0.25
     hazard_high: 0.60
