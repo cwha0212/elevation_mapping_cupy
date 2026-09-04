@@ -53,16 +53,14 @@ semantic_safety_filter:
     # model knows these; the ones this is really for are roadway and vehicle
     # lanes, and they arrive with the model swap. Setups without a camera have
     # none of these layers, and there safety just equals drivability.
-    # Two different judgements, deliberately both:
-    #   untrav -- SAM-TP's continuous surface score. Physical: can this be
-    #             driven on. It rates the roadway EASIER than the sidewalk
-    #             (0.15 vs 0.26 measured), because physically it is.
-    #   road   -- the classifier's policy verdict. The roadway is flat,
-    #             crossable, and off limits; only a label can say so.
-    # person and car stay as the discrete hazards. With the textured street
-    # the classifier separates cleanly (road 0.99 on the roadway, 0.06 on
-    # the sidewalk); on the earlier untextured world it inverted, so this
-    # pairing depends on the input actually looking like a street.
-    hazard_layers: ["road", "untrav", "person", "car"]
+    # untrav is SAM-TP's continuous surface score (high = hard ground);
+    # person and car are the discrete hazards the classifier is reliable on.
+    # road is NOT here, and the reason is measured: on the synthetic street
+    # the classifier flips between runs -- one drive read road 0.99 on the
+    # roadway and 0.06 on the sidewalk, the next read 0.22 on the sidewalk
+    # and 0.00 on the roadway, poisoning the robot's own footing. A policy
+    # signal that unstable belongs behind a real-footage evaluation, not in
+    # the safety product.
+    hazard_layers: ["untrav", "person", "car"]
     hazard_low: 0.25
     hazard_high: 0.60
