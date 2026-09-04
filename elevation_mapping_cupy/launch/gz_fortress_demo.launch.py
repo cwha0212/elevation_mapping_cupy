@@ -55,8 +55,19 @@ COLOR_QUAT_XYZW = (-0.579234890, 0.579234890, -0.405569897, 0.405569897)
 TEGRA_EGL_VENDOR = "/usr/lib/aarch64-linux-gnu/tegra-egl/nvidia.json"
 
 
-def _render_env():
-    if os.path.exists(TEGRA_EGL_VENDOR):
+def _render_env(headless: bool):
+    """EGL vendor override, and only where it is needed.
+
+    Headless, ogre2 goes through EGL, and L4T ships only Mesa in the glvnd
+    vendor directory: it never reaches nvidia-drm and the sensors render
+    nothing at all.
+
+    With a display ogre2 uses GLX instead, and forcing the EGL vendor there
+    wedges startup -- the server never loads the world and never publishes a
+    clock, so every node comes up, subscribes, and waits forever on input that
+    is not coming.
+    """
+    if headless and os.path.exists(TEGRA_EGL_VENDOR):
         return {"__EGL_VENDOR_LIBRARY_FILENAMES": TEGRA_EGL_VENDOR}
     return {}
 
@@ -78,17 +89,16 @@ def generate_launch_description():
 
     # ign gazebo is driven directly rather than through ros_gz_sim's launch
     # file, so the demo only needs ros_gz_sim's binaries on the path.
-    render_env = _render_env()
     gz_server = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-s", "-v", "2", world_path],
         output="screen",
-        additional_env=render_env,
+        additional_env=_render_env(headless=True),
         condition=UnlessCondition(gui),
     )
     gz_gui = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-v", "2", world_path],
         output="screen",
-        additional_env=render_env,
+        additional_env=_render_env(headless=False),
         condition=IfCondition(gui),
     )
 
