@@ -16,7 +16,7 @@
     person     (3.0, +1.8)         on the sidewalk
     car        (7.0, -1.6)         on the roadway
     obstacle   (5.0, +2.4)         a wall segment on the sidewalk
-    stairs     x 10.2..11.8        four 0.15 m risers up from the sidewalk
+    staircase  x 10.2..14.2        4 up, landing, 4 down (footbridge)
 
   The road surface is deliberately at ground level and the sidewalk raised, so
   a robot on the sidewalk faces a drop rather than a climb: the direction
@@ -148,18 +148,19 @@
       </link>
     </model>
 
-    <!-- A stair flight rising from the sidewalk: four 0.15 m risers, the same
-         geometry the terrain demo verified the step layer against (median
-         0.140 measured vs 0.15 true). Here it faces the full stack at once:
-         the lidar builds the steps, the step/drivability chain judges them,
-         SAM-TP scores their appearance, and the 2D grid shows the verdict. -->
-    <model name="stairs">
+    <!-- A two-sided staircase: four risers up, a landing, four risers down,
+         like a footbridge. From below the crest, the descending side is
+         occluded and must read UNKNOWN, not occupied: that distinction is
+         what keeps a planner able to route over the top with allow_unknown.
+         Once the far side is observed the stairs filter flags it (the span
+         test is sign-agnostic) and the corridor opens end to end. -->
+    <model name="staircase">
       <static>true</static>
       <pose>10.2 1.9 0.12 0 0 0</pose>
       <link name="link">
-        <collision name="s1"><pose>0.2 0 0.075 0 0 0</pose>
+        <collision name="st0"><pose>0.2 0 0.075 0 0 0</pose>
           <geometry><box><size>0.4 2.0 0.15</size></box></geometry></collision>
-        <visual name="v1"><pose>0.2 0 0.075 0 0 0</pose>
+        <visual name="vt0"><pose>0.2 0 0.075 0 0 0</pose>
           <geometry><box><size>0.4 2.0 0.15</size></box></geometry>
           <material>
             <diffuse>1 1 1</diffuse>
@@ -168,10 +169,10 @@
               <roughness>0.9</roughness><metalness>0.0</metalness>
             </metal></pbr>
           </material></visual>
-        <collision name="s2"><pose>0.6 0 0.150 0 0 0</pose>
-          <geometry><box><size>0.4 2.0 0.30</size></box></geometry></collision>
-        <visual name="v2"><pose>0.6 0 0.150 0 0 0</pose>
-          <geometry><box><size>0.4 2.0 0.30</size></box></geometry>
+        <collision name="st1"><pose>0.6 0 0.15 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.3</size></box></geometry></collision>
+        <visual name="vt1"><pose>0.6 0 0.15 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.3</size></box></geometry>
           <material>
             <diffuse>1 1 1</diffuse>
             <pbr><metal>
@@ -179,10 +180,10 @@
               <roughness>0.9</roughness><metalness>0.0</metalness>
             </metal></pbr>
           </material></visual>
-        <collision name="s3"><pose>1.0 0 0.225 0 0 0</pose>
-          <geometry><box><size>0.4 2.0 0.45</size></box></geometry></collision>
-        <visual name="v3"><pose>1.0 0 0.225 0 0 0</pose>
-          <geometry><box><size>0.4 2.0 0.45</size></box></geometry>
+        <collision name="st2"><pose>1.0 0 0.22499999999999998 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.44999999999999996</size></box></geometry></collision>
+        <visual name="vt2"><pose>1.0 0 0.22499999999999998 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.44999999999999996</size></box></geometry>
           <material>
             <diffuse>1 1 1</diffuse>
             <pbr><metal>
@@ -190,10 +191,65 @@
               <roughness>0.9</roughness><metalness>0.0</metalness>
             </metal></pbr>
           </material></visual>
-        <collision name="s4"><pose>1.4 0 0.300 0 0 0</pose>
-          <geometry><box><size>0.4 2.0 0.60</size></box></geometry></collision>
-        <visual name="v4"><pose>1.4 0 0.300 0 0 0</pose>
-          <geometry><box><size>0.4 2.0 0.60</size></box></geometry>
+        <collision name="st3"><pose>1.4 0 0.3 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.6</size></box></geometry></collision>
+        <visual name="vt3"><pose>1.4 0 0.3 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.6</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="landing"><pose>2.0 0 0.30 0 0 0</pose>
+          <geometry><box><size>0.8 2.0 0.60</size></box></geometry></collision>
+        <visual name="vlanding"><pose>2.0 0 0.30 0 0 0</pose>
+          <geometry><box><size>0.8 2.0 0.60</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="st4"><pose>2.6 0 0.3 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.6</size></box></geometry></collision>
+        <visual name="vt4"><pose>2.6 0 0.3 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.6</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="st5"><pose>3.0 0 0.22499999999999998 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.44999999999999996</size></box></geometry></collision>
+        <visual name="vt5"><pose>3.0 0 0.22499999999999998 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.44999999999999996</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="st6"><pose>3.4 0 0.15 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.3</size></box></geometry></collision>
+        <visual name="vt6"><pose>3.4 0 0.15 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.3</size></box></geometry>
+          <material>
+            <diffuse>1 1 1</diffuse>
+            <pbr><metal>
+              <albedo_map>@TEXTURES@/sidewalk.png</albedo_map>
+              <roughness>0.9</roughness><metalness>0.0</metalness>
+            </metal></pbr>
+          </material></visual>
+        <collision name="st7"><pose>3.8 0 0.075 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.15</size></box></geometry></collision>
+        <visual name="vt7"><pose>3.8 0 0.075 0 0 0</pose>
+          <geometry><box><size>0.4 2.0 0.15</size></box></geometry>
           <material>
             <diffuse>1 1 1</diffuse>
             <pbr><metal>
