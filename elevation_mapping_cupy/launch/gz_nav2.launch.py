@@ -34,6 +34,12 @@ def generate_launch_description():
             launch_arguments={
                 "params_file": params,
                 "use_sim_time": "True",
+                # navi_nav2 dev's navigation_launch.py line 41 reads
+                # LaunchConfiguration('fatal') where 'log_level' was meant, so
+                # every include dies unless an argument by that name exists.
+                # Supplying it here works around the bug without touching the
+                # fork; the value is the log level the nodes actually get.
+                "fatal": "info",
             }.items(),
         ),
     ])
