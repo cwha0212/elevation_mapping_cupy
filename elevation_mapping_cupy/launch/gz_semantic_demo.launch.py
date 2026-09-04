@@ -21,8 +21,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
@@ -64,7 +65,13 @@ def generate_launch_description():
         share_dir, "config", "setups", "semantic_demo", "semantic_demo.yaml"
     )
     world_path = os.path.join(share_dir, "gazebo", "worlds", "semantic_demo.sdf")
-    for path in (core_param_path, setup_param_path, world_path):
+    # The navigation terrain chain, shared with the terrain demo rather than
+    # copied: the limits have to stay identical for the layers to mean the
+    # same thing in both.
+    plugin_config_path = os.path.join(
+        share_dir, "config", "setups", "gz_demo", "plugin_config.yaml"
+    )
+    for path in (core_param_path, setup_param_path, plugin_config_path, world_path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Missing file: {path}")
 
@@ -152,7 +159,11 @@ def generate_launch_description():
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy", executable="elevation_mapping_node.py",
         name="elevation_mapping_node", output="screen",
-        parameters=[core_param_path, setup_param_path, {"use_sim_time": True}],
+        parameters=[
+            core_param_path,
+            setup_param_path,
+            {"use_sim_time": True, "plugin_config_file": plugin_config_path},
+        ],
     )
 
     rviz_node = Node(
@@ -162,7 +173,26 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
+    octomap = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(share_dir, "launch", "gz_octomap.launch.py")
+        ),
+        launch_arguments={"source": LaunchConfiguration("octomap_source")}.items(),
+        condition=IfCondition(LaunchConfiguration("octomap")),
+    )
+
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "octomap",
+            default_value="true",
+            description="Build the octomap 2D grid from drivability. Needs "
+            "octomap_server2: source ~/dependencies/octomap_ws/install/setup.bash.",
+        ),
+        DeclareLaunchArgument(
+            "octomap_source",
+            default_value="traversability",
+            description="traversability (drivability layer) or lidar (height band).",
+        ),
         DeclareLaunchArgument("gui", default_value="true"),
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(
@@ -170,5 +200,5 @@ def generate_launch_description():
             default_value=PathJoinSubstitution([share_dir, "rviz", "semantic_demo.rviz"]),
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
-        semantic_node, elevation_mapping_node, rviz_node,
+        semantic_node, elevation_mapping_node, rviz_node, octomap,
     ])
