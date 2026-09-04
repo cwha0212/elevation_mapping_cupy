@@ -97,7 +97,7 @@ Visualization Manager:
       Color: 200; 200; 200
       Color Layer: rgb
       Color Transformer: ColorLayer
-      Enabled: true
+      Enabled: false
       Height Layer: elevation
       Height Transformer: GridMapLayer
       History Length: 1
@@ -147,7 +147,7 @@ Visualization Manager:
       Class: rviz_default_plugins/Map
       Color Scheme: map
       Draw Behind: false
-      Enabled: false
+      Enabled: true
       Name: Octomap2D
       Topic:
         Depth: 5

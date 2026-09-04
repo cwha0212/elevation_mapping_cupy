@@ -23,8 +23,9 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
@@ -181,8 +182,30 @@ def generate_launch_description():
         parameters=[{"use_sim_time": True}],
     )
 
+    # gz_octomap.launch.py brings no simulator, no mapping and no RViz of its
+    # own, so on its own it looks like nothing happened. Pull it in from here
+    # instead, where everything it needs is already running.
+    octomap = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(share_dir, "launch", "gz_octomap.launch.py")
+        ),
+        launch_arguments={"source": LaunchConfiguration("octomap_source")}.items(),
+        condition=IfCondition(LaunchConfiguration("octomap")),
+    )
+
     return LaunchDescription(
         [
+            DeclareLaunchArgument(
+                "octomap",
+                default_value="false",
+                description="Also build the octomap 2D grid. Needs octomap_server2: "
+                "source ~/dependencies/octomap_ws/install/setup.bash first.",
+            ),
+            DeclareLaunchArgument(
+                "octomap_source",
+                default_value="traversability",
+                description="traversability (drivability layer) or lidar (height band).",
+            ),
             DeclareLaunchArgument(
                 "gui",
                 default_value="true",
@@ -207,5 +230,6 @@ def generate_launch_description():
             color_tf,
             elevation_mapping_node,
             rviz_node,
+            octomap,
         ]
     )
