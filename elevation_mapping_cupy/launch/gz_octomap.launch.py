@@ -39,7 +39,12 @@ def generate_launch_description():
         name="traversability_cloud",
         output="screen",
         condition=UnlessCondition(is_lidar),
-        parameters=[{"use_sim_time": True, "threshold": threshold}],
+        # drivability, not safety: SegFormer reads this sidewalk texture as
+        # road at 0.96 confidence, and through the hazard ramp that verdict
+        # painted the flat floor into the occupancy grid. The geometry is
+        # measured and trusted; the classifier stays display-only.
+        parameters=[{"use_sim_time": True, "threshold": threshold,
+                     "layer": "drivability"}],
     )
 
     # The cloud is already flat and robot-centred, so the band only has to
