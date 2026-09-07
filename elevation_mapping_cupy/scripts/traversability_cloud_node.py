@@ -55,6 +55,12 @@ class TraversabilityCloudNode(Node):
         # 0.25 against a 0.20 m limit, so 0.4 calls them obstacles and 0.2
         # leaves them climbable.
         self.threshold = self.declare_parameter("threshold", 0.4).value
+        # A flagged stair flight is conditionally drivable: the risers score
+        # under the cut on pure geometry, but a quadruped climbs them once it
+        # switches gait. Cells the stairs layer marks are lifted to this
+        # score before thresholding -- above the obstacle cut, deliberately
+        # short of clean ground.
+        self.stairs_score = float(self.declare_parameter("stairs_score", 0.6).value)
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
@@ -79,6 +85,11 @@ class TraversabilityCloudNode(Node):
         h = data.layout.dim[0].size
         w = data.layout.dim[1].size
         values = np.array(data.data, dtype=np.float32).reshape(h, w)
+        if "stairs" in layers and self.stairs_score > 0:
+            sdata = msg.data[layers.index("stairs")]
+            st = np.array(sdata.data, dtype=np.float32).reshape(h, w)
+            mask = np.isfinite(st) & (st > 0.5)
+            values = np.where(mask, np.maximum(values, self.stairs_score), values)
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x
