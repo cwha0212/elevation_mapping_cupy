@@ -252,7 +252,7 @@ def generate_launch_description():
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(
             "image_view",
-            default_value="true",
+            default_value="false",
             description="Open the segmentation output in its own window.",
         ),
         DeclareLaunchArgument(
