@@ -27,6 +27,7 @@ free, which is the honest answer for a cell nothing has ever been seen past.
 """
 
 import numpy as np
+from scipy import ndimage
 import rclpy
 from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
@@ -89,6 +90,10 @@ class TraversabilityCloudNode(Node):
             sdata = msg.data[layers.index("stairs")]
             st = np.array(sdata.data, dtype=np.float32).reshape(h, w)
             mask = np.isfinite(st) & (st > 0.5)
+            # The climb window only straddles mid-flight, so the first risers
+            # sit just outside the flag and would keep an obstacle line
+            # across the entrance; spilling the mask a few cells covers them.
+            mask = ndimage.binary_dilation(mask, iterations=3)
             values = np.where(mask, np.maximum(values, self.stairs_score), values)
 
         res = msg.info.resolution
