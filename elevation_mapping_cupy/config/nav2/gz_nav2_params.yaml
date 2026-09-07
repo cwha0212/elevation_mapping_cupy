@@ -26,7 +26,7 @@ bt_navigator:
     # (full 3D 인 /aft_mapped_to_init 은 child frame 이 odom 이라 이 체인에 없다).
     global_frame: odom
     robot_base_frame: base_link
-    odom_topic: /odom_2d
+    odom_topic: /odom
     #chang_fix
     bt_loop_duration: 10
     default_server_timeout: 20
@@ -242,14 +242,21 @@ local_costmap:
       robot_base_frame: base_link
       use_sim_time: True
       transform_tolerance: 0.5
-      rolling_window: true
       width: 5
       height: 5
       resolution: 0.04
       # MPPI ObstaclesCritic(consider_footprint: true) 및 global_costmap과 동일 footprint 필요
       footprint: "[[-0.30, -0.25], [-0.30, 0.25], [0.30, 0.25], [0.30, -0.25]]"
       footprint_padding: 0.03
-      plugins: ["obstacle_layer", "inflation_layer"]
+      # Live-only local costmap: no mark accumulation, no wake ghosts.
+      # /live_obstacles is the elevation window's verdict of this instant,
+      # republished by map_canvas at ~2 Hz.
+      rolling_window: false
+      plugins: ["static_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: False
+        map_topic: /live_obstacles
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # ★ 회피 폭 축소: scaling 가파르게(3->5), inflation 거리 축소(0.55->0.40)
@@ -258,16 +265,25 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 5.0
+        # trav only -- the caution boundary is deliberately NOT wired in.
+        # Unverified ground is already expensive in the global map (soft-cost
+        # unknown), so plans avoid it; walling it locally as well painted the
+        # local costmap with speckle wherever the camera had not looked,
+        # directly contradicting a lidar that sees flat ground, and left
+        # stale boundary marks behind (board 2.png). Geometry hazards and
+        # strong semantic hazards still mark through /traversability/obstacles.
+        observation_sources: trav
+        trav:
+          topic: /traversability/obstacles
+          min_obstacle_height: -0.1
+          max_obstacle_height: 0.5
           clearing: True
           marking: True
-          data_type: "LaserScan"
-          raytrace_max_range: 5.0
+          data_type: "PointCloud2"
+          raytrace_max_range: 5.5
           raytrace_min_range: 0.0
-          obstacle_max_range: 5.0
+          obstacle_max_range: 4.5
+          obstacle_max_range: 4.5
           obstacle_min_range: 0.0
       always_send_full_costmap: True
 
@@ -294,6 +310,9 @@ global_costmap:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: False
         map_topic: /projected_map
+        # map_canvas publishes unknown as value 70; non-trinary turns that
+        # into high-but-passable cost, so plans prefer confirmed-free ground.
+        trinary_costmap: False
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -301,16 +320,17 @@ global_costmap:
         #   track_unknown_space: true 라 미관측 셀은 NO_INFORMATION이므로 벽은 보존되고,
         #   라이다가 비었다고 관측한 셀만 static 254를 덮어써 경로가 재계획됨
         combination_method: 0
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 5.0
+        observation_sources: trav
+        trav:
+          topic: /traversability/obstacles
+          min_obstacle_height: -0.1
+          max_obstacle_height: 0.5
           clearing: True
           marking: True
-          data_type: "LaserScan"
-          raytrace_max_range: 5.0
+          data_type: "PointCloud2"
+          raytrace_max_range: 5.5
           raytrace_min_range: 0.0
-          obstacle_max_range: 5.0
+          obstacle_max_range: 4.5
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -340,10 +360,19 @@ planner_server:
     use_sim_time: True
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      # SmacPlanner2D, not NavFn: the soft-cost unknown canvas creates broad
+      # equal-cost plateaus, and NavFn's gradient path extraction dies on
+      # them ("Failed to create a plan from potential..."), also when the
+      # start sits inside an inflation band. Smac is a plain cost-aware A*
+      # and has neither failure mode.
+      plugin: "nav2_smac_planner/SmacPlanner2D"
       tolerance: 0.55
-      use_astar: false
       allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 2.0
+      cost_travel_multiplier: 2.0
+      use_final_approach_orientation: true
 
 smoother_server:
   ros__parameters:
@@ -362,9 +391,9 @@ behavior_server:
     cycle_frequency: 5.0
     #behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
     #behavior_plugins: ["spin", "backup", "assisted_teleop", "wait"]
-    behavior_plugins: ["backup", "assisted_teleop", "wait"]
-    # spin:
-    #  plugin: "nav2_behaviors/Spin"
+    behavior_plugins: ["spin", "backup", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors/Spin"
     backup:
       plugin: "nav2_behaviors/BackUp"
     # drive_on_heading:
@@ -414,7 +443,7 @@ velocity_smoother:
     # 그 child frame 은 odom 이라 Nav2 의 map->odom_2d->base_link 체인과 무관하다.
     # (지금은 feedback: OPEN_LOOP 이라 구독 자체를 안 하지만, CLOSED_LOOP 으로 바꾸면
     #  즉시 문제가 되므로 미리 맞춰 둔다.)
-    odom_topic: "/odom_2d"
+    odom_topic: "/odom"
     #chang_fix
     odom_duration: 0.1
     deadband_velocity: [0.01, 0.06, 0.05]

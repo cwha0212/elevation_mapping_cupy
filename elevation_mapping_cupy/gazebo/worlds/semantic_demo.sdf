@@ -83,13 +83,13 @@
     <!-- Sidewalk: raised 0.12 m, pale paving. Its edge at y=0.4 is the curb. -->
     <model name="sidewalk">
       <static>true</static>
-      <pose>10.0 1.9 0.06 0 0 0</pose>
+      <pose>10.0 2.9 0.06 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
+          <geometry><box><size>40.0 5.0 0.12</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
+          <geometry><box><size>40.0 5.0 0.12</size></box></geometry>
           <material>
             <diffuse>1 1 1</diffuse>
             <specular>0.05 0.05 0.05</specular>
@@ -106,9 +106,12 @@
     <!-- A building front along the far side of the walk. Cityscapes learned
          streets as a layout, not as a pair of surfaces, and a road with
          nothing standing beside it is not a street it was ever shown. -->
+    <!-- Flush with the sidewalk edge (y=3.4): the original pose left a
+         0.3 m ground-level trench between walk and wall that a robot could
+         physically drop into. -->
     <model name="facade">
       <static>true</static>
-      <pose>10.0 3.9 2.0 0 0 0</pose>
+      <pose>10.0 5.6 2.0 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry><box><size>40.0 0.4 4.0</size></box></geometry>
@@ -259,6 +262,35 @@
           </material></visual>
       </link>
     </model>
+
+
+    <!-- Dynamic obstacle: a pedestrian patrolling the sidewalk lengthwise at
+         y=1.6, straight through the nav test corridor at ~0.8 m/s. Actors
+         live in the render scene, so the gpu_lidar and the camera both see
+         them; they carry no collision, which is fine here: the point is
+         that the PERCEPTION stack must move the robot out of the way, not
+         that physics would punish it. -->
+    <actor name="walker">
+      <skin>
+        <filename>https://fuel.gazebosim.org/1.0/Mingfei/models/actor/tip/files/meshes/walk.dae</filename>
+        <scale>1.0</scale>
+      </skin>
+      <animation name="walking">
+        <filename>https://fuel.gazebosim.org/1.0/Mingfei/models/actor/tip/files/meshes/walk.dae</filename>
+        <interpolate_x>true</interpolate_x>
+      </animation>
+      <script>
+        <loop>true</loop>
+        <auto_start>true</auto_start>
+        <trajectory id="0" type="walking">
+          <waypoint><time>0.0</time><pose>6.5 1.6 1.12 0 0 3.14159</pose></waypoint>
+          <waypoint><time>5.6</time><pose>2.0 1.6 1.12 0 0 3.14159</pose></waypoint>
+          <waypoint><time>6.1</time><pose>2.0 1.6 1.12 0 0 0</pose></waypoint>
+          <waypoint><time>11.7</time><pose>6.5 1.6 1.12 0 0 0</pose></waypoint>
+          <waypoint><time>12.2</time><pose>6.5 1.6 1.12 0 0 3.14159</pose></waypoint>
+        </trajectory>
+      </script>
+    </actor>
 
     <include>
       <name>person_a</name>

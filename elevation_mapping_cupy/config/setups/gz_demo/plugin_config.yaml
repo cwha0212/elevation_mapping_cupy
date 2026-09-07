@@ -41,7 +41,7 @@ drivability_filter:
     layers: ["slope", "step", "roughness"]
     # Quadruped-scale envelope, matching what haechi will get. The 0.15 m
     # stair risers land at 0.25 here: climbable, but barely.
-    limits: [25.0, 0.20, 0.05]
+    limits: [25.0, 0.15, 0.05]   # step 0.15: the 0.12 m curb scores 0.21, a SOLID line (0.20 left it at 0.405, dashed against the 0.45 cut)
 semantic_safety_filter:
   enable: True
   fill_nan: False
@@ -66,8 +66,22 @@ semantic_safety_filter:
     # contrast out of the map): 0 is the model's own decision boundary,
     # positive is increasingly bad. Penalty starts right at the boundary and
     # saturates three logits past it.
-    hazard_low: 0.0
-    hazard_high: 3.0
+    # Ramp spans the model's uncertain band: the roadway hovers at +0.2..0.4
+    # logits, and with the old 0..3 ramp that scored safety 0.79 -- ABOVE the
+    # costmap's free cut, so the camera was actively clearing the roadway the
+    # robot must never enter. -0.5..1.0 puts weak positives (roadway) in the
+    # caution band and leaves clear negatives (sidewalk, -1.3) untouched.
+    # Direct SAM-TP verdict: logit above 0.5 -> forbidden, below -> the
+    # lidar's call. No ramp, no blending; the roadway is kept out by the
+    # curb's geometry line, the camera only vetoes what it is sure about.
+    veto_logit: 0.5
+    veto_range: 3.0    # camera judges only the ground it is about to drive over
+    hazard_low: -0.5
+    hazard_high: 0.75
+    # Conservative mode: ground the camera never saw caps at 0.55,
+    # between the costmap's obstacle cut (0.4) and free cut (0.7) --
+    # unseen stays unknown instead of free-on-geometry-alone.
+    unobserved_cap: 1.0    # off: unseen ground is the lidar's call, not a penalty
 stairs_filter:
   enable: True
   fill_nan: False

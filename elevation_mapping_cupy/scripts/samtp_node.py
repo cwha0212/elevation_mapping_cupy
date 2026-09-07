@@ -37,6 +37,7 @@ from cv_bridge import CvBridge
 from elevation_map_msgs.msg import ChannelInfo
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
+from std_msgs.msg import Bool
 
 
 class SamTPNode(Node):
@@ -62,6 +63,19 @@ class SamTPNode(Node):
         self.static_size = list(self.declare_parameter("camera_size", [0, 0]).value)
         # t_reference = t_camera + time_offset_s, from the imu-cam calibration.
         self.time_offset_s = float(self.declare_parameter("time_offset_s", 0.0).value)
+        # Silhouette hygiene. Bilinear interpolation smears an object's +4
+        # logits a few pixels past its outline, and at grazing angles those
+        # pixels are tens of centimetres of ground BEHIND the object -- which
+        # the veto ramp then brands an obstacle. Nearest keeps the outline
+        # hard, and the erosion shrinks hazard regions inward so only the
+        # object's own footprint keeps its verdict.
+        self.hazard_erosion_px = int(self.declare_parameter("hazard_erosion_px", 2).value)
+        # One-shot forward gate: instead of writing verdicts into the map,
+        # the camera answers a single question per frame -- "is the strip of
+        # ground right ahead drivable NOW". Consumers act on the current
+        # answer and keep no history of it.
+        self.gate_logit = float(self.declare_parameter("gate_logit", 0.5).value)
+        self.gate_fraction = float(self.declare_parameter("gate_fraction", 0.2).value)
 
         self._load_engine()
 
@@ -79,6 +93,7 @@ class SamTPNode(Node):
         self.heatmap_pub = self.create_publisher(Image, "samtp_heatmap", 2)
         self.info_pub = self.create_publisher(CameraInfo, "samtp_camera_info", 2)
         self.channel_pub = self.create_publisher(ChannelInfo, "samtp_channel_info", 2)
+        self.gate_pub = self.create_publisher(Bool, "forward_blocked", 2)
 
         if len(self.static_k) != 9:
             self.create_subscription(
@@ -166,15 +181,25 @@ class SamTPNode(Node):
         # it to the image's own aspect undoes the stretch and the original
         # intrinsics apply again (scaled below).
         logit = torch.nn.functional.interpolate(
-            self.out_t, size=(out_h, out_w), mode="bilinear", align_corners=False
+            self.out_t, size=(out_h, out_w), mode="nearest"
         )[0, 0]
         score = (-logit).cpu().numpy().astype(np.float32)
+        if self.hazard_erosion_px > 0:
+            k = 2 * self.hazard_erosion_px + 1
+            score = cv2.erode(score, np.ones((k, k), np.uint8))
 
         header = msg.header
         if self.time_offset_s:
             ns = (header.stamp.sec * 10**9 + header.stamp.nanosec
                   + int(round(self.time_offset_s * 1e9)))
             header.stamp.sec, header.stamp.nanosec = divmod(ns, 10**9)
+
+        # forward ROI: lower half, central half of the frame -- the ground
+        # the robot enters within the next metre or two
+        roi = score[out_h // 2:, out_w // 4: 3 * out_w // 4]
+        blocked = float((roi > self.gate_logit).mean()) > self.gate_fraction
+        gate = Bool(); gate.data = bool(blocked)
+        self.gate_pub.publish(gate)
 
         out = self.bridge.cv2_to_imgmsg(score, encoding="32FC1")
         out.header = header

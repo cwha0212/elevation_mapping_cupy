@@ -50,6 +50,7 @@ import rclpy
 from scipy import ndimage
 from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
+from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2, PointField
 from tf2_ros import TransformBroadcaster
@@ -75,6 +76,26 @@ class TraversabilityCloudNode(Node):
         # 0.25 against a 0.20 m limit, so 0.4 calls them obstacles and 0.2
         # leaves them climbable.
         self.threshold = self.declare_parameter("threshold", 0.4).value
+        # Promotion to FREE can demand more than escaping the obstacle class.
+        # Cells scoring in [threshold, free_threshold) stop the march without
+        # an endpoint, exactly like unknown: not an obstacle, but no free ray
+        # is sworn through them either. With semantic_safety_filter's
+        # unobserved_cap set between the two, camera-unseen ground lands in
+        # that band and stays unknown until the camera actually clears it.
+        # 0.0 (or anything <= threshold) restores the single-cut behavior.
+        self.free_threshold = float(
+            self.declare_parameter("free_threshold", 0.0).value
+        )
+        # The camera cannot see the ground closer than its lower FOV cutoff,
+        # so the ring under the robot is permanently "unobserved" and the
+        # unobserved cap would stop every bearing right there -- with a cold
+        # map that means zero points, an empty octree, and a planner waiting
+        # for a map that can never start. Inside this radius the robot is
+        # standing on the ground in question; that is better evidence than a
+        # camera view, so only the obstacle cut applies there.
+        self.blind_radius = float(
+            self.declare_parameter("blind_radius", 1.2).value
+        )
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
         # The free-space fan. march_range must stay below octomap's
@@ -88,8 +109,29 @@ class TraversabilityCloudNode(Node):
         # the first riser's own cells sit just outside it -- unflagged but
         # unsafe, they drew an obstacle line straight across the entrance.
         self.stairs_dilation = int(self.declare_parameter("stairs_dilation", 3).value)
+        # Despeckle: an unsafe patch smaller than this many cells is sensor
+        # noise, not terrain -- a real curb, wall or person paints dozens of
+        # cells. Tiny blobs are lifted just above the obstacle cut (still
+        # below the free cut, so in caution mode they stay unverified rather
+        # than becoming endorsed ground).
+        self.min_blob_cells = int(self.declare_parameter("min_blob_cells", 4).value)
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
+        # Caution boundary: first cell per bearing that is not unsafe but not
+        # yet cleared to free_threshold (camera-unseen ground, mostly). Meant
+        # for the LOCAL costmap only: the controller must not drive onto
+        # ground nobody has looked at, while the global planner stays free to
+        # route through unknown and let the approach reveal it.
+        self.caution_pub = self.create_publisher(
+            PointCloud2, self.output_topic + "_caution", 5
+        )
+        # Ground once cleared stays trusted: cells FREE in the accumulated
+        # global map are exempt from the caution boundary, so the path the
+        # robot came in on is always open behind it.
+        self._global_map = None
+        self.create_subscription(
+            OccupancyGrid, "/projected_map", self._on_global_map, 1
+        )
         self.tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
         self._published = 0
@@ -97,6 +139,23 @@ class TraversabilityCloudNode(Node):
             f"Publishing cells with {self.layer} < {self.threshold} from "
             f"'{self.input_topic}' to '{self.output_topic}'."
         )
+
+    def _on_global_map(self, msg: OccupancyGrid) -> None:
+        grid = np.array(msg.data, dtype=np.int8).reshape(
+            msg.info.height, msg.info.width
+        )
+        self._global_map = (grid, msg.info)
+
+    def _free_in_global(self, wx: np.ndarray, wy: np.ndarray) -> np.ndarray:
+        """True where the accumulated map already calls these points free."""
+        if self._global_map is None:
+            return np.zeros(wx.shape, dtype=bool)
+        grid, info = self._global_map
+        cols = ((wx - info.origin.position.x) / info.resolution).astype(np.int32)
+        rows = ((wy - info.origin.position.y) / info.resolution).astype(np.int32)
+        inside = (cols >= 0) & (cols < info.width) & (rows >= 0) & (rows < info.height)
+        vals = grid[np.clip(rows, 0, info.height - 1), np.clip(cols, 0, info.width - 1)]
+        return inside & (vals >= 0) & (vals <= 50)
 
     def on_grid_map(self, msg: GridMap) -> None:
         layers = list(msg.layers)
@@ -125,6 +184,14 @@ class TraversabilityCloudNode(Node):
             # the threshold makes the march walk straight through the flight.
             values = np.where(mask, self.threshold + 1.0, values)
 
+        if self.min_blob_cells > 1:
+            unsafe_mask = np.isfinite(values) & (values < self.threshold)
+            labels, n_labels = ndimage.label(unsafe_mask)
+            if n_labels:
+                sizes = ndimage.sum(unsafe_mask, labels, np.arange(1, n_labels + 1))
+                small = np.isin(labels, np.nonzero(sizes < self.min_blob_cells)[0] + 1)
+                values = np.where(small, self.threshold + 0.05, values)
+
         res = msg.info.resolution
         cx = msg.info.pose.position.x
         cy = msg.info.pose.position.y
@@ -141,13 +208,30 @@ class TraversabilityCloudNode(Node):
         rr = np.clip((h / 2.0 - 0.5 - py / res).round().astype(np.int32), 0, h - 1)
         sampled = values[rr, cc]                       # (B, R)
 
+        free_cut = max(self.free_threshold, self.threshold)
         unsafe = np.isfinite(sampled) & (sampled < self.threshold)
-        unknown = ~np.isfinite(sampled)
-        blocked = unsafe | unknown
+        beyond_blind = steps[None, :] >= self.blind_radius
+        not_free = np.isfinite(sampled) & (sampled < free_cut) & beyond_blind
+        # Unknown ground is exactly as unverified as capped ground, so beyond
+        # the blind disk it blocks -- and gets a caution mark below, or the
+        # lidar's ring gaps read as open directions and the controller creeps
+        # out through them. Inside the disk the robot is standing on the
+        # answer, and cells FREE in the accumulated map were verified before
+        # the rolling window moved on; both stay passable.
+        unknown = ~np.isfinite(sampled) & beyond_blind
+        if self.free_threshold > self.threshold:
+            cleared = self._free_in_global(cx + px, cy + py)
+            not_free &= ~cleared
+            unknown &= ~cleared
+        blocked = unsafe | not_free | unknown
         first_block = np.where(blocked.any(axis=1), blocked.argmax(axis=1), steps.size)
 
         idx = np.arange(self.bearings)
-        hit_unsafe = (first_block < steps.size) & unsafe[idx, np.minimum(first_block, steps.size - 1)]
+        at_block = np.minimum(first_block, steps.size - 1)
+        hit_unsafe = (first_block < steps.size) & unsafe[idx, at_block]
+        hit_caution = (first_block < steps.size) & ~unsafe[idx, at_block]
+        if self.free_threshold <= self.threshold:
+            hit_caution[:] = False   # caution semantics off, keep topic quiet
         clear = first_block == steps.size
 
         # Obstacles: the first unsafe cell along the bearing.
@@ -172,11 +256,15 @@ class TraversabilityCloudNode(Node):
         self.tf_broadcaster.sendTransform(tf)
 
         self.pub.publish(self._make_cloud(dx, dy, stamp))
+        r_caut = steps[at_block[hit_caution]]
+        cx_c = (ux[hit_caution] * r_caut).astype(np.float32)
+        cy_c = (uy[hit_caution] * r_caut).astype(np.float32)
+        self.caution_pub.publish(self._make_cloud(cx_c, cy_c, stamp))
         self._published += 1
         self.get_logger().info(
             f"Bearings: {int(hit_unsafe.sum())} obstacle, {int(clear.sum())} free, "
-            f"{int(self.bearings - hit_unsafe.sum() - clear.sum())} stopped at unknown "
-            f"(frames: {self._published})",
+            f"{int(self.bearings - hit_unsafe.sum() - clear.sum())} stopped short "
+            f"(unknown or below free_threshold; frames: {self._published})",
             throttle_duration_sec=5.0,
         )
 

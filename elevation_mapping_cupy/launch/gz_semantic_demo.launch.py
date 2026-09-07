@@ -235,11 +235,37 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(share_dir, "launch", "gz_octomap.launch.py")
         ),
-        launch_arguments={"source": LaunchConfiguration("octomap_source")}.items(),
+        # free_threshold pairs with unobserved_cap (0.55) in the plugin
+        # config: camera-unseen ground stays unknown in the 2D grid.
+        launch_arguments={
+            "source": LaunchConfiguration("octomap_source"),
+            "threshold": LaunchConfiguration("threshold"),
+            "free_threshold": LaunchConfiguration("free_threshold"),
+            "trav_layer": LaunchConfiguration("trav_layer"),
+        }.items(),
         condition=IfCondition(LaunchConfiguration("octomap")),
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "threshold",
+            # 0.45, not 0.40: the curb scores exactly 0.405 (step 0.119 of the
+            # 0.20 limit) and slid under a 0.40 cut -- the planner then routed
+            # over a curb this wheeled stand-in physically cannot climb. The
+            # 12-degree ramp scores 0.52 and stays passable.
+            default_value="0.45",
+            description="Below this the cell is an obstacle.",
+        ),
+        DeclareLaunchArgument(
+            "free_threshold",
+            default_value="0.0",
+            description="Safety needed for a FREE ray; 0.0 disables the caution band.",
+        ),
+        DeclareLaunchArgument(
+            "trav_layer",
+            default_value="safety",
+            description="safety (camera fused) or drivability (geometry only).",
+        ),
         DeclareLaunchArgument(
             "octomap",
             default_value="true",
@@ -265,7 +291,7 @@ def generate_launch_description():
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(
             "image_view",
-            default_value="true",
+            default_value="false",
             description="Open the segmentation output in its own window.",
         ),
         DeclareLaunchArgument(
