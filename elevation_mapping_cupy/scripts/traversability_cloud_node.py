@@ -176,13 +176,33 @@ class TraversabilityCloudNode(Node):
                 small = np.isin(labels, np.nonzero(sizes < self.min_blob_cells)[0] + 1)
                 unsafe_cells &= ~small
                 values = np.where(small, self.threshold + 0.05, values)
-        rows, cols = np.nonzero(unsafe_cells)
-        # Straight to the robot-centred frame, so the offsets below are already
-        # what the cloud carries.
-        dx = -(cols.astype(np.float32) - w / 2.0 + 0.5) * res
-        dy = -(rows.astype(np.float32) - h / 2.0 + 0.5) * res
+        def offsets(rows, cols):
+            # Straight to the robot-centred frame, so these are already what
+            # the cloud carries.
+            return (
+                -(cols.astype(np.float32) - w / 2.0 + 0.5) * res,
+                -(rows.astype(np.float32) - h / 2.0 + 0.5) * res,
+            )
 
-        # Free-space fan.
+        # Every unsafe cell in the map used to go out as an obstacle, wherever
+        # it sat. That is not a measurement, it is the contents of a buffer:
+        # the map keeps cells the robot drove past an hour ago and cells the
+        # camera painted onto a surface it was guessing at, and both went into
+        # the grid as though they had just been seen. Worse, a cell in the
+        # shadow behind something solid went out too -- an obstacle asserted in
+        # the one place the sensor provably could not look.
+        #
+        # So the cloud is now cast, not dumped. Each bearing marches out and
+        # reports the first thing it meets; past that the bearing has nothing
+        # to say and says nothing, leaving the shadow to whatever the robot
+        # learns when it walks round. This is also what puts the camera in its
+        # place: a hazard only reaches the grid where a lidar-measured surface
+        # carries it and stands in open line of sight.
+        rows, cols = np.zeros(0, np.int64), np.zeros(0, np.int64)
+        if not (self.bearings > 0 and self.march_range > 0):
+            rows, cols = np.nonzero(unsafe_cells)
+        dx, dy = offsets(rows, cols)
+
         if self.bearings > 0 and self.march_range > 0:
             steps = np.arange(res, self.march_range, res, dtype=np.float32)
             theta = np.linspace(0.0, 2 * np.pi, self.bearings, endpoint=False)
@@ -198,6 +218,24 @@ class TraversabilityCloudNode(Node):
             blocked = unsafe_m | unknown_m
             any_blocked = blocked.any(axis=1)
             clear = ~any_blocked
+            first = np.where(any_blocked, blocked.argmax(axis=1), steps.size)
+            idx = np.arange(self.bearings)
+            at = np.minimum(first, steps.size - 1)
+
+            # the first solid cell on each bearing, deduplicated: close in,
+            # many bearings land on one cell; at the far end the spacing is a
+            # shade under the cell size, so a surface still comes out whole.
+            struck = any_blocked & unsafe_m[idx, at]
+            n_hit = 0
+            if struck.any():
+                seen = np.zeros((h, w), dtype=bool)
+                seen[mr[idx[struck], at[struck]], mc[idx[struck], at[struck]]] = True
+                hr, hc = np.nonzero(seen)
+                hx, hy = offsets(hr, hc)
+                dx = np.concatenate([dx, hx]).astype(np.float32)
+                dy = np.concatenate([dy, hy]).astype(np.float32)
+                n_hit = int(seen.sum())
+
             if clear.any():
                 dx = np.concatenate([dx, ux[clear] * self.far_range]).astype(np.float32)
                 dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
@@ -206,9 +244,6 @@ class TraversabilityCloudNode(Node):
             shadow = int(round(self.drop_edge_shadow / res))
             support = int(round(self.drop_edge_support / res))
             if self.drop_edge_range > 0 and shadow > 0:
-                first = np.where(any_blocked, blocked.argmax(axis=1), steps.size)
-                idx = np.arange(self.bearings)
-                at = np.minimum(first, steps.size - 1)
                 # bearings that ran out of ground rather than into something,
                 # near enough that nothing else explains it, and with room left
                 # in the march to see the whole shadow before judging it
@@ -237,8 +272,8 @@ class TraversabilityCloudNode(Node):
                     n_drop += 1
 
             self.get_logger().info(
-                f"Bearings: {int(clear.sum())} clear, {n_drop} drop edges, "
-                f"of {self.bearings}",
+                f"Bearings: {int(clear.sum())} clear, {n_hit} struck, "
+                f"{n_drop} drop edges, of {self.bearings}",
                 throttle_duration_sec=5.0,
             )
 

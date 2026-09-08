@@ -102,8 +102,13 @@ class SemanticSafetyFilter(PluginBase):
 
         span = self.hazard_high - self.hazard_low
         semantic_term = 1.0 - cp.clip((hazard - self.hazard_low) / span, 0.0, 1.0)
-        # A hazard on a cell the geometry never measured is still a hazard, so
-        # the semantic verdict stands where the base layer is NaN.
-        combined = cp.where(cp.isfinite(base), cp.minimum(base, semantic_term), semantic_term)
-        known = cp.isfinite(base) | (hazard > 0.0)
-        return cp.where(known, combined, cp.nan).astype(cp.float32)
+        # The camera votes only on ground the lidar has measured. A pixel does
+        # not carry a range: its verdict lands on the map at whatever depth the
+        # surface underneath it says, so on a cell with no measured surface the
+        # depth is a guess and the mark is at a made-up place -- typically
+        # smeared out behind the very object being labelled. Letting the
+        # verdict stand there was inventing obstacles out of colour alone.
+        # Where geometry has measured, the two combine and the camera can only
+        # ever make a cell worse, which is the veto it is meant to be.
+        combined = cp.minimum(base, semantic_term)
+        return cp.where(cp.isfinite(base), combined, cp.nan).astype(cp.float32)
