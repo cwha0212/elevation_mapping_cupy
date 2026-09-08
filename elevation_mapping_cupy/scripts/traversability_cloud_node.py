@@ -87,6 +87,19 @@ class TraversabilityCloudNode(Node):
         self.lift_descending = bool(
             self.declare_parameter("lift_descending", False).value
         )
+
+        # An unsafe patch smaller than this is noise, not terrain: a curb, a
+        # wall or a person paints dozens of cells, while a mis-projected
+        # pixel paints one or two.
+        self.min_blob_cells = int(self.declare_parameter("min_blob_cells", 4).value)
+        # The fan. march_range stays under octomap's sensor_model/max_range so
+        # a clear bearing's point lands beyond it and truncates to a free ray;
+        # far_range is anything past that. blind_radius is the body filter's
+        # own shadow, where unmeasured means "under the robot", not "unknown".
+        self.bearings = int(self.declare_parameter("bearings", 720).value)
+        self.march_range = float(self.declare_parameter("march_range", 5.5).value)
+        self.far_range = float(self.declare_parameter("far_range", 9.0).value)
+        self.blind_radius = float(self.declare_parameter("blind_radius", 1.0).value)
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
