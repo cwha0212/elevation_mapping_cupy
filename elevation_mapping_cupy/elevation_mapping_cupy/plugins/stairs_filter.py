@@ -375,7 +375,16 @@ class StairsFilter(PluginBase):
         self.slope_layer = slope_layer
         self.roughness_layer = roughness_layer
         self.resolution = float(resolution)
-        self.params = {k: v for k, v in kwargs.items() if k in DEFAULTS}
+        # Coerced against the default's own type, the way every other filter
+        # in this chain does it: what the manager hands over for an
+        # extra_param is not necessarily a plain number, and a threshold that
+        # is not one blows up on first contact with a cupy array.
+        self.params = {}
+        for key, value in kwargs.items():
+            if key not in DEFAULTS:
+                continue
+            default = DEFAULTS[key]
+            self.params[key] = int(value) if isinstance(default, int) else float(value)
         self.input_layer_names = [step_layer, slope_layer, roughness_layer]
 
     def __call__(
