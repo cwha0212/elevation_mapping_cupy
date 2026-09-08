@@ -65,7 +65,7 @@ def generate_launch_description():
             # larger and every clear bearing sweeps free through ground
             # nothing verified, erasing walls and kerbs that were mapped
             # correctly from closer up.
-            "sensor_model/max_range": 5.5,
+            "sensor_model/max_range": 3.5,
             "filter_ground": False,
             "occupancy_min_z": -0.10,
             "occupancy_max_z": 0.10,

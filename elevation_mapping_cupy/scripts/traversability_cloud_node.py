@@ -97,7 +97,13 @@ class TraversabilityCloudNode(Node):
         # far_range is anything past that. blind_radius is the body filter's
         # own shadow, where unmeasured means "under the robot", not "unknown".
         self.bearings = int(self.declare_parameter("bearings", 720).value)
-        self.march_range = float(self.declare_parameter("march_range", 5.5).value)
+        # 3.5 m is where the bearings actually reach from a robot standing
+        # still: measured on the live map, 32% of them run clear that far and
+        # essentially none reach 4 m, because that is where the ring spacing
+        # opens past the support window. Asking for more does not sense
+        # further, it just returns nothing at all, and the map fills out past
+        # this as the robot moves anyway.
+        self.march_range = float(self.declare_parameter("march_range", 3.5).value)
         self.far_range = float(self.declare_parameter("far_range", 9.0).value)
         self.blind_radius = float(self.declare_parameter("blind_radius", 1.0).value)
         # How far either side of a cell the march will look for a measurement
@@ -110,7 +116,14 @@ class TraversabilityCloudNode(Node):
         # counts as measured if anything within this window was, and it counts
         # as unsafe if the worst thing in that window was, which errs the only
         # way it is safe to err.
-        self.support_cells = int(self.declare_parameter("support_cells", 7).value)
+        #
+        # The two questions want different windows and it matters. "Has this
+        # been measured" has to reach as far as the rings are apart or free
+        # space never opens up; "is there something here" has to stay tight or
+        # every obstacle swells by the width of the window and seals gaps the
+        # robot fits through. So known-ness reads wide and hazard reads narrow.
+        self.support_cells = int(self.declare_parameter("support_cells", 15).value)
+        self.hazard_cells = int(self.declare_parameter("hazard_cells", 3).value)
         # Drop edges. A bearing that runs out of measured ground close by is
         # telling you something: within this radius the sensor sees all round
         # and anything solid would have stopped the march as an obstacle
@@ -119,7 +132,7 @@ class TraversabilityCloudNode(Node):
         # the lip's own shadow, so the step filter has nothing to measure and
         # the boundary reads as open ground running into unknown.
         self.drop_edge_range = float(
-            self.declare_parameter("drop_edge_range", 4.0).value
+            self.declare_parameter("drop_edge_range", 2.5).value
         )
         # A real drop casts a shadow that goes on: from the kerb the whole
         # roadway is hidden, metres of it. A gap in the returns is one or two
@@ -223,12 +236,15 @@ class TraversabilityCloudNode(Node):
             my = uy[:, None] * steps[None, :]
             mc = np.clip((w / 2.0 - 0.5 - mx / res).round().astype(np.int32), 0, w - 1)
             mr = np.clip((h / 2.0 - 0.5 - my / res).round().astype(np.int32), 0, h - 1)
-            k = max(1, self.support_cells)
             finite = np.isfinite(values)
             worst = ndimage.minimum_filter(
-                np.where(finite, values, np.inf), size=k, mode="nearest"
+                np.where(finite, values, np.inf),
+                size=max(1, self.hazard_cells),
+                mode="nearest",
             )
-            supported = ndimage.maximum_filter(finite, size=k, mode="nearest")
+            supported = ndimage.maximum_filter(
+                finite, size=max(1, self.support_cells), mode="nearest"
+            )
             sam_worst = worst[mr, mc]
             sam_known = supported[mr, mc]
             unsafe_m = sam_known & np.isfinite(sam_worst) & (sam_worst < self.threshold)
