@@ -21,9 +21,23 @@ global octree, it also outlives the elevation map's rolling window.
 
 Points go out at z=0 in a robot-centred, rotation-free frame, so every ray is
 horizontal and the projection is exactly the traversability decision at any
-altitude. Free space comes from those rays, the same way it does for a laser
-scan: ground with no obstacle anywhere behind it stays unknown rather than
-free, which is the honest answer for a cell nothing has ever been seen past.
+altitude.
+
+Free space is emitted deliberately rather than left to fall out of the
+obstacle rays. Relying on those rays makes open ground a by-product of
+whatever obstacle happens to sit behind it, so the better the terrain reads,
+the less of it gets cleared -- fix the limits so a staircase stops being an
+obstacle and the ground in front of it goes unknown along with it. So the
+node also marches a fan of bearings over the layer, and a bearing that stays
+above the threshold for its whole march contributes one point past octomap's
+max range, which that server truncates into a pure free ray. A bearing
+stopped by an unmeasured cell contributes nothing: unknown stays unknown.
+
+The march ignores unmeasured cells within blind_radius. The body filter
+removes the sensor's own chassis returns, which leaves a ring of NaN around
+the robot; without this every bearing would die in that ring before reaching
+anything. The robot is standing on that ground, which is better evidence
+than a range return.
 """
 
 import numpy as np
@@ -68,6 +82,14 @@ class TraversabilityCloudNode(Node):
         # is riser-sized picks those up without spilling onto anything else
         # -- a wall steps far higher than this band, open ground far lower.
         self.grow_cells = int(self.declare_parameter("stairs_grow_cells", 8).value)
+        # The fan. march_range stays under octomap's sensor_model/max_range so a
+        # clear bearing's point lands beyond it and truncates to a free ray;
+        # far_range is anything past that. blind_radius is the body filter's
+        # own shadow, where unmeasured means "under the robot", not "unknown".
+        self.bearings = int(self.declare_parameter("bearings", 720).value)
+        self.march_range = float(self.declare_parameter("march_range", 5.5).value)
+        self.far_range = float(self.declare_parameter("far_range", 9.0).value)
+        self.blind_radius = float(self.declare_parameter("blind_radius", 1.0).value)
         self.grow_step_range = [
             float(v) for v in self.declare_parameter(
                 "stairs_grow_step_range", [0.09, 0.30]).value
@@ -132,6 +154,29 @@ class TraversabilityCloudNode(Node):
         # what the cloud carries.
         dx = -(cols.astype(np.float32) - w / 2.0 + 0.5) * res
         dy = -(rows.astype(np.float32) - h / 2.0 + 0.5) * res
+
+        # Free-space fan.
+        if self.bearings > 0 and self.march_range > 0:
+            steps = np.arange(res, self.march_range, res, dtype=np.float32)
+            theta = np.linspace(0.0, 2 * np.pi, self.bearings, endpoint=False)
+            ux = np.cos(theta, dtype=np.float32)
+            uy = np.sin(theta, dtype=np.float32)
+            mx = ux[:, None] * steps[None, :]
+            my = uy[:, None] * steps[None, :]
+            mc = np.clip((w / 2.0 - 0.5 - mx / res).round().astype(np.int32), 0, w - 1)
+            mr = np.clip((h / 2.0 - 0.5 - my / res).round().astype(np.int32), 0, h - 1)
+            sampled = values[mr, mc]
+            unsafe_m = np.isfinite(sampled) & (sampled < self.threshold)
+            unknown_m = ~np.isfinite(sampled) & (steps[None, :] >= self.blind_radius)
+            blocked = unsafe_m | unknown_m
+            clear = ~blocked.any(axis=1)
+            if clear.any():
+                dx = np.concatenate([dx, ux[clear] * self.far_range]).astype(np.float32)
+                dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
+            self.get_logger().info(
+                f"Bearings: {int(clear.sum())} clear of {self.bearings}",
+                throttle_duration_sec=5.0,
+            )
 
         stamp = msg.header.stamp
         tf = TransformStamped()
