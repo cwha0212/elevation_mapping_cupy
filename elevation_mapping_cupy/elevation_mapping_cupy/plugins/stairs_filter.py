@@ -275,6 +275,42 @@ def _climb_sign(comp, elevation, dist, min_corr=0.2):
     return -1.0 if corr < -min_corr else 1.0
 
 
+def _climb_axis(riser_sel, comp, elevation, min_cells):
+    """The axis a flight climbs along, taken from the risers themselves.
+
+    A riser is a long thin line lying across the climb, so the biggest one's
+    own principal axis gives the direction the treads run, and the climb is
+    square to it. Estimating it instead from how height covaries with
+    position over the whole region sounds equivalent and is not: a partly
+    seen flight is lopsided, which tilted the axis by 18 degrees here, and a
+    riser line 1.6 m long projects 0.49 m along a tilted axis -- wider than
+    the 0.40 m between risers, so all four smeared into one another.
+    """
+    from scipy import ndimage as ndi
+
+    labels, n = ndi.label(riser_sel)
+    if n == 0:
+        return None, None
+    sizes = ndi.sum_labels(riser_sel, labels, np.arange(1, n + 1))
+    biggest = labels == (1 + int(np.argmax(sizes)))
+    rr, cc = np.nonzero(biggest)
+    if rr.size >= min_cells and rr.std() + cc.std() > 1e-6:
+        pts = np.stack([rr - rr.mean(), cc - cc.mean()]).astype(np.float64)
+        evals, evecs = np.linalg.eigh(pts @ pts.T)
+        along = evecs[:, int(np.argmax(evals))]      # runs with the riser
+        ur, uc = -along[1], along[0]                 # square to it: the climb
+    else:
+        ur, uc = 0.0, 1.0
+
+    # point it uphill, so the sign of the projection means something
+    er, ec = np.nonzero(comp & np.isfinite(elevation))
+    if er.size >= 3:
+        proj = er * ur + ec * uc
+        if float(np.cov(elevation[er, ec].astype(np.float64), proj)[0, 1]) < 0:
+            ur, uc = -ur, -uc
+    return float(ur), float(uc)
+
+
 def _riser_profile(comp, riser, elevation, fine, resolution, min_cells=3):
     """How many risers this region has, how far apart, and how even.
 
@@ -290,21 +326,9 @@ def _riser_profile(comp, riser, elevation, fine, resolution, min_cells=3):
     if n_sel < min_cells:
         return 0, None, None
 
-    # Climb direction from how height covaries with position across the
-    # whole region. Taking a gradient instead means filling the unmeasured
-    # cells with something first, and whatever that something is becomes a
-    # cliff at the frontier that drags the direction off true -- enough to
-    # smear four risers into two clusters and double the apparent tread.
-    cr, cc_all = np.nonzero(comp & np.isfinite(elevation))
-    if cr.size < min_cells:
+    ur, uc = _climb_axis(sel, comp, elevation, min_cells)
+    if ur is None:
         return 0, None, None
-    ez = elevation[cr, cc_all].astype(np.float64)
-    vr = float(np.cov(ez, cr.astype(np.float64))[0, 1])
-    vc = float(np.cov(ez, cc_all.astype(np.float64))[0, 1])
-    norm = math.hypot(vr, vc)
-    if norm < 1e-9:
-        return 0, None, None
-    ur, uc = vr / norm, vc / norm
 
     rr, cc = np.nonzero(sel)
     proj = (rr * ur + cc * uc) * resolution
