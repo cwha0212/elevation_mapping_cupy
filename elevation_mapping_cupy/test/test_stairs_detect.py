@@ -235,3 +235,74 @@ def test_a_flight_between_walls_survives():
     inside = np.zeros_like(conf, dtype=bool)
     inside[y0 + 3:y1 - 3, 62:90] = True
     assert frac_flagged(conf, inside) >= 0.7
+
+
+# --------------------------------------------------------------------------
+# ramps are their own thing, and the two layers do not overlap
+
+
+def _load_ramp():
+    path = Path(__file__).resolve().parents[1] / (
+        "elevation_mapping_cupy/plugins/ramp_filter.py"
+    )
+    src = path.read_text().replace(
+        "from elevation_mapping_cupy.plugins.stairs_filter import "
+        "_climb_sign, _gpu_modules, _host",
+        "_climb_sign, _gpu_modules, _host = DET._climb_sign, DET._gpu_modules, DET._host",
+    )
+    ns = {"DET": DET, "__name__": "ramp_filter_under_test"}
+    exec(compile(src, str(path), "exec"), ns)
+    return ns
+
+
+RAMP = _load_ramp()
+
+
+def run_ramp(elev, valid=None, **params):
+    if valid is None:
+        valid = np.isfinite(elev)
+    step, slope, roughness = layers(elev, valid)
+    e = np.where(valid, elev, 0.0).astype(np.float32)
+    return RAMP["detect_ramps"](e, valid, step, slope, roughness, RES, params)
+
+
+@pytest.mark.parametrize("angle", [12, 20, 25, 30, 40])
+def test_a_bank_is_a_ramp(angle):
+    conf = run_ramp(plane(angle))
+    assert frac_flagged(conf, sign=+1) >= 0.5, f"{angle} deg bank not seen as a ramp"
+
+
+def test_flat_ground_is_not_a_ramp():
+    elev = np.full((120, 120), GROUND, dtype=np.float32)
+    assert frac_flagged(run_ramp(elev)) == 0.0
+
+
+def test_a_staircase_is_not_a_ramp():
+    """The layers have to be exclusive or the supervisor gets both answers."""
+    assert frac_flagged(run_ramp(flight())) == 0.0
+
+
+def test_a_ramp_is_not_a_staircase():
+    for angle in (12, 25, 35):
+        assert frac_flagged(run(plane(angle))) == 0.0
+
+
+def test_rubble_is_not_a_ramp():
+    rng = np.random.default_rng(2)
+    elev = GROUND + rng.uniform(-0.10, 0.10, (120, 120)).astype(np.float32)
+    assert frac_flagged(run_ramp(elev)) == 0.0
+
+
+def test_a_descending_bank_is_negative():
+    # The robot stands on the flat and the bank falls away ahead of it. A
+    # plane running through the robot would be genuinely ambiguous -- uphill
+    # one way, downhill the other -- and the detector says so by staying
+    # positive, which is the safe reading for ground it is standing on.
+    n = 120
+    elev = np.full((n, n), GROUND, dtype=np.float32)
+    x = (np.arange(n) - n // 2) * RES
+    elev += np.where(x > 0, -np.tan(np.radians(25)) * x, 0.0)[None, :].astype(np.float32)
+    conf = run_ramp(elev)
+    fin = np.isfinite(conf)
+    flagged = conf[fin][np.abs(conf[fin]) > 0.5]
+    assert flagged.size > 0 and (flagged < 0).all()

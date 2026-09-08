@@ -72,3 +72,23 @@ stairs_filter:
     min_tread_depth: 0.20
     max_tread_depth: 0.60
     min_component_cells: 60
+ramp_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "ramp"            # +confirmed climb .. -confirmed descent
+  extra_params:
+    # A ramp is continuous where a flight is broken: tilted everywhere,
+    # smooth, and with no riser-sized break in it. That last clause is what
+    # keeps a staircase out of this layer, and the stairs filter's tread
+    # requirement is what keeps a ramp out of that one.
+    min_slope: 8.0              # below this it is ground with a lean on it
+    max_slope: 45.0             # the platform's rated gradient
+    max_roughness: 0.05
+    max_riser_step: 0.12        # over the fine window, so a 40 deg plane still qualifies
+    struct_window: 21
+    min_ramp_ratio: 0.50
+    min_total_gain: 0.20
+    max_slope_std: 8.0          # a ramp is planar; rubble is not
+    max_range: 4.5
+    min_component_cells: 60
