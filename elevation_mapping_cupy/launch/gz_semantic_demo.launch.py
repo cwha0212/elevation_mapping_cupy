@@ -170,11 +170,12 @@ def generate_launch_description():
     # Namespaced so its outputs land on /front_cam/..., which is what the
     # elevation mapping config subscribes to.
     semantic_node = Node(
-        package="semantic_sensor", executable="image_node",
-        namespace="front_cam", name="semantic_image_node", output="screen",
+        package="elevation_mapping_cupy", executable="samtp_node.py",
+        namespace="front_cam", name="samtp_node", output="screen",
         parameters=[{
-            "sensor_name": "gz_front_cam",
-            "config_path": semantic_config_path,
+            "engine_path": LaunchConfiguration("samtp_engine"),
+            "image_topic": "/color_cam/image",
+            "camera_info_topic": "/front_cam/camera_info",
             "use_sim_time": True,
         }],
     )
@@ -193,6 +194,8 @@ def generate_launch_description():
             "voxel_size": 0.05,
             "max_range": 8.0,
             "use_sim_time": True,
+            "self_filter_min": [-1.40, -0.32, -0.46],
+            "self_filter_max": [0.16, 0.46, 0.22],
         }],
     )
 

@@ -55,17 +55,17 @@ semantic_safety_filter:
   layer_name: "safety"                      # 1 safe .. 0 forbidden
   extra_params:
     base_layer: "drivability"
-    # Classes that make a cell unsafe whatever the geometry says. The shipped
-    # model knows these; the ones this is really for are roadway and vehicle
-    # lanes, and they arrive with the model swap. Setups without a camera have
-    # none of these layers, and there safety just equals drivability.
-    # road is the point of the exercise: flat, crossable, and off limits.
-    # person and car are here as the control, being things the geometry
-    # refuses anyway. sidewalk is deliberately absent -- that is where the
-    # robot belongs.
-    hazard_layers: ["road", "person", "car"]
-    hazard_low: 0.25
-    hazard_high: 0.60
+    # One hazard channel now, and it is a judgement rather than a class:
+    # SAM-TP's traversability logit. A setup with no camera never publishes
+    # it, and there safety simply equals drivability.
+    hazard_layers: ["untrav"]
+    # Deliberately timid. untrav is SAM-TP's raw logit, where 0 is the model's
+    # own boundary; a cell has to reach +1 before it costs anything at all and
+    # +3 before it is forbidden outright. Weak opinions leave the lidar's
+    # verdict alone, which is what kept the earlier classifier from painting
+    # good ground as obstacle.
+    hazard_low: 1.0
+    hazard_high: 3.0
 stairs_filter:
   enable: True
   fill_nan: False

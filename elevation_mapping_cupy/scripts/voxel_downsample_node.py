@@ -34,6 +34,15 @@ class VoxelDownsampleNode(Node):
         self.voxel_size = float(self.declare_parameter("voxel_size", 0.05).value)
         # Points beyond the map's own reach cost time and reach no cell.
         self.max_range = float(self.declare_parameter("max_range", 0.0).value)
+        # Self returns. The sensor sits on the robot's nose, so its own
+        # chassis, wheels and caster fall inside the beam and come back as
+        # solid ground at deck height. Real stacks drop these with a body
+        # filter; this is that filter, a box in the sensor's own frame.
+        # Empty (or min == max) disables it.
+        self.self_min = [float(v) for v in self.declare_parameter(
+            "self_filter_min", [0.0, 0.0, 0.0]).value]
+        self.self_max = [float(v) for v in self.declare_parameter(
+            "self_filter_max", [0.0, 0.0, 0.0]).value]
 
         qos = QoSPresetProfiles.SENSOR_DATA.value
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
@@ -55,6 +64,19 @@ class VoxelDownsampleNode(Node):
 
         if self.max_range > 0:
             pts = pts[np.linalg.norm(pts, axis=1) <= self.max_range]
+            if pts.size == 0:
+                return
+
+        lo, hi = np.array(self.self_min), np.array(self.self_max)
+        if np.any(hi > lo):
+            inside = np.all((pts >= lo) & (pts <= hi), axis=1)
+            dropped = int(inside.sum())
+            pts = pts[~inside]
+            if dropped:
+                self.get_logger().info(
+                    f"Body filter dropped {dropped} self returns.",
+                    throttle_duration_sec=10.0,
+                )
             if pts.size == 0:
                 return
 

@@ -36,11 +36,15 @@
       lidar:
         topic_name: '/lidar/points_downsampled'
         data_type: pointcloud
-      semantic_cam:
-        topic_name: '/front_cam/semantic_image'
-        camera_info_topic_name: '/front_cam/camera_info_resized'
-        channel_info_topic_name: '/front_cam/channel_info'
-        channels: ['road', 'sidewalk', 'person', 'car']   # must match the semantic_sensor config
+      # SAM-TP answers "can this be driven on" as one continuous logit
+      # rather than naming a class, which is the judgement the map wants and
+      # the one a Cityscapes classifier could not hold steady on synthetic
+      # pavement: it read this sidewalk as roadway at 0.91 confidence.
+      samtp_cam:
+        topic_name: '/front_cam/samtp_score'
+        camera_info_topic_name: '/front_cam/samtp_camera_info'
+        channel_info_topic_name: '/front_cam/samtp_channel_info'
+        channels: ['untrav']
         data_type: image
 
     publishers:
@@ -49,7 +53,7 @@
         basic_layers: ['elevation']
         fps: 5.0
       elevation_map_semantic:
-        layers: ['elevation', 'road', 'sidewalk', 'person', 'car']
+        layers: ['elevation', 'untrav']
         basic_layers: ['elevation']
         fps: 3.0
       # Feeds the octomap grid: people and the car are untraversable, so they
