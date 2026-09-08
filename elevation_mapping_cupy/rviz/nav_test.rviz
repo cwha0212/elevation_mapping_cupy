@@ -374,20 +374,6 @@ Visualization Manager:
       Reliability Policy: Reliable
       Value: /local_plan
     Value: true
-  - Class: rviz_default_plugins/Image
-    Enabled: false
-    Max Value: 1
-    Median window: 5
-    Min Value: 0
-    Name: Camera
-    Normalize Range: true
-    Topic:
-      Depth: 5
-      Durability Policy: Volatile
-      History Policy: Keep Last
-      Reliability Policy: Best Effort
-      Value: /camera/image_raw
-    Value: true
   - Alpha: 1
     Autocompute Intensity Bounds: false
     Class: grid_map_rviz_plugin/GridMap
@@ -473,7 +459,7 @@ Visualization Manager:
       Value: Orbit (rviz)
       Yaw: 0.800000011920929
 Window Geometry:
-  Height: 900
-  Width: 1400
-  X: 50
-  Y: 50
+  Height: 1150
+  Width: 1850
+  X: 40
+  Y: 40
