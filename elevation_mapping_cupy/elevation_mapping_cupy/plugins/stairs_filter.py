@@ -120,6 +120,12 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
         p.update({k: v for k, v in params.items() if k in DEFAULTS})
 
     xp, ndi, is_gpu = _gpu_modules(elevation)
+    # The manager hands layers over from a few different places and they do
+    # not all arrive on the same device. Pull them onto whichever one the
+    # elevation lives on before anything touches them together.
+    step, slope, roughness, valid = (
+        xp.asarray(a) for a in (step, slope, roughness, valid)
+    )
     h, w = elevation.shape
     f32 = xp.float32
 
