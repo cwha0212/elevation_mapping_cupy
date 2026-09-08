@@ -86,6 +86,10 @@ class TraversabilityCloudNode(Node):
         # clear bearing's point lands beyond it and truncates to a free ray;
         # far_range is anything past that. blind_radius is the body filter's
         # own shadow, where unmeasured means "under the robot", not "unknown".
+        # An unsafe patch smaller than this is noise, not terrain: a curb,
+        # a wall or a person paints dozens of cells, while a mis-projected
+        # pixel paints one or two.
+        self.min_blob_cells = int(self.declare_parameter("min_blob_cells", 4).value)
         self.bearings = int(self.declare_parameter("bearings", 720).value)
         self.march_range = float(self.declare_parameter("march_range", 5.5).value)
         self.far_range = float(self.declare_parameter("far_range", 9.0).value)
@@ -149,7 +153,15 @@ class TraversabilityCloudNode(Node):
 
         # grid_map convention, as published: row runs along -Y, column along -X
         # about the map centre.
-        rows, cols = np.nonzero(np.isfinite(values) & (values < self.threshold))
+        unsafe_cells = np.isfinite(values) & (values < self.threshold)
+        if self.min_blob_cells > 1:
+            labels, n_labels = ndimage.label(unsafe_cells)
+            if n_labels:
+                sizes = ndimage.sum(unsafe_cells, labels, np.arange(1, n_labels + 1))
+                small = np.isin(labels, np.nonzero(sizes < self.min_blob_cells)[0] + 1)
+                unsafe_cells &= ~small
+                values = np.where(small, self.threshold + 0.05, values)
+        rows, cols = np.nonzero(unsafe_cells)
         # Straight to the robot-centred frame, so the offsets below are already
         # what the cloud carries.
         dx = -(cols.astype(np.float32) - w / 2.0 + 0.5) * res

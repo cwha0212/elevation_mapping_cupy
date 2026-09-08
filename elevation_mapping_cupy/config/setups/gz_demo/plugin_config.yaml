@@ -66,6 +66,10 @@ semantic_safety_filter:
     # good ground as obstacle.
     hazard_low: 1.0
     hazard_high: 3.0
+    # And only nearby. Beyond this the camera's ray grazes the ground so
+    # flatly that one pixel paints a long streak of cells, which is where
+    # the speckle around the robot came from.
+    hazard_range: 4.0
 stairs_filter:
   enable: True
   fill_nan: False

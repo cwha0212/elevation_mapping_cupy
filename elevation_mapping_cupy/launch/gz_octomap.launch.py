@@ -67,6 +67,38 @@ def generate_launch_description():
         remappings=[("cloud_in", "/traversability/obstacles")],
     )
 
+    # Stairs channel. The main grid keeps a flight passable; this second,
+    # tiny octree answers WHICH passable cells are stairs, so a KeepoutFilter
+    # can hold them shut until the gait is switched.
+    stairs_cloud = Node(
+        package="elevation_mapping_cupy",
+        executable="stairs_cloud_node.py",
+        name="stairs_cloud",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{"use_sim_time": True}],
+    )
+
+    stairs_octomap = Node(
+        package="octomap_server2",
+        executable="octomap_server",
+        name="octomap_server",
+        namespace="stairs",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{
+            "use_sim_time": True,
+            "frame_id": "odom",
+            "base_frame_id": "base_link",
+            "resolution": 0.05,
+            "sensor_model/max_range": 8.0,
+            "filter_ground": False,
+            "occupancy_min_z": -0.10,
+            "occupancy_max_z": 0.10,
+        }],
+        remappings=[("cloud_in", "/stairs/cells")],
+    )
+
     lidar_octomap = Node(
         package="octomap_server2",
         executable="octomap_server",
@@ -100,5 +132,7 @@ def generate_launch_description():
         ),
         trav_cloud,
         trav_octomap,
+        stairs_cloud,
+        stairs_octomap,
         lidar_octomap,
     ])

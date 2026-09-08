@@ -39,12 +39,21 @@ class SemanticSafetyFilter(PluginBase):
         hazard_layers: list = [],
         hazard_low: float = 0.25,
         hazard_high: float = 0.60,
+        hazard_range: float = 0.0,
         **kwargs,
     ):
         self.base_layer = base_layer
         self.hazard_layers = list(hazard_layers)
         self.hazard_low = float(hazard_low)
         self.hazard_high = float(hazard_high)
+        # How far out the camera is allowed to have an opinion, in meters
+        # from the map centre. Past a few meters one pixel covers a long
+        # smear of ground, and an object's verdict lands on whatever is
+        # behind it; the geometry keeps working out there either way.
+        # 0 means no limit.
+        self.hazard_range = float(hazard_range)
+        self._cell_n = cell_n
+        self._resolution = resolution
         if self.hazard_high <= self.hazard_low:
             raise ValueError(
                 "semantic_safety_filter: hazard_high must exceed hazard_low "
@@ -84,6 +93,12 @@ class SemanticSafetyFilter(PluginBase):
 
         if hazard is None:
             return base.astype(cp.float32)
+
+        if self.hazard_range > 0.0:
+            n = self._cell_n
+            idx = cp.arange(n, dtype=cp.float32) - n / 2.0 + 0.5
+            dist = cp.sqrt(idx[None, :] ** 2 + idx[:, None] ** 2) * self._resolution
+            hazard = cp.where(dist <= self.hazard_range, hazard, 0.0)
 
         span = self.hazard_high - self.hazard_low
         semantic_term = 1.0 - cp.clip((hazard - self.hazard_low) / span, 0.0, 1.0)
