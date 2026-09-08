@@ -76,28 +76,17 @@ class TraversabilityCloudNode(Node):
         # score before thresholding -- above the obstacle cut, deliberately
         # short of clean ground.
         self.stairs_score = float(self.declare_parameter("stairs_score", 0.6).value)
-        # The flight's first steps never carry the flag: the sustained-climb
-        # window straddles the flat ground they rise from, so the gain falls
-        # short there. Growing the region onto neighbouring cells whose step
-        # is riser-sized picks those up without spilling onto anything else
-        # -- a wall steps far higher than this band, open ground far lower.
-        self.grow_cells = int(self.declare_parameter("stairs_grow_cells", 8).value)
-        # The fan. march_range stays under octomap's sensor_model/max_range so a
-        # clear bearing's point lands beyond it and truncates to a free ray;
-        # far_range is anything past that. blind_radius is the body filter's
-        # own shadow, where unmeasured means "under the robot", not "unknown".
-        # An unsafe patch smaller than this is noise, not terrain: a curb,
-        # a wall or a person paints dozens of cells, while a mis-projected
-        # pixel paints one or two.
-        self.min_blob_cells = int(self.declare_parameter("min_blob_cells", 4).value)
-        self.bearings = int(self.declare_parameter("bearings", 720).value)
-        self.march_range = float(self.declare_parameter("march_range", 5.5).value)
-        self.far_range = float(self.declare_parameter("far_range", 9.0).value)
-        self.blind_radius = float(self.declare_parameter("blind_radius", 1.0).value)
-        self.grow_step_range = [
-            float(v) for v in self.declare_parameter(
-                "stairs_grow_step_range", [0.09, 0.30]).value
-        ]
+        # Ascending confirmed only. The layer is signed and graded now, so
+        # this is a cut rather than a rule: descent stays out because a
+        # costmap cell cannot say "down here, but only in stair gait, only
+        # square-on, only from the top" -- that is the supervisor's call, and
+        # /stairs/projected_map is where it reads it.
+        self.stairs_confidence = float(
+            self.declare_parameter("stairs_confidence", 0.7).value
+        )
+        self.lift_descending = bool(
+            self.declare_parameter("lift_descending", False).value
+        )
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
@@ -125,31 +114,12 @@ class TraversabilityCloudNode(Node):
         if "stairs" in layers and self.stairs_score > 0:
             sdata = msg.data[layers.index("stairs")]
             st = np.array(sdata.data, dtype=np.float32).reshape(h, w)
-            mask = np.isfinite(st) & (st > 0.5)
-            # A flight is a REGION, not a scatter of points. The flag fires on
-            # riser cells whose climb window held enough data, which leaves
-            # holes wherever the window ran into the map's frontier -- and a
-            # single unflagged riser line still spans the full width of the
-            # stairs, so after inflation it closes the way up completely.
-            # Closing merges the riser stripes into the flight they belong to,
-            # filling holes solidifies it, and the final dilation covers the
-            # first risers at the entrance (the climb window straddles
-            # mid-flight, so those never carry the flag themselves).
-            mask = ndimage.binary_closing(mask, structure=np.ones((7, 7), bool))
-            mask = ndimage.binary_fill_holes(mask)
-            if self.grow_cells > 0 and "step" in layers:
-                sd = msg.data[layers.index("step")]
-                step_v = np.array(sd.data, dtype=np.float32).reshape(h, w)
-                lo, hi = self.grow_step_range
-                riser_like = np.isfinite(step_v) & (step_v >= lo) & (step_v <= hi)
-                mask |= ndimage.binary_dilation(
-                    mask, iterations=self.grow_cells) & riser_like
-            # No blanket dilation here. Spreading the flag with no step or
-            # validity check paints stairs_score over whatever adjoins the
-            # flight -- and a flight ends in a landing edge or, in this
-            # world, a 0.60 m cliff, so those cells were being called
-            # walkable. Growth has to be earned, which is what the
-            # riser-gated pass above does.
+            conf = np.abs(st) if self.lift_descending else st
+            mask = np.isfinite(st) & (conf >= self.stairs_confidence)
+            # No morphology here. The layer already arrives as a region the
+            # detector stands behind, and growing it a second time in the
+            # consumer is how the cliff past the top of a flight came to be
+            # painted walkable.
             #
             # np.maximum with a NaN left operand returns NaN, so unmeasured
             # cells stay unmeasured through the lift. That is load-bearing:

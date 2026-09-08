@@ -17,6 +17,7 @@ flight has been seen its cells stay marked; there is nothing to erode.
 
 import numpy as np
 import rclpy
+from scipy import ndimage
 from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
 from rclpy.node import Node
@@ -38,6 +39,19 @@ class StairsCloudNode(Node):
         self.cloud_frame = self.declare_parameter(
             "cloud_frame", "stairs_origin"
         ).value
+
+        # This channel closes ground off rather than opening it, so its
+        # errors run the other way from the main grid's: marking a stair cell
+        # that is not one costs a detour, missing one lets the robot walk on
+        # in a gait that cannot handle it. Hence a low cut, both directions,
+        # and a margin dilated around what was found.
+        self.min_confidence = float(
+            self.declare_parameter("min_confidence", 0.3).value
+        )
+        self.dilate_cells = int(self.declare_parameter("dilate_cells", 2).value)
+        # Nothing here is ever cleared, by design, so one frame of far-field
+        # noise would be permanent.
+        self.max_range = float(self.declare_parameter("max_range", 4.5).value)
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -61,10 +75,20 @@ class StairsCloudNode(Node):
         w = data.layout.dim[1].size
         values = np.array(data.data, dtype=np.float32).reshape(h, w)
 
-        res = msg.info.resolution
         # grid_map convention as published: row along -Y, column along -X of
         # the map centre, which is where the cloud frame sits.
-        rows, cols = np.nonzero(np.isfinite(values) & (values > 0.5))
+        res = msg.info.resolution
+        flag = np.isfinite(values) & (np.abs(values) >= self.min_confidence)
+        if self.max_range > 0:
+            ii = np.arange(h, dtype=np.float32) - h / 2.0 + 0.5
+            jj = np.arange(w, dtype=np.float32) - w / 2.0 + 0.5
+            near = np.hypot(ii[:, None], jj[None, :]) * res <= self.max_range
+            flag &= near
+        n_up = int((flag & (values > 0)).sum())
+        n_down = int((flag & (values < 0)).sum())
+        if self.dilate_cells > 0:
+            flag = ndimage.binary_dilation(flag, iterations=self.dilate_cells)
+        rows, cols = np.nonzero(flag)
         dx = -(cols.astype(np.float32) - w / 2.0 + 0.5) * res
         dy = -(rows.astype(np.float32) - h / 2.0 + 0.5) * res
 
@@ -82,7 +106,8 @@ class StairsCloudNode(Node):
         self.pub.publish(self._make_cloud(dx, dy, stamp))
         self._published += 1
         self.get_logger().info(
-            f"Stair cells this frame: {dx.size} (frames: {self._published})",
+            f"Stair cells this frame: {dx.size} "
+            f"(ascending {n_up}, descending {n_down}; frames: {self._published})",
             throttle_duration_sec=5.0,
         )
 

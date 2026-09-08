@@ -76,10 +76,32 @@ stairs_filter:
   enable: True
   fill_nan: False
   is_height_layer: False
-  layer_name: "stairs"                      # 1 = climbable stair flight
+  layer_name: "stairs"          # +confirmed climb .. -confirmed descent, 0 not stairs
   extra_params:
-    min_riser: 0.09                         # below: rough ground / a curb
-    max_riser: 0.30                         # D1 MaxPro climbs 30 cm continuous stairs
-    gain_window: 21                         # 1.05 m sustained-climb window
-    min_total_gain: 0.25                    # one 0.12 m curb fails, stairs pass
-    min_valid_ratio: 0.4
+    # A flight is riser AND tread, alternating. Crediting only risers made the
+    # layer stripy and let any 18-47 degree bank through as climbable; a plane
+    # has a tread fraction of exactly zero, which is where the separation
+    # comes from. The ratios are deliberately low: both fractions oscillate
+    # as the window slides over the tread period, and thresholds near their
+    # mean fragment a flight into one blob per riser.
+    min_riser: 0.09
+    max_riser: 0.30             # D1 MaxPro climbs 30 cm continuous stairs
+    riser_window: 3             # stair structure, not foot reach
+    max_tread_step: 0.04
+    max_tread_slope: 15.0
+    max_tread_roughness: 0.03
+    struct_window: 21           # 1.05 m: two to three risers at 0.4 m treads
+    min_riser_ratio: 0.10
+    min_tread_ratio: 0.08
+    min_total_gain: 0.25
+    min_valid_ratio: 0.5
+    min_valid_ratio_confirmed: 0.65
+    wall_window: 3              # a cell touching a wall-sized face is never stairs
+    interior_erosion: 5         # a wall through the middle disqualifies; along the edge does not
+    max_range: 4.5              # past this a grazing ray's noise looks like a riser
+    min_risers: 2
+    min_risers_confirmed: 3     # repetition: what a terrace and a lone ledge lack
+    max_rise_std: 0.04
+    min_tread_depth: 0.20
+    max_tread_depth: 0.60
+    min_component_cells: 60
