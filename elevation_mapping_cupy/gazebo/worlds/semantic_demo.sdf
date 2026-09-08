@@ -10,13 +10,19 @@
 
   Layout, all known positions so the map can be checked against them:
 
-    sidewalk   y in [ 0.4,  3.4]   flat, 0.12 m above the road
-    curb       y = 0.4             0.12 m riser, the geometric boundary
-    roadway    y in [-3.6,  0.4]   flat, asphalt dark
-    person     (3.0, +1.8)         on the sidewalk
-    car        (7.0, -1.6)         on the roadway
-    obstacle   (5.0, +2.4)         a wall segment on the sidewalk
-    stairs     x 10.2..11.8        four 0.15 m risers up from the sidewalk
+    pavement   y in [-1.5,  5.5]   flat, 0.12 m above the road, 34 m long
+    wall       y = 5.50            one long side is closed by the facade
+    kerb       y = -1.50           the other is a 0.12 m drop to the roadway
+    island     y in [ 1.0,  3.0]   everything to be judged, in one row:
+                 stairs    x 10.0..11.8   four 0.15 m risers
+                 bank 25   x 13.4..15.6
+                 bank 35   x 16.3..18.7
+                 ramp 11   x 22.5..25.5   up to a platform at 0.72
+                 descent   x 27.0..28.2   three steps back down
+    car        (7.0, -3.4)         parked on the roadway, clear of the kerb
+
+  The lanes either side of the island are 2.5 m, so the robot can circuit it,
+  and from either lane the boundary it faces is inside the 3.5 m march.
 
   The road surface is deliberately at ground level and the sidewalk raised, so
   a robot on the sidewalk faces a drop rather than a climb: the direction
@@ -289,21 +295,11 @@
     </model>
 
 
-    <include>
-      <name>person_a</name>
-      <pose>3.0 1.8 0.12 0 0 3.14159</pose>
-      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Casual female</uri>
-    </include>
 
-    <include>
-      <name>person_b</name>
-      <pose>8.5 2.6 0.12 0 0 3.14159</pose>
-      <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Standing person</uri>
-    </include>
 
     <include>
       <name>car</name>
-      <pose>7.0 -1.6 0 0 0 0</pose>
+      <pose>7.0 -3.4 0 0 0 0</pose>
       <uri>https://fuel.gazebosim.org/1.0/OpenRobotics/models/Hatchback</uri>
     </include>
 

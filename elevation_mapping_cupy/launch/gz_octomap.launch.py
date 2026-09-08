@@ -105,6 +105,45 @@ def generate_launch_description():
         remappings=[("cloud_in", "/stairs/cells")],
     )
 
+    # A slope needs a gait change as much as a flight does, so it gets the
+    # same treatment: its own tiny octree saying which passable cells are
+    # ramp, for a supervisor or a KeepoutFilter to act on. The node is the
+    # stairs one pointed at the other layer -- both layers are signed and
+    # graded in the same convention, so nothing else has to change.
+    ramp_cloud = Node(
+        package="elevation_mapping_cupy",
+        executable="stairs_cloud_node.py",
+        name="ramp_cloud",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{
+            "use_sim_time": True,
+            "layer": "ramp",
+            "output_topic": "/ramp/cells",
+            "cloud_frame": "ramp_origin",
+        }],
+    )
+
+    ramp_octomap = Node(
+        package="octomap_server2",
+        executable="octomap_server",
+        name="octomap_server",
+        namespace="ramp",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{
+            "use_sim_time": True,
+            "frame_id": "odom",
+            "base_frame_id": "base_link",
+            "resolution": 0.05,
+            "sensor_model/max_range": 8.0,
+            "filter_ground": False,
+            "occupancy_min_z": -0.10,
+            "occupancy_max_z": 0.10,
+        }],
+        remappings=[("cloud_in", "/ramp/cells")],
+    )
+
     lidar_octomap = Node(
         package="octomap_server2",
         executable="octomap_server",
@@ -140,5 +179,7 @@ def generate_launch_description():
         trav_octomap,
         stairs_cloud,
         stairs_octomap,
+        ramp_cloud,
+        ramp_octomap,
         lidar_octomap,
     ])
