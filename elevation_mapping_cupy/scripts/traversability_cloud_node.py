@@ -144,7 +144,17 @@ class TraversabilityCloudNode(Node):
                 riser_like = np.isfinite(step_v) & (step_v >= lo) & (step_v <= hi)
                 mask |= ndimage.binary_dilation(
                     mask, iterations=self.grow_cells) & riser_like
-            mask = ndimage.binary_dilation(mask, iterations=2)
+            # No blanket dilation here. Spreading the flag with no step or
+            # validity check paints stairs_score over whatever adjoins the
+            # flight -- and a flight ends in a landing edge or, in this
+            # world, a 0.60 m cliff, so those cells were being called
+            # walkable. Growth has to be earned, which is what the
+            # riser-gated pass above does.
+            #
+            # np.maximum with a NaN left operand returns NaN, so unmeasured
+            # cells stay unmeasured through the lift. That is load-bearing:
+            # "tidying" this into np.nan_to_num would punch free space into
+            # the map wherever the flag overlaps unseen ground.
             values = np.where(mask, np.maximum(values, self.stairs_score), values)
 
         res = msg.info.resolution
