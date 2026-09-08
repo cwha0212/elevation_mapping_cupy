@@ -123,6 +123,17 @@ class TraversabilityCloudNode(Node):
         # every obstacle swells by the width of the window and seals gaps the
         # robot fits through. So known-ness reads wide and hazard reads narrow.
         self.support_cells = int(self.declare_parameter("support_cells", 15).value)
+        # The mirror image of the stairs lift. A flight is structure the robot
+        # can negotiate and gets promoted over what geometry says; an edge is
+        # structure it falls off and gets demoted, whatever geometry says. And
+        # geometry does say the wrong thing here: a kerb lip goes unmeasured,
+        # so step reads 0.007 across a 0.12 m boundary and drivability calls
+        # the roadway as walkable as the pavement. The drop layer measures the
+        # same edge asymmetrically and reads 0.128.
+        self.drop_layer = self.declare_parameter("drop_layer", "drop").value
+        self.drop_threshold = float(
+            self.declare_parameter("drop_threshold", 0.08).value
+        )
         self.hazard_cells = int(self.declare_parameter("hazard_cells", 3).value)
         # Drop edges. A bearing that runs out of measured ground close by is
         # telling you something: within this radius the sensor sees all round
@@ -185,6 +196,15 @@ class TraversabilityCloudNode(Node):
             # "tidying" this into np.nan_to_num would punch free space into
             # the map wherever the flag overlaps unseen ground.
             values = np.where(mask, np.maximum(values, self.stairs_score), values)
+
+        if self.drop_layer in layers and self.drop_threshold > 0:
+            ddata = msg.data[layers.index(self.drop_layer)]
+            dp = np.array(ddata.data, dtype=np.float32).reshape(h, w)
+            over = np.isfinite(dp) & (dp >= self.drop_threshold)
+            # 0.0 is below any sane threshold, so this refuses the cell
+            # outright rather than nudging it. Unmeasured cells keep their
+            # NaN: an edge nobody has seen is not an edge yet.
+            values = np.where(over, 0.0, values)
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x

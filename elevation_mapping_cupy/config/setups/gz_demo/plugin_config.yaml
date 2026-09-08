@@ -125,3 +125,18 @@ ramp_filter:
     max_slope_std: 8.0          # a ramp is planar; rubble is not
     max_range: 4.5
     min_component_cells: 60
+drop_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "drop"            # meters the ground falls away by, 0 = nowhere to fall
+  extra_params:
+    # A kerb is invisible to step and plain in elevation: the lip goes
+    # unmeasured, so a 0.25 m span centred on the last measured pavement cell
+    # never reaches the road and reports 0.007 for a 0.12 m boundary. Asked
+    # asymmetrically -- how far below this cell does the ground get -- the
+    # same edge reads 0.128. Measured on the bench at this radius: 91% of the
+    # kerb flagged, pavement 0.09%, the strip along the facade 0.07%.
+    radius: 0.50                # also the standoff a walking robot wants from an edge
+    min_drop: 0.08              # below this it is ground texture
+    exempt_confidence: 0.2      # a flight or a ramp, and its landing, are exempt
