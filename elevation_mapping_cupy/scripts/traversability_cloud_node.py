@@ -294,13 +294,19 @@ class TraversabilityCloudNode(Node):
                     if not unknown_m[b, f:f + shadow].all():
                         continue  # a hole in the returns, not a drop
                     bs, bc = mr[b, f - support:f], mc[b, f - support:f]
-                    back = np.where(supported[bs, bc], worst[bs, bc], np.nan)
+                    # measured, and nothing dangerous on it. The hazard window
+                    # returns inf where it found no measurement of its own,
+                    # which reads as passable and should: support has already
+                    # said the ground is known, and the narrow window finding
+                    # nothing on it is the definition of clear.
+                    back_known = supported[bs, bc]
+                    back_worst = worst[bs, bc]
                     # ground has to be measured and passable right up to the
                     # lip, or there is nothing to say the edge is where we
                     # think it is. Passable also exempts a flight or a ramp:
                     # those occlude their own far side, and that frontier is
                     # the one thing all the stairs work exists to keep open.
-                    if not (np.isfinite(back).all() and (back >= self.threshold).all()):
+                    if not (back_known.all() and (back_worst >= self.threshold).all()):
                         continue
                     dx = np.concatenate([dx, [ux[b] * steps[f - 1]]]).astype(np.float32)
                     dy = np.concatenate([dy, [uy[b] * steps[f - 1]]]).astype(np.float32)
