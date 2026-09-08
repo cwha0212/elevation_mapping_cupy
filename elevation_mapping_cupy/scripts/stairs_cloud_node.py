@@ -57,7 +57,14 @@ class StairsCloudNode(Node):
         self.min_confidence = float(
             self.declare_parameter("min_confidence", 0.3).value
         )
-        self.dilate_cells = int(self.declare_parameter("dilate_cells", 2).value)
+        # 0.4 m of margin, and it is doing a specific job: the detectors gate
+        # on total gain inside a 1.05 m window, so the first half-window of a
+        # shallow ramp can never flag itself -- measured, the 11 degree ramp's
+        # approach edge came back 17% marked while its interior ran 64% and
+        # everything stray was zero. Growing the marks covers the structural
+        # blind strip at the foot, and errs by switching gait half a step
+        # early, which is the safe direction for this channel by definition.
+        self.dilate_cells = int(self.declare_parameter("dilate_cells", 8).value)
         # Nothing here is ever cleared, by design, so one frame of far-field
         # noise would be permanent.
         self.max_range = float(self.declare_parameter("max_range", 4.5).value)
