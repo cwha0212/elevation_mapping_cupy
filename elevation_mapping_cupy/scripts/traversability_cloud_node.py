@@ -100,6 +100,16 @@ class TraversabilityCloudNode(Node):
         self.march_range = float(self.declare_parameter("march_range", 5.5).value)
         self.far_range = float(self.declare_parameter("far_range", 9.0).value)
         self.blind_radius = float(self.declare_parameter("blind_radius", 1.0).value)
+        # Drop edges. A bearing that runs out of measured ground close by is
+        # telling you something: within this radius the sensor sees all round
+        # and anything solid would have stopped the march as an obstacle
+        # first, so ground that simply ends is ground that fell away. That is
+        # the kerb seen from the pavement -- the roadway below its lip sits in
+        # the lip's own shadow, so the step filter has nothing to measure and
+        # the boundary reads as open ground running into unknown.
+        self.drop_edge_range = float(
+            self.declare_parameter("drop_edge_range", 4.0).value
+        )
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
@@ -174,12 +184,37 @@ class TraversabilityCloudNode(Node):
             unsafe_m = np.isfinite(sampled) & (sampled < self.threshold)
             unknown_m = ~np.isfinite(sampled) & (steps[None, :] >= self.blind_radius)
             blocked = unsafe_m | unknown_m
-            clear = ~blocked.any(axis=1)
+            any_blocked = blocked.any(axis=1)
+            clear = ~any_blocked
             if clear.any():
                 dx = np.concatenate([dx, ux[clear] * self.far_range]).astype(np.float32)
                 dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
+
+            n_drop = 0
+            if self.drop_edge_range > 0:
+                first = np.where(any_blocked, blocked.argmax(axis=1), steps.size)
+                idx = np.arange(self.bearings)
+                at = np.minimum(first, steps.size - 1)
+                # only the bearings that ran out of ground rather than into
+                # something, close enough that nothing else explains it, with
+                # a measured cell right behind the frontier to stand the mark on
+                stopped_unknown = any_blocked & unknown_m[idx, at] & ~unsafe_m[idx, at]
+                near = stopped_unknown & (steps[at] <= self.drop_edge_range) & (first > 0)
+                if near.any():
+                    lip = np.maximum(first[near] - 1, 0)
+                    # a flight or a ramp occludes its own far side, and that
+                    # frontier is the thing we spent all this effort keeping
+                    # open, so it is not a drop edge
+                    keep = values[mr[idx[near], lip], mc[idx[near], lip]] >= self.threshold
+                    r_lip = steps[lip][keep]
+                    n_drop = int(keep.sum())
+                    if n_drop:
+                        dx = np.concatenate([dx, ux[near][keep] * r_lip]).astype(np.float32)
+                        dy = np.concatenate([dy, uy[near][keep] * r_lip]).astype(np.float32)
+
             self.get_logger().info(
-                f"Bearings: {int(clear.sum())} clear of {self.bearings}",
+                f"Bearings: {int(clear.sum())} clear, {n_drop} drop edges, "
+                f"of {self.bearings}",
                 throttle_duration_sec=5.0,
             )
 

@@ -59,7 +59,13 @@ def generate_launch_description():
             "frame_id": "odom",
             "base_frame_id": "base_link",
             "resolution": 0.05,
-            "sensor_model/max_range": 8.0,
+            # Matched to the fan's march_range on purpose. A clear bearing's
+            # point lands past this and octomap truncates it into a free ray
+            # that stops exactly where the march stopped checking. Leave this
+            # larger and every clear bearing sweeps free through ground
+            # nothing verified, erasing walls and kerbs that were mapped
+            # correctly from closer up.
+            "sensor_model/max_range": 5.5,
             "filter_ground": False,
             "occupancy_min_z": -0.10,
             "occupancy_max_z": 0.10,
