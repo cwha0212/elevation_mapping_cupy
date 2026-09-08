@@ -90,9 +90,17 @@ class TraversabilityCloudNode(Node):
             sdata = msg.data[layers.index("stairs")]
             st = np.array(sdata.data, dtype=np.float32).reshape(h, w)
             mask = np.isfinite(st) & (st > 0.5)
-            # The climb window only straddles mid-flight, so the first risers
-            # sit just outside the flag and would keep an obstacle line
-            # across the entrance; spilling the mask a few cells covers them.
+            # A flight is a REGION, not a scatter of points. The flag fires on
+            # riser cells whose climb window held enough data, which leaves
+            # holes wherever the window ran into the map's frontier -- and a
+            # single unflagged riser line still spans the full width of the
+            # stairs, so after inflation it closes the way up completely.
+            # Closing merges the riser stripes into the flight they belong to,
+            # filling holes solidifies it, and the final dilation covers the
+            # first risers at the entrance (the climb window straddles
+            # mid-flight, so those never carry the flag themselves).
+            mask = ndimage.binary_closing(mask, structure=np.ones((7, 7), bool))
+            mask = ndimage.binary_fill_holes(mask)
             mask = ndimage.binary_dilation(mask, iterations=3)
             values = np.where(mask, np.maximum(values, self.stairs_score), values)
 
