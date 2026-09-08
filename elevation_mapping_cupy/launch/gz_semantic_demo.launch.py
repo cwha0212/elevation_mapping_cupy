@@ -29,13 +29,16 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 LIDAR_FRAME = "robot/base_link/lidar"
-LIDAR_XYZ = (0.35, 0.0, 0.17)
+LIDAR_XYZ = (0.66, -0.07, 0.0)
 
-# Optical convention, as the projection requires: x right, y down, z forward,
-# composed with the camera's 5 degree downward tilt.
+# Straight from haechi_data/calib/haechi_calibration.yaml, which states every
+# extrinsic as T_lidarframe_sensor. The camera's rotation there is already the
+# optical convention the projection wants (x right, y down, z forward), and the
+# world file reproduces the same camera-to-lidar offset, so what the sim
+# projects and what the robot projects are the same geometry.
 COLOR_FRAME = "robot/base_link/color"
-COLOR_XYZ = (0.62, 0.0, 0.10)
-COLOR_QUAT_XYZW = (-0.521341815, 0.521341815, -0.477705675, 0.477705675)
+COLOR_XYZ = (0.675, -0.063, 0.135)
+COLOR_QUAT_XYZW = (-0.51018308, 0.45905178, -0.51700551, 0.51155795)
 
 # L4T ships only Mesa in the glvnd vendor directory, so ogre2 renders nothing
 # unless the loader is pointed at NVIDIA's own vendor file.

@@ -256,7 +256,11 @@
              faithful stand-in: 360 deg round, 90 deg tall (-60..+30), at
              deck height. The old 40 deg band could not see a staircase. -->
         <sensor name="lidar" type="gpu_lidar">
-          <pose>0.35 0 0.17 0 0 0</pose>
+          <!-- At the RSAIRY's calibrated spot: the nose, a hand below the
+               deck. Sitting it on the deck instead made the robot scan its
+               own back: the body shadowed almost every downward ray and
+               the map filled with the chassis top at 0.78 m. -->
+          <pose>0.66 -0.07 0.0 0 0 0</pose>
           <update_rate>10</update_rate>
           <always_on>true</always_on>
           <topic>lidar</topic>
@@ -291,7 +295,7 @@
              the model needs to see the people standing on it. 640x480 because
              the network resizes anyway and detail matters more than rate. -->
         <sensor name="color" type="camera">
-          <pose>0.62 0 0.10 0 0.0873 0</pose>
+          <pose>0.675 -0.063 0.135 0.0 -0.058 0.047</pose>
           <!-- 4 Hz, not 10. Everything here renders on the same GPU: the
                simulator's own view, this camera, the lidar's raycast, the
                segmentation and RViz. At 10 Hz the total sat at 97% and RViz
