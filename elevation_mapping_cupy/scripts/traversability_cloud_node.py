@@ -100,6 +100,17 @@ class TraversabilityCloudNode(Node):
         self.march_range = float(self.declare_parameter("march_range", 5.5).value)
         self.far_range = float(self.declare_parameter("far_range", 9.0).value)
         self.blind_radius = float(self.declare_parameter("blind_radius", 1.0).value)
+        # How far either side of a cell the march will look for a measurement
+        # before calling it unknown. A 32 beam lidar lays its rings about a
+        # metre apart by 3 m out, so at 5 cm most cells are between rings and
+        # have never been hit -- measured here, 1.5% of cells are valid at 3 m
+        # from a standing robot. Judged cell by cell, every bearing runs into
+        # the first gap between rings and stops, which is how a march over a
+        # perfectly good surface came back with nothing at all. So a cell
+        # counts as measured if anything within this window was, and it counts
+        # as unsafe if the worst thing in that window was, which errs the only
+        # way it is safe to err.
+        self.support_cells = int(self.declare_parameter("support_cells", 7).value)
         # Drop edges. A bearing that runs out of measured ground close by is
         # telling you something: within this radius the sensor sees all round
         # and anything solid would have stopped the march as an obstacle
@@ -212,9 +223,16 @@ class TraversabilityCloudNode(Node):
             my = uy[:, None] * steps[None, :]
             mc = np.clip((w / 2.0 - 0.5 - mx / res).round().astype(np.int32), 0, w - 1)
             mr = np.clip((h / 2.0 - 0.5 - my / res).round().astype(np.int32), 0, h - 1)
-            sampled = values[mr, mc]
-            unsafe_m = np.isfinite(sampled) & (sampled < self.threshold)
-            unknown_m = ~np.isfinite(sampled) & (steps[None, :] >= self.blind_radius)
+            k = max(1, self.support_cells)
+            finite = np.isfinite(values)
+            worst = ndimage.minimum_filter(
+                np.where(finite, values, np.inf), size=k, mode="nearest"
+            )
+            supported = ndimage.maximum_filter(finite, size=k, mode="nearest")
+            sam_worst = worst[mr, mc]
+            sam_known = supported[mr, mc]
+            unsafe_m = sam_known & np.isfinite(sam_worst) & (sam_worst < self.threshold)
+            unknown_m = ~sam_known & (steps[None, :] >= self.blind_radius)
             blocked = unsafe_m | unknown_m
             any_blocked = blocked.any(axis=1)
             clear = ~any_blocked
@@ -259,7 +277,8 @@ class TraversabilityCloudNode(Node):
                     f = first[b]
                     if not unknown_m[b, f:f + shadow].all():
                         continue  # a hole in the returns, not a drop
-                    back = values[mr[b, f - support:f], mc[b, f - support:f]]
+                    bs, bc = mr[b, f - support:f], mc[b, f - support:f]
+                    back = np.where(supported[bs, bc], worst[bs, bc], np.nan)
                     # ground has to be measured and passable right up to the
                     # lip, or there is nothing to say the edge is where we
                     # think it is. Passable also exempts a flight or a ramp:
