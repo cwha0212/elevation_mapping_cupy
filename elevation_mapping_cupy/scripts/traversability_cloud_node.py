@@ -110,6 +110,18 @@ class TraversabilityCloudNode(Node):
         self.drop_edge_range = float(
             self.declare_parameter("drop_edge_range", 4.0).value
         )
+        # A real drop casts a shadow that goes on: from the kerb the whole
+        # roadway is hidden, metres of it. A gap in the returns is one or two
+        # cells and has measured ground straight after. Requiring the unknown
+        # to run this far, with solid ground for this much behind it, is what
+        # separates the two -- without it every speckle in the sweep puts an
+        # obstacle in the middle of clear pavement.
+        self.drop_edge_shadow = float(
+            self.declare_parameter("drop_edge_shadow", 0.6).value
+        )
+        self.drop_edge_support = float(
+            self.declare_parameter("drop_edge_support", 0.25).value
+        )
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
@@ -191,26 +203,38 @@ class TraversabilityCloudNode(Node):
                 dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
 
             n_drop = 0
-            if self.drop_edge_range > 0:
+            shadow = int(round(self.drop_edge_shadow / res))
+            support = int(round(self.drop_edge_support / res))
+            if self.drop_edge_range > 0 and shadow > 0:
                 first = np.where(any_blocked, blocked.argmax(axis=1), steps.size)
                 idx = np.arange(self.bearings)
                 at = np.minimum(first, steps.size - 1)
-                # only the bearings that ran out of ground rather than into
-                # something, close enough that nothing else explains it, with
-                # a measured cell right behind the frontier to stand the mark on
+                # bearings that ran out of ground rather than into something,
+                # near enough that nothing else explains it, and with room left
+                # in the march to see the whole shadow before judging it
                 stopped_unknown = any_blocked & unknown_m[idx, at] & ~unsafe_m[idx, at]
-                near = stopped_unknown & (steps[at] <= self.drop_edge_range) & (first > 0)
-                if near.any():
-                    lip = np.maximum(first[near] - 1, 0)
-                    # a flight or a ramp occludes its own far side, and that
-                    # frontier is the thing we spent all this effort keeping
-                    # open, so it is not a drop edge
-                    keep = values[mr[idx[near], lip], mc[idx[near], lip]] >= self.threshold
-                    r_lip = steps[lip][keep]
-                    n_drop = int(keep.sum())
-                    if n_drop:
-                        dx = np.concatenate([dx, ux[near][keep] * r_lip]).astype(np.float32)
-                        dy = np.concatenate([dy, uy[near][keep] * r_lip]).astype(np.float32)
+                near = (
+                    stopped_unknown
+                    & (steps[at] <= self.drop_edge_range)
+                    & (first >= support)
+                    & (first + shadow <= steps.size)
+                )
+                cand = np.nonzero(near)[0]
+                for b in cand:
+                    f = first[b]
+                    if not unknown_m[b, f:f + shadow].all():
+                        continue  # a hole in the returns, not a drop
+                    back = values[mr[b, f - support:f], mc[b, f - support:f]]
+                    # ground has to be measured and passable right up to the
+                    # lip, or there is nothing to say the edge is where we
+                    # think it is. Passable also exempts a flight or a ramp:
+                    # those occlude their own far side, and that frontier is
+                    # the one thing all the stairs work exists to keep open.
+                    if not (np.isfinite(back).all() and (back >= self.threshold).all()):
+                        continue
+                    dx = np.concatenate([dx, [ux[b] * steps[f - 1]]]).astype(np.float32)
+                    dy = np.concatenate([dy, [uy[b] * steps[f - 1]]]).astype(np.float32)
+                    n_drop += 1
 
             self.get_logger().info(
                 f"Bearings: {int(clear.sum())} clear, {n_drop} drop edges, "
