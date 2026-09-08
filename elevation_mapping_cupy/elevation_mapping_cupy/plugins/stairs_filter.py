@@ -41,7 +41,12 @@ DEFAULTS = dict(
     riser_window=3,
     # tread evidence: flat, level, smooth
     max_tread_step=0.04,
-    max_tread_slope=15.0,
+    # Real treads are level: measured on this staircase, median 2.6 degrees.
+    # 15 was loose enough to count an 11 degree ramp's surface as tread, and
+    # with the ramp's own edge supplying risers the whole thing read as a
+    # flight. 7 keeps the treads (their p90 is 13, but the fraction only has
+    # to clear 0.08 and it sits at 0.37) and drops the ramp.
+    max_tread_slope=7.0,
     max_tread_roughness=0.03,
     # the structural window both fractions are counted over
     struct_window=21,
@@ -270,33 +275,59 @@ def _climb_sign(comp, elevation, dist, min_corr=0.2):
     return -1.0 if corr < -min_corr else 1.0
 
 
-def _riser_lines(comp, riser, ndi, min_cells=3):
-    """The individual riser faces inside one region, with their centroids."""
-    labels, n = ndi.label(riser & comp)
-    lines = []
-    for k in range(1, n + 1):
-        sel = labels == k
-        cnt = int(sel.sum())
-        if cnt < min_cells:
-            continue
-        rr, cc = np.nonzero(sel)
-        lines.append((cnt, float(rr.mean()), float(cc.mean()), sel))
-    return lines
+def _riser_profile(comp, riser, elevation, fine, resolution, min_cells=3):
+    """How many risers this region has, how far apart, and how even.
 
-
-def _tread_depth(lines, resolution):
-    """Spacing between riser faces: the tread depth, in meters.
-
-    Measured along whichever axis the risers actually march down, so it does
-    not matter which way the flight is turned.
+    Counted by projecting the riser cells onto the region's own climb
+    direction and looking for clusters along it, rather than by counting
+    connected blobs. A riser face that comes back in three noisy pieces is
+    one riser, and blob counting would call it three -- which inflates the
+    count past the confirmation threshold and shrinks the apparent tread
+    depth until anything passes.
     """
-    if len(lines) < 2:
-        return None
-    rs = np.array([ln[1] for ln in lines])
-    cs = np.array([ln[2] for ln in lines])
-    spread_r, spread_c = rs.max() - rs.min(), cs.max() - cs.min()
-    along = rs if spread_r >= spread_c else cs
-    return float(along.max() - along.min()) / (len(lines) - 1) * resolution
+    sel = riser & comp
+    n_sel = int(sel.sum())
+    if n_sel < min_cells:
+        return 0, None, None
+
+    grow, gcol = np.gradient(np.nan_to_num(elevation, nan=0.0))
+    vr = float(np.mean(grow[comp]))
+    vc = float(np.mean(gcol[comp]))
+    norm = math.hypot(vr, vc)
+    if norm < 1e-9:
+        return 0, None, None
+    ur, uc = vr / norm, vc / norm
+
+    rr, cc = np.nonzero(sel)
+    proj = (rr * ur + cc * uc) * resolution
+    lo, hi = float(proj.min()), float(proj.max())
+    if hi - lo < resolution:
+        return 1, None, None
+
+    nbins = max(int((hi - lo) / resolution) + 1, 2)
+    hist, edges = np.histogram(proj, bins=nbins, range=(lo, hi + 1e-6))
+    occupied = np.flatnonzero(hist > max(1, int(0.02 * n_sel)))
+    if occupied.size == 0:
+        return 0, None, None
+
+    runs, start, prev = [], occupied[0], occupied[0]
+    for i in occupied[1:]:
+        if i > prev + 1:
+            runs.append((start, prev))
+            start = i
+        prev = i
+    runs.append((start, prev))
+
+    centres = np.array([(edges[a] + edges[b + 1]) / 2.0 for a, b in runs])
+    depth = float(np.median(np.diff(centres))) if centres.size >= 2 else None
+
+    rises = []
+    for a, b in runs:
+        in_run = (proj >= edges[a]) & (proj <= edges[b + 1])
+        if in_run.any():
+            rises.append(float(np.median(fine[rr[in_run], cc[in_run]])))
+    rise_std = float(np.std(rises)) if len(rises) >= 2 else 0.0
+    return centres.size, depth, rise_std
 
 
 def _grade_component(comp, riser, tall, elevation, fine, valid_frac, dist,
@@ -310,8 +341,9 @@ def _grade_component(comp, riser, tall, elevation, fine, valid_frac, dist,
     if core.sum() < p["min_component_cells"]:
         return 0.0
 
-    lines = _riser_lines(comp, riser, ndi)
-    n_risers = len(lines)
+    n_risers, depth, rise_std = _riser_profile(
+        comp, riser, elevation, fine, resolution
+    )
     if n_risers < p["min_risers"]:
         return 0.0
 
@@ -321,10 +353,8 @@ def _grade_component(comp, riser, tall, elevation, fine, valid_frac, dist,
     if n_risers < p["min_risers_confirmed"]:
         confirmed = False
     else:
-        rises = np.array([float(np.median(fine[ln[3]])) for ln in lines])
-        if float(rises.std()) > p["max_rise_std"]:
+        if rise_std is None or rise_std > p["max_rise_std"]:
             confirmed = False
-        depth = _tread_depth(lines, resolution)
         if depth is None or not (
             p["min_tread_depth"] <= depth <= p["max_tread_depth"]
         ):
