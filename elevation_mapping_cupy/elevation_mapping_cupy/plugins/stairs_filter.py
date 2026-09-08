@@ -290,9 +290,17 @@ def _riser_profile(comp, riser, elevation, fine, resolution, min_cells=3):
     if n_sel < min_cells:
         return 0, None, None
 
-    grow, gcol = np.gradient(np.nan_to_num(elevation, nan=0.0))
-    vr = float(np.mean(grow[comp]))
-    vc = float(np.mean(gcol[comp]))
+    # Climb direction from how height covaries with position across the
+    # whole region. Taking a gradient instead means filling the unmeasured
+    # cells with something first, and whatever that something is becomes a
+    # cliff at the frontier that drags the direction off true -- enough to
+    # smear four risers into two clusters and double the apparent tread.
+    cr, cc_all = np.nonzero(comp & np.isfinite(elevation))
+    if cr.size < min_cells:
+        return 0, None, None
+    ez = elevation[cr, cc_all].astype(np.float64)
+    vr = float(np.cov(ez, cr.astype(np.float64))[0, 1])
+    vc = float(np.cov(ez, cc_all.astype(np.float64))[0, 1])
     norm = math.hypot(vr, vc)
     if norm < 1e-9:
         return 0, None, None
