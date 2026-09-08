@@ -267,7 +267,7 @@ Visualization Manager:
     Color Scheme: costmap
     Draw Behind: false
     Enabled: true
-    Name: StairsGrid
+    Name: GaitGrid
     Topic:
       Depth: 5
       Durability Policy: Volatile
@@ -399,26 +399,6 @@ Visualization Manager:
       Reliability Policy: Reliable
       Value: /elevation_mapping_node/elevation_map_terrain
     Use Rainbow: true
-    Value: true
-  - Alpha: 0.8
-    Class: rviz_default_plugins/Map
-    Color Scheme: costmap
-    Draw Behind: false
-    Enabled: true
-    Name: RampGrid
-    Topic:
-      Depth: 5
-      Durability Policy: Volatile
-      History Policy: Keep Last
-      Reliability Policy: Reliable
-      Value: /ramp/projected_map
-    Update Topic:
-      Depth: 5
-      Durability Policy: Volatile
-      History Policy: Keep Last
-      Reliability Policy: Reliable
-      Value: /ramp/projected_map_updates
-    Use Timestamp: false
     Value: true
   Enabled: true
   Global Options:

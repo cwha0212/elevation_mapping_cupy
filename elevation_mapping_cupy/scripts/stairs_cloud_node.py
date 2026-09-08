@@ -34,7 +34,16 @@ class StairsCloudNode(Node):
         self.output_topic = self.declare_parameter(
             "output_topic", "/stairs/cells"
         ).value
-        self.layer = self.declare_parameter("layer", "stairs").value
+        # One channel, not one per terrain type. Stairs and slopes demand the
+        # same gait switch, so a supervisor keying off this grid has no use
+        # for knowing which of the two it is standing in front of -- and two
+        # grids just mean two subscriptions and an OR the robot has to get
+        # right. Layers combine per cell by largest magnitude, which keeps
+        # the sign convention (+up, -down) and the grading across the union.
+        self.layers = [
+            str(v)
+            for v in self.declare_parameter("layers", ["stairs", "ramp"]).value
+        ]
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter(
             "cloud_frame", "stairs_origin"
@@ -58,22 +67,32 @@ class StairsCloudNode(Node):
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
         self._published = 0
         self.get_logger().info(
-            f"Publishing '{self.layer}' cells from '{self.input_topic}' "
+            f"Publishing cells of {self.layers} from '{self.input_topic}' "
             f"to '{self.output_topic}'."
         )
 
     def on_grid_map(self, msg: GridMap) -> None:
         layers = list(msg.layers)
-        if self.layer not in layers:
+        present = [name for name in self.layers if name in layers]
+        if not present:
             self.get_logger().warning(
-                f"Layer '{self.layer}' not in {layers}.", throttle_duration_sec=5.0
+                f"None of {self.layers} in {layers}.", throttle_duration_sec=5.0
             )
             return
 
-        data = msg.data[layers.index(self.layer)]
-        h = data.layout.dim[0].size
-        w = data.layout.dim[1].size
-        values = np.array(data.data, dtype=np.float32).reshape(h, w)
+        values = None
+        for name in present:
+            data = msg.data[layers.index(name)]
+            h = data.layout.dim[0].size
+            w = data.layout.dim[1].size
+            layer = np.array(data.data, dtype=np.float32).reshape(h, w)
+            if values is None:
+                values = layer
+            else:
+                stronger = np.abs(np.nan_to_num(layer)) > np.abs(
+                    np.nan_to_num(values)
+                )
+                values = np.where(stronger, layer, values)
 
         # grid_map convention as published: row along -Y, column along -X of
         # the map centre, which is where the cloud frame sits.
@@ -106,7 +125,7 @@ class StairsCloudNode(Node):
         self.pub.publish(self._make_cloud(dx, dy, stamp))
         self._published += 1
         self.get_logger().info(
-            f"Stair cells this frame: {dx.size} "
+            f"Gait cells this frame: {dx.size} "
             f"(ascending {n_up}, descending {n_down}; frames: {self._published})",
             throttle_duration_sec=5.0,
         )
