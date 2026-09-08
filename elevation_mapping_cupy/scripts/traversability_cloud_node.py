@@ -62,6 +62,16 @@ class TraversabilityCloudNode(Node):
         # score before thresholding -- above the obstacle cut, deliberately
         # short of clean ground.
         self.stairs_score = float(self.declare_parameter("stairs_score", 0.6).value)
+        # The flight's first steps never carry the flag: the sustained-climb
+        # window straddles the flat ground they rise from, so the gain falls
+        # short there. Growing the region onto neighbouring cells whose step
+        # is riser-sized picks those up without spilling onto anything else
+        # -- a wall steps far higher than this band, open ground far lower.
+        self.grow_cells = int(self.declare_parameter("stairs_grow_cells", 8).value)
+        self.grow_step_range = [
+            float(v) for v in self.declare_parameter(
+                "stairs_grow_step_range", [0.09, 0.30]).value
+        ]
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
@@ -101,7 +111,14 @@ class TraversabilityCloudNode(Node):
             # mid-flight, so those never carry the flag themselves).
             mask = ndimage.binary_closing(mask, structure=np.ones((7, 7), bool))
             mask = ndimage.binary_fill_holes(mask)
-            mask = ndimage.binary_dilation(mask, iterations=3)
+            if self.grow_cells > 0 and "step" in layers:
+                sd = msg.data[layers.index("step")]
+                step_v = np.array(sd.data, dtype=np.float32).reshape(h, w)
+                lo, hi = self.grow_step_range
+                riser_like = np.isfinite(step_v) & (step_v >= lo) & (step_v <= hi)
+                mask |= ndimage.binary_dilation(
+                    mask, iterations=self.grow_cells) & riser_like
+            mask = ndimage.binary_dilation(mask, iterations=2)
             values = np.where(mask, np.maximum(values, self.stairs_score), values)
 
         res = msg.info.resolution
