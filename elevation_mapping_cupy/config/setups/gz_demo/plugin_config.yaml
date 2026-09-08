@@ -41,7 +41,13 @@ drivability_filter:
     layers: ["slope", "step", "roughness"]
     # Quadruped-scale envelope, matching what haechi will get. The 0.15 m
     # stair risers land at 0.25 here: climbable, but barely.
-    limits: [25.0, 0.20, 0.05]
+    # The platform's own envelope, not a small dog's: the D1 MaxPro is rated
+    # for a 45 degree gradient and 30 cm continuous stairs. Against a 0.20 m
+    # step limit a 0.15 m stair riser scored 0.25 and the whole flight came
+    # out as obstacle stripes, which no amount of flagging afterwards can
+    # honestly repair -- the limit was simply describing a different robot.
+    # At 0.30 m the same riser scores 0.50 and the flight reads as ground.
+    limits: [45.0, 0.30, 0.06]
 semantic_safety_filter:
   enable: True
   fill_nan: False
