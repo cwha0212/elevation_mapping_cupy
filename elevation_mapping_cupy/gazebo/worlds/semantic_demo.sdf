@@ -83,13 +83,13 @@
     <!-- Sidewalk: raised 0.12 m, pale paving. Its edge at y=0.4 is the curb. -->
     <model name="sidewalk">
       <static>true</static>
-      <pose>10.0 1.9 0.06 0 0 0</pose>
+      <pose>10.0 3.4 0.06 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
+          <geometry><box><size>40.0 6.0 0.12</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>40.0 3.0 0.12</size></box></geometry>
+          <geometry><box><size>40.0 6.0 0.12</size></box></geometry>
           <material>
             <diffuse>1 1 1</diffuse>
             <specular>0.05 0.05 0.05</specular>
@@ -108,7 +108,7 @@
          nothing standing beside it is not a street it was ever shown. -->
     <model name="facade">
       <static>true</static>
-      <pose>10.0 3.9 2.0 0 0 0</pose>
+      <pose>10.0 6.6 2.0 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry><box><size>40.0 0.4 4.0</size></box></geometry>
@@ -225,29 +225,38 @@
     <!-- Same robot as the terrain demo: 360 lidar for geometry, forward colour
          camera for labels. The camera here feeds semantic_sensor rather than
          going straight into the map as raw rgb. -->
+    <!-- Stand-in for haechi: an AgiBot D1 MaxPro (1270 x 520 x 730 mm,
+         68 kg, climbs 30 cm continuous stairs, 45 deg gradient). Wheeled
+         rather than legged because only the sensor geometry and the
+         footprint reach the mapping layer; the gait does not. -->
     <model name="robot">
-      <pose>0 1.9 0.24 0 0 0</pose>
+      <pose>0 1.9 0.62 0 0 0</pose>
       <self_collide>false</self_collide>
 
       <link name="base_link">
         <inertial>
-          <mass>6.0</mass>
-          <inertia><ixx>0.08</ixx><iyy>0.10</iyy><izz>0.12</izz>
+          <mass>68.0</mass>
+          <inertia><ixx>2.11</ixx><iyy>9.72</iyy><izz>10.67</izz>
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><box><size>0.40 0.30 0.14</size></box></geometry>
+          <geometry><box><size>1.27 0.52 0.32</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>0.40 0.30 0.14</size></box></geometry>
+          <geometry><box><size>1.27 0.52 0.32</size></box></geometry>
           <material>
             <ambient>0.2 0.2 0.24 1</ambient>
             <diffuse>0.3 0.3 0.36 1</diffuse>
           </material>
         </visual>
 
+        <!-- haechi carries an RSAIRY up front and two MID360s angled
+             down at the sides, but elevation mapping is only ever fed their
+             MERGED cloud, so one sensor with the merged coverage is the
+             faithful stand-in: 360 deg round, 90 deg tall (-60..+30), at
+             deck height. The old 40 deg band could not see a staircase. -->
         <sensor name="lidar" type="gpu_lidar">
-          <pose>0 0 0.25 0 0 0</pose>
+          <pose>0.35 0 0.17 0 0 0</pose>
           <update_rate>10</update_rate>
           <always_on>true</always_on>
           <topic>lidar</topic>
@@ -264,10 +273,10 @@
                      GPU as the camera, the segmentation and RViz, and at the
                      full count RViz stopped repainting. A 0.05 m map does not
                      resolve more than this anyway. -->
-                <samples>16</samples>
+                <samples>32</samples>
                 <resolution>1</resolution>
-                <min_angle>-0.5236</min_angle>
-                <max_angle>0.1745</max_angle>
+                <min_angle>-1.0472</min_angle>
+                <max_angle>0.5236</max_angle>
               </vertical>
             </scan>
             <range>
@@ -282,7 +291,7 @@
              the model needs to see the people standing on it. 640x480 because
              the network resizes anyway and detail matters more than rate. -->
         <sensor name="color" type="camera">
-          <pose>0.25 0 0.28 0 0.0873 0</pose>
+          <pose>0.62 0 0.10 0 0.0873 0</pose>
           <!-- 4 Hz, not 10. Everything here renders on the same GPU: the
                simulator's own view, this camera, the lidar's raycast, the
                segmentation and RViz. At 10 Hz the total sat at 97% and RViz
@@ -292,58 +301,58 @@
           <always_on>true</always_on>
           <topic>color_cam</topic>
           <camera>
-            <horizontal_fov>1.2217</horizontal_fov>
-            <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+            <horizontal_fov>1.5800</horizontal_fov>
+            <image><width>640</width><height>360</height><format>R8G8B8</format></image>
             <clip><near>0.10</near><far>20.0</far></clip>
           </camera>
         </sensor>
       </link>
 
       <link name="left_wheel">
-        <pose>-0.10 0.17 -0.04 -1.5707 0 0</pose>
+        <pose>-0.35 0.26 -0.16 -1.5707 0 0</pose>
         <inertial>
-          <mass>0.6</mass>
-          <inertia><ixx>0.002</ixx><iyy>0.002</iyy><izz>0.003</izz>
+          <mass>4.0</mass>
+          <inertia><ixx>0.119</ixx><iyy>0.119</iyy><izz>0.231</izz>
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><cylinder><radius>0.08</radius><length>0.05</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><cylinder><radius>0.08</radius><length>0.05</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
         </visual>
       </link>
 
       <link name="right_wheel">
-        <pose>-0.10 -0.17 -0.04 -1.5707 0 0</pose>
+        <pose>-0.35 -0.26 -0.16 -1.5707 0 0</pose>
         <inertial>
-          <mass>0.6</mass>
-          <inertia><ixx>0.002</ixx><iyy>0.002</iyy><izz>0.003</izz>
+          <mass>4.0</mass>
+          <inertia><ixx>0.119</ixx><iyy>0.119</iyy><izz>0.231</izz>
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><cylinder><radius>0.08</radius><length>0.05</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><cylinder><radius>0.08</radius><length>0.05</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
         </visual>
       </link>
 
       <link name="caster">
-        <pose>0.15 0 -0.08 0 0 0</pose>
+        <pose>0.45 0 -0.16 0 0 0</pose>
         <inertial>
-          <mass>0.2</mass>
-          <inertia><ixx>0.0002</ixx><iyy>0.0002</iyy><izz>0.0002</izz>
+          <mass>2.0</mass>
+          <inertia><ixx>0.0925</ixx><iyy>0.0925</iyy><izz>0.0925</izz>
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><sphere><radius>0.04</radius></sphere></geometry>
+          <geometry><sphere><radius>0.34</radius></sphere></geometry>
           <surface><friction><ode><mu>0.05</mu><mu2>0.05</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><sphere><radius>0.04</radius></sphere></geometry>
+          <geometry><sphere><radius>0.34</radius></sphere></geometry>
         </visual>
       </link>
 
@@ -375,8 +384,8 @@
               name="ignition::gazebo::systems::DiffDrive">
         <left_joint>left_wheel_joint</left_joint>
         <right_joint>right_wheel_joint</right_joint>
-        <wheel_separation>0.34</wheel_separation>
-        <wheel_radius>0.08</wheel_radius>
+        <wheel_separation>0.52</wheel_separation>
+        <wheel_radius>0.34</wheel_radius>
         <odom_publish_frequency>50</odom_publish_frequency>
         <max_linear_acceleration>1.0</max_linear_acceleration>
         <topic>/model/robot/cmd_vel</topic>

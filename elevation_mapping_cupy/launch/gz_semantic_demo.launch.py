@@ -29,12 +29,12 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 LIDAR_FRAME = "robot/base_link/lidar"
-LIDAR_XYZ = (0.0, 0.0, 0.25)
+LIDAR_XYZ = (0.35, 0.0, 0.17)
 
 # Optical convention, as the projection requires: x right, y down, z forward,
 # composed with the camera's 5 degree downward tilt.
 COLOR_FRAME = "robot/base_link/color"
-COLOR_XYZ = (0.25, 0.0, 0.28)
+COLOR_XYZ = (0.62, 0.0, 0.10)
 COLOR_QUAT_XYZW = (-0.521341815, 0.521341815, -0.477705675, 0.477705675)
 
 # L4T ships only Mesa in the glvnd vendor directory, so ogre2 renders nothing
