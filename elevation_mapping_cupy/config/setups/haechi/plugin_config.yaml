@@ -87,7 +87,14 @@ ramp_filter:
     max_roughness: 0.05
     max_riser_step: 0.12        # over the fine window, so a 40 deg plane still qualifies
     struct_window: 21
-    min_ramp_ratio: 0.50
+    # 0.35, not 0.50. The test asks that this fraction of a 1.05 m window be
+    # sloped, which cannot hold within half a window of the edge, so the
+    # threshold sets how much of a bank's border is thrown away before
+    # anything else is considered. Measured head-on: 25 deg went 73% -> 85%
+    # of what was observed, 35 deg 34% -> 44%, the 11 deg ramp 53% -> 56%,
+    # and flat pavement stayed at 0.00% flagged at every setting tried, so
+    # the margin was not buying anything.
+    min_ramp_ratio: 0.35
     min_total_gain: 0.20
     max_slope_std: 8.0          # a ramp is planar; rubble is not
     max_range: 4.5

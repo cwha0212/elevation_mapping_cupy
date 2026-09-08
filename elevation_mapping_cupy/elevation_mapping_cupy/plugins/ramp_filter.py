@@ -37,7 +37,14 @@ DEFAULTS = dict(
     max_riser_step=0.12,
     riser_window=3,
     struct_window=21,
-    min_ramp_ratio=0.50,
+    # The window cannot be half sloped within half a window of a bank's edge,
+    # so this is really "how much of the border do we throw away". Measured
+    # head-on, dropping it from 0.50 took the 25 deg bank from 73% to 85% of
+    # what was observed and cost nothing: flat pavement flagged 0.00% either
+    # way. Shrinking the window instead is not an option -- a shallow ramp
+    # needs the full 1.05 m to clear min_total_gain at all, and the 11 deg
+    # one collapses from 56% to 14% at 0.55 m.
+    min_ramp_ratio=0.35,
     min_total_gain=0.20,
     min_valid_ratio=0.5,
     min_valid_ratio_confirmed=0.65,
