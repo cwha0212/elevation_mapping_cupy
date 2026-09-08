@@ -257,6 +257,11 @@ def generate_launch_description():
         DeclareLaunchArgument("gui", default_value="true"),
         DeclareLaunchArgument("launch_rviz", default_value="true"),
         DeclareLaunchArgument(
+            "samtp_engine",
+            default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
+            description="TensorRT engine for SAM-TP (machine specific, not in the repo).",
+        ),
+        DeclareLaunchArgument(
             "image_view",
             default_value="false",
             description="Open the segmentation output in its own window.",
