@@ -33,7 +33,6 @@ install(PROGRAMS
   scripts/samtp_node.py
   scripts/stairs_cloud_node.py
   scripts/nav_grid_fuse_node.py
-  scripts/global_height_map_node.py
   scripts/traversability_cloud_node.py
   scripts/voxel_downsample_node.py
   DESTINATION lib/${PROJECT_NAME}

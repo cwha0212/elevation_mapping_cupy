@@ -267,16 +267,6 @@ def generate_launch_description():
         }],
     )
 
-    # The world-anchored height canvas: what the moving window forgets,
-    # kept as heights rather than verdicts, on the CPU.
-    global_height = Node(
-        package="elevation_mapping_cupy",
-        executable="global_height_map_node.py",
-        name="global_height_map",
-        output="screen",
-        parameters=[{"use_sim_time": True}],
-    )
-
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy", executable="elevation_mapping_node.py",
         name="elevation_mapping_node", output="screen",
@@ -350,7 +340,6 @@ def generate_launch_description():
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
         lidar_left_tf, lidar_right_tf,
-        downsample, lidar_left_downsample, lidar_right_downsample,
-        global_height, semantic_node, elevation_mapping_node, image_view, octomap,
+        downsample, lidar_left_downsample, lidar_right_downsample, semantic_node, elevation_mapping_node, image_view, octomap,
         TimerAction(period=20.0, actions=[rviz_node]),
     ])
