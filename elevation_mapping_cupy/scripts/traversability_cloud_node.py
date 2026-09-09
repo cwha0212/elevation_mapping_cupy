@@ -233,6 +233,7 @@ class TraversabilityCloudNode(Node):
             # outright rather than nudging it. Unmeasured cells keep their
             # NaN: an edge nobody has seen is not an edge yet.
             values = np.where(over, 0.0, values)
+            hazard_extra = over.copy()
 
         level = True
         if "slope" in layers:
@@ -265,7 +266,10 @@ class TraversabilityCloudNode(Node):
                     demote = np.zeros_like(over)
                     demote[orow[held], ocol[held]] = True
                     values = np.where(demote, 0.0, values)
-
+                    try:
+                        hazard_extra |= demote
+                    except NameError:
+                        hazard_extra = demote
 
         # grid_map convention, as published: row runs along -Y, column along -X
         # about the map centre.
@@ -303,6 +307,23 @@ class TraversabilityCloudNode(Node):
         if not (self.bearings > 0 and self.march_range > 0):
             rows, cols = np.nonzero(unsafe_cells)
         dx, dy = offsets(rows, cols)
+
+        # Hazard cells bank directly, march or no march. The march reports
+        # one strike per bearing, so a border crossed obliquely gets a cell
+        # banked per pass at best and usually none: the hill's side lines
+        # came back on half their slots north and none south for exactly
+        # this reason. A wall that held still for two frames, or a measured
+        # drop, is evidence enough without waiting for a bearing to happen
+        # to end on it.
+        try:
+            he = hazard_extra
+        except NameError:
+            he = None
+        if he is not None and he.any():
+            hr2, hc2 = np.nonzero(he)
+            hx2, hy2 = offsets(hr2, hc2)
+            dx = np.concatenate([dx, hx2]).astype(np.float32)
+            dy = np.concatenate([dy, hy2]).astype(np.float32)
 
         if self.bearings > 0 and self.march_range > 0:
             steps = np.arange(res, self.march_range, res, dtype=np.float32)

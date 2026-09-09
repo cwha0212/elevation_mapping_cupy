@@ -146,6 +146,21 @@ class StairsCloudNode(Node):
             core = ndimage.binary_closing(
                 core, iterations=self.core_close_cells
             )
+        # Two cells of reach past the flags. The detectors cannot flag the
+        # half-window ring at a structure's entrance, and an eraser that
+        # stops exactly at the flags leaves that ring's stale marks forever
+        # -- measured as the entrance lines returning at the flight and the
+        # hill foot, and the planner routing around a hill whose doorway
+        # they blocked. Guarding the SIDES is no longer this channel's job:
+        # the fuse's wall/drop veto refuses erasure on any real edge, so the
+        # reach can afford to be generous where the veto has nothing to say.
+        self._core_dilate = getattr(self, "_core_dilate", None)
+        if self._core_dilate is None:
+            self._core_dilate = int(
+                self.declare_parameter("core_dilate_cells", 2).value
+            )
+        if self._core_dilate > 0 and core.any():
+            core = ndimage.binary_dilation(core, iterations=self._core_dilate)
         core_rows, core_cols = np.nonzero(core)
         cdx = -(core_cols.astype(np.float32) - w / 2.0 + 0.5) * res
         cdy = -(core_rows.astype(np.float32) - h / 2.0 + 0.5) * res
