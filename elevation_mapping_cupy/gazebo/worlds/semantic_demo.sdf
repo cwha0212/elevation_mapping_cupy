@@ -18,7 +18,7 @@
                  landing   x  9.8..10.9   floor at the top, 0.60 m
                  bank 25   x 13.4..15.6
                  bank 35   x 18.2..20.6
-                 hill      x 23.0..30.1   11.3 deg up, 1 m crest, 11.3 deg down
+                 hill      x 23.0..30.1   11.3 deg up, crest at 0.72, 11.3 deg down
     car        (7.0, -3.4)         parked on the roadway, clear of the kerb
 
   The lanes either side of the island are 2.5 m, so the robot can circuit it,
@@ -266,12 +266,17 @@
       </link>
     </model>
 
+    <!-- Crest top must equal the ramp heads exactly. The ramp's top face
+         starts at pavement height 0.12 and climbs 3.059 * sin(11.31 deg)
+         = 0.60, so the heads meet the crest at 0.72 -- not 0.61, which was
+         that same 0.60 miscounted from the ground instead of the pavement
+         and left an 0.11 m step at both joints. -->
     <model name="hill_crest">
       <static>true</static>
-      <pose>26.530 2.0 0.305 0 0 0</pose>
+      <pose>26.530 2.0 0.360 0 0 0</pose>
       <link name="l">
-        <collision name="c"><geometry><box><size>1.00 2.0 0.61</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>1.00 2.0 0.61</size></box></geometry>
+        <collision name="c"><geometry><box><size>1.00 2.0 0.72</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.00 2.0 0.72</size></box></geometry>
           <material><ambient>0.55 0.55 0.58 1</ambient><diffuse>0.55 0.55 0.58 1</diffuse></material>
         </visual>
       </link>
