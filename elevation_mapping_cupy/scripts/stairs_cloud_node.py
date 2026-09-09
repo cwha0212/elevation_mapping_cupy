@@ -77,7 +77,18 @@ class StairsCloudNode(Node):
         # noise would be permanent.
         self.max_range = float(self.declare_parameter("max_range", 4.5).value)
 
+        # A second, undilated cloud for the fuse eraser. The dilation above is
+        # margin for early gait switching, and an eraser must not inherit it:
+        # grown marks reach past a slope's side edge and erase the occupancy
+        # that stands between the robot and a 0.6 m lateral drop. The raw
+        # flags already draw the line the eraser needs -- a ramp's side rim
+        # cells never flag (the fine window sees the drop), the entrance's
+        # riser cells do -- so the core cloud is the flags verbatim.
+        self.core_topic = self.declare_parameter(
+            "core_topic", "/gait_core/cells"
+        ).value
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
+        self.core_pub = self.create_publisher(PointCloud2, self.core_topic, 5)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
         self._published = 0
@@ -120,6 +131,9 @@ class StairsCloudNode(Node):
             flag &= near
         n_up = int((flag & (values > 0)).sum())
         n_down = int((flag & (values < 0)).sum())
+        core_rows, core_cols = np.nonzero(flag)
+        cdx = -(core_cols.astype(np.float32) - w / 2.0 + 0.5) * res
+        cdy = -(core_rows.astype(np.float32) - h / 2.0 + 0.5) * res
         if self.dilate_cells > 0:
             flag = ndimage.binary_dilation(flag, iterations=self.dilate_cells)
         rows, cols = np.nonzero(flag)
@@ -138,6 +152,7 @@ class StairsCloudNode(Node):
         self.tf_broadcaster.sendTransform(tf)
 
         self.pub.publish(self._make_cloud(dx, dy, stamp))
+        self.core_pub.publish(self._make_cloud(cdx, cdy, stamp))
         self._published += 1
         self.get_logger().info(
             f"Gait cells this frame: {dx.size} "

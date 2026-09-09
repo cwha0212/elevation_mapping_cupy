@@ -107,6 +107,30 @@ def generate_launch_description():
         remappings=[("cloud_in", "/stairs/cells")],
     )
 
+    # The eraser's own octree: the gait flags verbatim, no dilation. The
+    # keepout grid above stays grown for early mode switching; this one only
+    # ever authorises un-marking, and it must stop exactly where the
+    # detector's evidence stops.
+    gait_core_octomap = Node(
+        package="octomap_server2",
+        executable="octomap_server",
+        name="octomap_server",
+        namespace="gait_core",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{
+            "use_sim_time": True,
+            "frame_id": "odom",
+            "base_frame_id": "base_link",
+            "resolution": 0.05,
+            "sensor_model/max_range": 8.0,
+            "filter_ground": False,
+            "occupancy_min_z": -0.10,
+            "occupancy_max_z": 0.10,
+        }],
+        remappings=[("cloud_in", "/gait_core/cells")],
+    )
+
     # The planner's map is the driving grid minus what the gait grid knows
     # better: occupancy inside a confidently-stairs/ramp region is stale by
     # construction (the marks predate recognition and no free ray can reach
@@ -117,7 +141,12 @@ def generate_launch_description():
         name="nav_grid_fuse",
         output="screen",
         condition=UnlessCondition(is_lidar),
-        parameters=[{"use_sim_time": True}],
+        parameters=[{
+            "use_sim_time": True,
+            # the undilated flags: erasure stops where the evidence stops
+            "gait_topic": "/gait_core/projected_map",
+            "erode_cells": 0,
+        }],
     )
 
     lidar_octomap = Node(
@@ -155,6 +184,7 @@ def generate_launch_description():
         trav_octomap,
         stairs_cloud,
         stairs_octomap,
+        gait_core_octomap,
         nav_grid_fuse,
         lidar_octomap,
     ])
