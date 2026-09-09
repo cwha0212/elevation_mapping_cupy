@@ -63,6 +63,25 @@ class VoxelDownsampleNode(Node):
             ])
             self._mount = (R, _np.array(mp[:3]))
 
+        # While the robot stands inside gait terrain, drop the cloud before
+        # the mapper ever sees it. Gating the EMISSIONS was not enough: the
+        # elevation map itself kept learning scans projected through a z the
+        # planar odometry freezes at spawn height, the corruption outlived
+        # the transit, and the first honest frames after exit shot free rays
+        # through borders the corrupted terrain said were open ground. The
+        # observer that cannot know where it is must not teach.
+        from nav_msgs.msg import Odometry, OccupancyGrid
+        self._keepout = None
+        self._pose = None
+        self.create_subscription(
+            OccupancyGrid, "/stairs/projected_map",
+            lambda m: setattr(self, "_keepout", m), 5
+        )
+        self.create_subscription(
+            Odometry, "/odom",
+            lambda m: setattr(self, "_pose", m.pose.pose.position), 5
+        )
+
         qos = QoSPresetProfiles.SENSOR_DATA.value
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
         self.create_subscription(PointCloud2, self.input_topic, self.on_cloud, qos)
@@ -76,6 +95,15 @@ class VoxelDownsampleNode(Node):
         )
 
     def on_cloud(self, msg: PointCloud2) -> None:
+        ko, pp = self._keepout, self._pose
+        if ko is not None and pp is not None:
+            ki = ko.info
+            ka = np.array(ko.data, dtype=np.int8).reshape(ki.height, ki.width)
+            kc = int((pp.x - ki.origin.position.x) / ki.resolution)
+            kr = int((pp.y - ki.origin.position.y) / ki.resolution)
+            if 0 <= kr < ki.height and 0 <= kc < ki.width and ka[kr, kc] > 50:
+                return
+
         pts = self._xyz(msg)
         if pts is None or pts.size == 0:
             self.pub.publish(msg)

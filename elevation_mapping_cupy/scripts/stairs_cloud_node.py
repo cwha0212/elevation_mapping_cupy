@@ -205,6 +205,14 @@ class StairsCloudNode(Node):
         cdy = -(core_rows.astype(np.float32) - h / 2.0 + 0.5) * res
         if self.dilate_cells > 0:
             flag = ndimage.binary_dilation(flag, iterations=self.dilate_cells)
+            # And close the enclosed flats. The crest between two flagged
+            # faces is level, so it never flags, and 0.4 m of dilation from
+            # either side leaves a half-metre hole in the middle of gait
+            # terrain -- through which the robot transits ungated at the
+            # full height error of the planar odometry. Over-marking the
+            # KEEPOUT is the safe direction by definition; this closing
+            # never touches the erase core.
+            flag = ndimage.binary_closing(flag, iterations=6)
         rows, cols = np.nonzero(flag)
         dx = -(cols.astype(np.float32) - w / 2.0 + 0.5) * res
         dy = -(rows.astype(np.float32) - h / 2.0 + 0.5) * res
