@@ -90,8 +90,16 @@ class StairsCloudNode(Node):
         # is turn a mark grey, which is exactly what the user asked
         # ambiguity to be. One cell stays short of the side rims, which the
         # detectors exclude from flags by at least that much.
+        # Back to 0. One cell of reach turned the flight entrance grey, and
+        # the same cell turned 39 rim cells of the hill border grey with it
+        # -- measured raw L185 vs fused L146 on the north band at the same
+        # instant. A border that is merely unknown is plannable-through, and
+        # a drop edge must stay lethal; between the entrance's comfort and
+        # the rim's safety, the rim wins. Telling those two apart at
+        # one-cell precision needs a live terrain veto this baseline does
+        # not carry.
         self.core_dilate_cells = int(
-            self.declare_parameter("core_dilate_cells", 1).value
+            self.declare_parameter("core_dilate_cells", 0).value
         )
 
         # A second, undilated cloud for the fuse eraser. The dilation above is
