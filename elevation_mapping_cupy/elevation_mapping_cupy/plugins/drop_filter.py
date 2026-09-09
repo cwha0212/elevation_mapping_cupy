@@ -58,6 +58,7 @@ class DropFilter(PluginBase):
         cell_n: int = 100,
         resolution: float = 0.05,
         radius: float = 0.50,
+        exempt_radius: float = 0.80,
         min_drop: float = 0.08,
         stairs_layer: str = "stairs",
         ramp_layer: str = "ramp",
@@ -66,6 +67,14 @@ class DropFilter(PluginBase):
     ):
         self.resolution = float(resolution)
         self.radius = float(radius)
+        # Wider than the measuring radius on purpose. A crest between two
+        # ramps is flat, so it carries no flag of its own, and its centre
+        # sits exactly one measuring radius from the flags on either face:
+        # at the same radius the exemption dies on the boundary line and the
+        # crest grows a lethal stripe nothing can erase. 0.8 clears that
+        # while staying well short of the first real cliff past a landing,
+        # which sits a full landing-length from the nearest flag.
+        self.exempt_radius = float(exempt_radius)
         self.min_drop = float(min_drop)
         self.stairs_layer = stairs_layer
         self.ramp_layer = ramp_layer
@@ -104,7 +113,8 @@ class DropFilter(PluginBase):
             flagged = cp.isfinite(layer) & (cp.abs(layer) >= self.exempt_confidence)
             exempt = flagged if exempt is None else (exempt | flagged)
         if exempt is not None:
-            reach = ndimage.maximum_filter(exempt, size=k, mode="nearest")
+            k_ex = int(round(2.0 * self.exempt_radius / self.resolution)) | 1
+            reach = ndimage.maximum_filter(exempt, size=k_ex, mode="nearest")
             drop = cp.where(reach, 0.0, drop)
 
         return cp.where(valid, drop, cp.nan).astype(cp.float32)
