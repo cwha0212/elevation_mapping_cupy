@@ -134,6 +134,16 @@ class TraversabilityCloudNode(Node):
         self.drop_threshold = float(
             self.declare_parameter("drop_threshold", 0.08).value
         )
+        # And the same again for walls. The hill's south border came back
+        # with two raw cells after a full pass: drivability's refusal there
+        # was not turning into emitted obstacles reliably, and drop cannot
+        # help because the face sits inside drop's flag-radius exemption.
+        # The wall layer has no exemption, so this demotion guarantees that
+        # a wall-sized face is emitted wherever it is measured.
+        self.wall_layer = self.declare_parameter("wall_layer", "wall").value
+        self.wall_threshold = float(
+            self.declare_parameter("wall_threshold", 0.30).value
+        )
         self.hazard_cells = int(self.declare_parameter("hazard_cells", 3).value)
         # Drop edges. A bearing that runs out of measured ground close by is
         # telling you something: within this radius the sensor sees all round
@@ -204,6 +214,12 @@ class TraversabilityCloudNode(Node):
             # 0.0 is below any sane threshold, so this refuses the cell
             # outright rather than nudging it. Unmeasured cells keep their
             # NaN: an edge nobody has seen is not an edge yet.
+            values = np.where(over, 0.0, values)
+
+        if self.wall_layer in layers and self.wall_threshold > 0:
+            wdata = msg.data[layers.index(self.wall_layer)]
+            wl = np.array(wdata.data, dtype=np.float32).reshape(h, w)
+            over = np.isfinite(wl) & (wl >= self.wall_threshold)
             values = np.where(over, 0.0, values)
 
         res = msg.info.resolution

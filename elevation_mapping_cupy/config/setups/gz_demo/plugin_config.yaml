@@ -147,3 +147,17 @@ drop_filter:
     radius: 0.50                # also the standoff a walking robot wants from an edge
     min_drop: 0.08              # below this it is ground texture
     exempt_confidence: 0.2      # a flight or a ramp, and its landing, are exempt
+wall_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "wall"            # fine-window span where it exceeds a riser, meters
+  extra_params:
+    # Ground that rises like a wall and offers no tread. One threshold does
+    # all the sorting on the 0.15 m window -- riser 0.15, kerb 0.12, a 45 deg
+    # bank 0.14 diagonal, all under; a structure's vertical side spans its own
+    # height. Deliberately NO exemption: this layer holds marks exactly where
+    # drop's flag-radius exemption cannot (a hill's side face).
+    window: 3
+    wall_min: 0.30
+    max_range: 6.0

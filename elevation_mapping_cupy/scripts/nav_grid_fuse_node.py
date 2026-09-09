@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
 #
-# The driving grid, minus what the gait grid knows better.
+# The driving grid, minus what better evidence overrules.
 #
-# The octomap cannot un-see a stair. A riser observed from across the pavement
-# goes in as an obstacle -- correctly, at the time -- and once the flight is
-# recognised and lifted to passable, no free ray ever passes through the old
-# marks to erase them: since the cloud became a proper ray cast, nothing is
-# asserted behind the first hit, and the flight IS the first hit. So the marks
-# from before recognition are permanent, the corridor over the flight stays
-# lethal in the planner's map, and no amount of looking at the stairs fixes
-# it, because looking at them was never the problem.
+# The octomap cannot un-see. A riser observed from across the pavement goes
+# in as an obstacle -- correctly, at the time -- and once the cloud became a
+# proper ray cast nothing is asserted behind the first hit, so no free ray
+# ever revisits an old mark that sits on or behind structure. Marks from
+# before a flight was recognised are permanent; ghosts of things that walked
+# away are permanent; the planner's map only ever gets worse.
 #
-# The gait grid is the memory that resolves this. It accumulates every cell
-# that was ever confidently stairs or ramp, which is precisely the region
-# where an old occupancy mark should not be trusted: the thing that put the
-# mark there is the thing the robot can walk on in the other gait. So this
-# node republishes the driving grid with gait-marked occupancy cleared to
-# free, and the planner reads the fused topic instead.
+# This node republishes the driving grid with occupancy cleared where one of
+# two licences holds, and refuses every clearance where a live hazard vetoes:
 #
-# The gait mask is eroded before it erases anything. The gait channel dilates
-# its marks by 0.4 m on purpose (early mode switching), but an eraser must not
-# inherit that reach: a stairwell wall sits flush against a real flight, and
-# an eraser wider than the flight would eat it. Eroding by the same margin
-# the channel added means only the detector's own footprint clears occupancy,
-# while the dilated skirt keeps doing its actual job in the gait channel.
+#   licence 1, memory: the gait core grid -- every cell that was ever
+#     CONFIRMED stairs or ramp, undilated, closed only across flag-enclosed
+#     gaps. What put a mark there is what the robot walks on in the other
+#     gait.
+#
+#   licence 2, re-observation: ground measured THIS frame as confidently
+#     safe with no drop under it. A ghost dies the moment the ground it
+#     stood on is seen clearly again. The check reads the WORST of a 0.15 m
+#     neighbourhood, not the one cell under the mark: a hazard line one cell
+#     wide sits half a cell from perfectly safe ground, and a rounded lookup
+#     that lands on the safe neighbour would eat the whole line -- the
+#     thinner the hazard, the more surely it dies, which is backwards.
+#
+#   veto, live hazard: where the terrain right now shows a wall-sized face
+#     or a drop within the same neighbourhood, no licence clears. The wall
+#     layer carries no exemptions at all, so this holds even inside drop's
+#     flag-radius exemption and under the gait channel's closing bulges --
+#     which is precisely where a hill's side border lives.
 #
 import numpy as np
 import rclpy
+from grid_map_msgs.msg import GridMap
 from nav_msgs.msg import OccupancyGrid
 from rclpy.node import Node
 from scipy import ndimage
@@ -39,70 +46,134 @@ class NavGridFuseNode(Node):
             "nav_topic", "/projected_map"
         ).value
         self.gait_topic = self.declare_parameter(
-            "gait_topic", "/stairs/projected_map"
+            "gait_topic", "/gait_core/projected_map"
         ).value
         self.output_topic = self.declare_parameter(
             "output_topic", "/projected_map_nav"
         ).value
-        # Two cells less than the gait channel's dilate_cells (8), and the
-        # difference is the whole mechanism. Eroding by the full dilation
-        # made the outer 0.4 m of the gait region a place nothing could ever
-        # be erased -- and the stale marks live exactly there, because the
-        # first riser IS the detection footprint's edge. Measured: 143 of the
-        # flight's 221 lethal cells sat in that ring and the corridor stayed
-        # shut; they only died once the robot faced the flight and the region
-        # grew past them, which read as the eraser being slow. At 6, the
-        # eraser reaches 0.1 m past the detector's own footprint, far short
-        # of a stairwell wall -- the stairs filter's wall veto already stops
-        # the footprint before one.
-        self.erode_cells = int(self.declare_parameter("erode_cells", 6).value)
+        # 0 against the core channel: the core is the flags verbatim, and
+        # erasure should stop exactly where the evidence stops. (Against the
+        # dilated keepout grid this must match its dilation instead; the
+        # launch pins the core.)
+        self.erode_cells = int(self.declare_parameter("erode_cells", 0).value)
+
+        self.terrain_topic = self.declare_parameter(
+            "terrain_topic", "/elevation_mapping_node/elevation_map_terrain"
+        ).value
+        self.safe_layer = self.declare_parameter("safe_layer", "safety").value
+        self.drop_layer = self.declare_parameter("drop_layer", "drop").value
+        self.wall_layer = self.declare_parameter("wall_layer", "wall").value
+        self.safe_now = float(self.declare_parameter("safe_now", 0.7).value)
+        self.drop_max = float(self.declare_parameter("drop_max", 0.08).value)
+        self.wall_min = float(self.declare_parameter("wall_min", 0.30).value)
 
         self.gait = None
+        self.terrain = None
         self.pub = self.create_publisher(OccupancyGrid, self.output_topic, 5)
         self.create_subscription(OccupancyGrid, self.gait_topic, self.on_gait, 5)
+        self.create_subscription(GridMap, self.terrain_topic, self.on_terrain, 5)
         self.create_subscription(OccupancyGrid, self.nav_topic, self.on_nav, 5)
         self.get_logger().info(
-            f"'{self.nav_topic}' minus occupancy inside '{self.gait_topic}' "
-            f"(eroded {self.erode_cells} cells) -> '{self.output_topic}'."
+            f"'{self.nav_topic}' minus licensed occupancy -> "
+            f"'{self.output_topic}' (memory: '{self.gait_topic}', "
+            f"relook: safety>={self.safe_now}, veto: wall>={self.wall_min} "
+            f"or drop>={self.drop_max})."
         )
 
     def on_gait(self, msg: OccupancyGrid) -> None:
         self.gait = msg
 
+    def on_terrain(self, msg: GridMap) -> None:
+        self.terrain = msg
+
+    def _terrain_masks(self):
+        """(relook-ok, hazard-veto) as world-indexable masks, or None."""
+        m = self.terrain
+        if m is None:
+            return None
+        names = list(m.layers)
+        if self.safe_layer not in names:
+            return None
+
+        def layer(name):
+            d = m.data[names.index(name)]
+            h, w = d.layout.dim[0].size, d.layout.dim[1].size
+            return np.array(d.data, dtype=np.float32).reshape(h, w)
+
+        safe = layer(self.safe_layer)
+        worst_safe = ndimage.minimum_filter(
+            np.where(np.isfinite(safe), safe, -1.0), size=3, mode="nearest"
+        )
+        ok = worst_safe >= self.safe_now
+
+        veto = np.zeros_like(ok)
+        if self.drop_layer in names:
+            drop = layer(self.drop_layer)
+            worst_drop = ndimage.maximum_filter(
+                np.where(np.isfinite(drop), drop, 0.0), size=3, mode="nearest"
+            )
+            ok &= worst_drop < self.drop_max
+            veto |= worst_drop >= self.drop_max
+        if self.wall_layer in names:
+            wall = layer(self.wall_layer)
+            worst_wall = ndimage.maximum_filter(
+                np.where(np.isfinite(wall), wall, 0.0), size=3, mode="nearest"
+            )
+            veto |= worst_wall >= self.wall_min
+        return ok, veto, m.info
+
+    @staticmethod
+    def _lookup(mask, info, wx, wy):
+        """Sample a robot-centred grid_map layer mask at world points."""
+        h, w = mask.shape
+        res = info.resolution
+        # grid_map convention: row along -Y, column along -X of the centre
+        tc = np.round(w / 2 - 0.5 - (wx - info.pose.position.x) / res).astype(int)
+        tr = np.round(h / 2 - 0.5 - (wy - info.pose.position.y) / res).astype(int)
+        inb = (tr >= 0) & (tr < h) & (tc >= 0) & (tc < w)
+        out = np.zeros(wx.size, dtype=bool)
+        out[inb] = mask[tr[inb], tc[inb]]
+        return out
+
     def on_nav(self, msg: OccupancyGrid) -> None:
-        if self.gait is None:
-            self.pub.publish(msg)
-            return
-
-        g = self.gait
-        gi, ni = g.info, msg.info
-        ga = np.array(g.data, dtype=np.int8).reshape(gi.height, gi.width)
-        mask = ga > 50
-        if self.erode_cells > 0 and mask.any():
-            mask = ndimage.binary_erosion(mask, iterations=self.erode_cells)
-        if not mask.any():
-            self.pub.publish(msg)
-            return
-
+        ni = msg.info
         na = np.array(msg.data, dtype=np.int8).reshape(ni.height, ni.width)
         rows, cols = np.nonzero(na > 50)
-        if rows.size:
-            # world position of each occupied nav cell, looked up in the gait
-            # grid -- the two grids share a frame but not an origin or extent
-            wx = ni.origin.position.x + (cols + 0.5) * ni.resolution
-            wy = ni.origin.position.y + (rows + 0.5) * ni.resolution
-            gc = ((wx - gi.origin.position.x) / gi.resolution).astype(int)
-            gr = ((wy - gi.origin.position.y) / gi.resolution).astype(int)
-            inb = (gr >= 0) & (gr < gi.height) & (gc >= 0) & (gc < gi.width)
-            clear = np.zeros(rows.size, dtype=bool)
-            clear[inb] = mask[gr[inb], gc[inb]]
-            if clear.any():
-                na[rows[clear], cols[clear]] = 0
-                self.get_logger().info(
-                    f"cleared {int(clear.sum())} stale marks inside the gait "
-                    f"region",
-                    throttle_duration_sec=10.0,
-                )
+        if rows.size == 0:
+            self.pub.publish(msg)
+            return
+        wx = ni.origin.position.x + (cols + 0.5) * ni.resolution
+        wy = ni.origin.position.y + (rows + 0.5) * ni.resolution
+
+        clear = np.zeros(rows.size, dtype=bool)
+
+        g = self.gait
+        if g is not None:
+            gi = g.info
+            ga = np.array(g.data, dtype=np.int8).reshape(gi.height, gi.width)
+            mask = ga > 50
+            if self.erode_cells > 0 and mask.any():
+                mask = ndimage.binary_erosion(mask, iterations=self.erode_cells)
+            if mask.any():
+                gc = ((wx - gi.origin.position.x) / gi.resolution).astype(int)
+                gr = ((wy - gi.origin.position.y) / gi.resolution).astype(int)
+                inb = (gr >= 0) & (gr < gi.height) & (gc >= 0) & (gc < gi.width)
+                clear[inb] = mask[gr[inb], gc[inb]]
+
+        masks = self._terrain_masks()
+        if masks is not None:
+            ok, veto, ti = masks
+            clear |= self._lookup(ok, ti, wx, wy)
+            # the veto outranks every licence; outside the terrain window it
+            # cannot testify either way and the licences stand
+            clear &= ~self._lookup(veto, ti, wx, wy)
+
+        if clear.any():
+            na[rows[clear], cols[clear]] = 0
+            self.get_logger().info(
+                f"cleared {int(clear.sum())} licensed marks",
+                throttle_duration_sec=10.0,
+            )
 
         out = OccupancyGrid()
         out.header = msg.header
