@@ -149,7 +149,7 @@ class TraversabilityCloudNode(Node):
         # grazing first return spiking a single cell -- would stamp a
         # permanent obstacle onto open ground. Real walls are there next
         # frame too; spikes are not.
-        self._last_wall = None
+        self._last_wall = None      # set of world-quantised cell keys
         # And nothing gets stamped while the platform itself is tilted. The
         # odometry is planar, so on a slope the scan is projected through a
         # pose that is wrong by the whole grade and the terrain written near
@@ -241,10 +241,26 @@ class TraversabilityCloudNode(Node):
             wdata = msg.data[layers.index(self.wall_layer)]
             wl = np.array(wdata.data, dtype=np.float32).reshape(h, w)
             over = np.isfinite(wl) & (wl >= self.wall_threshold)
+            # Persistence is judged in WORLD cells, not array indices. The
+            # grid is robot-centred, so the same index is a different patch
+            # of ground every frame the robot moves -- an index-wise AND
+            # never matched in motion and silently killed every wall
+            # demotion while driving past one.
+            orow, ocol = np.nonzero(over)
+            owx = np.round((cx - (ocol - w / 2.0 + 0.5) * res) / res).astype(np.int64)
+            owy = np.round((cy - (orow - h / 2.0 + 0.5) * res) / res).astype(np.int64)
+            keys = set(zip(owx.tolist(), owy.tolist()))
             prev = self._last_wall
-            self._last_wall = over
-            if level and prev is not None and prev.shape == over.shape:
-                values = np.where(over & prev, 0.0, values)
+            self._last_wall = keys
+            if level and prev is not None and orow.size:
+                held = np.fromiter(
+                    ((kx, ky) in prev for kx, ky in zip(owx, owy)),
+                    dtype=bool, count=orow.size,
+                )
+                if held.any():
+                    demote = np.zeros_like(over)
+                    demote[orow[held], ocol[held]] = True
+                    values = np.where(demote, 0.0, values)
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x

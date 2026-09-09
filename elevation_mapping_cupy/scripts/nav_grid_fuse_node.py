@@ -123,19 +123,27 @@ class NavGridFuseNode(Node):
         ok = (worst_safe >= self.safe_now) & level
 
         veto = np.zeros_like(ok)
+        # The veto reaches wider (0.35 m) than the relook gate. Emitted
+        # marks land up to the hazard window's half-width PLUS the strike
+        # quantisation away from the wall or drop cell that caused them --
+        # measured, the south border's marks sat 0.10-0.15 m south of the
+        # wall reading. A veto narrower than that offset protects the hazard
+        # cell and abandons its own marks. Wider is the safe direction: a
+        # veto only ever declines to erase.
         if self.drop_layer in names:
             drop = layer(self.drop_layer)
             worst_drop = ndimage.maximum_filter(
                 np.where(np.isfinite(drop), drop, 0.0), size=3, mode="nearest"
             )
             ok &= worst_drop < self.drop_max
-            veto |= worst_drop >= self.drop_max
+            veto |= ndimage.maximum_filter(
+                np.where(np.isfinite(drop), drop, 0.0), size=7, mode="nearest"
+            ) >= self.drop_max
         if self.wall_layer in names:
             wall = layer(self.wall_layer)
-            worst_wall = ndimage.maximum_filter(
-                np.where(np.isfinite(wall), wall, 0.0), size=3, mode="nearest"
-            )
-            veto |= worst_wall >= self.wall_min
+            veto |= ndimage.maximum_filter(
+                np.where(np.isfinite(wall), wall, 0.0), size=7, mode="nearest"
+            ) >= self.wall_min
         return ok, veto, m.info
 
     @staticmethod
