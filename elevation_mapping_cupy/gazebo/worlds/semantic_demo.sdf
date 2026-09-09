@@ -15,6 +15,7 @@
     kerb       y = -1.50           the other is a 0.12 m drop to the roadway
     island     y in [ 1.0,  3.0]   everything to be judged, in one row:
                  stairs    x 10.0..11.8   four 0.15 m risers
+                 landing   x 11.8..12.9   floor at the top, 0.60 m
                  bank 25   x 13.4..15.6
                  bank 35   x 16.3..18.7
                  ramp 11   x 22.5..25.5   up to a platform at 0.72
@@ -204,6 +205,21 @@
          even the climb trigger, which is why this never showed. These two
          sit squarely in the danger band. Both must come back with zero
          flagged cells. -->
+    <!-- Stairs go somewhere. Without this the flight topped out on a 0.6 m
+         cliff, the crest was marked lethal -- correctly -- and the corridor
+         test was asking for a route off a drop. Real flights end on a floor;
+         this is that floor. -->
+    <model name="stair_landing">
+      <static>true</static>
+      <pose>12.35 1.9 0.30 0 0 0</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>1.10 2.0 0.60</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.10 2.0 0.60</size></box></geometry>
+          <material><ambient>0.55 0.55 0.58 1</ambient><diffuse>0.55 0.55 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
     <model name="slope25">
       <static>true</static>
       <pose>14.500 2.0 0.360 0 -0.4363 0</pose>
