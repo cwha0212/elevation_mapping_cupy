@@ -22,6 +22,7 @@ from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2, PointField
+from nav_msgs.msg import OccupancyGrid
 from tf2_ros import TransformBroadcaster
 
 
@@ -120,6 +121,18 @@ class StairsCloudNode(Node):
         self.core_pub = self.create_publisher(PointCloud2, self.core_topic, 5)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
+        # While the robot stands inside gait terrain -- the keepout region,
+        # which is world-anchored and covers stairs, slopes and their crest
+        # -- this node asserts nothing. The slope-based gate missed the
+        # crest: the platform is level there, but the planar odometry's z is
+        # frozen at spawn height, every scan lands 0.6 m low, and the free
+        # rays it spawns eat the side borders out of the octomap. Position
+        # in a 2D grid does not care what z the odometry believes.
+        self._keepout = None
+        self.create_subscription(
+            OccupancyGrid, "/stairs/projected_map",
+            lambda m: setattr(self, "_keepout", m), 5
+        )
         self._published = 0
         self.get_logger().info(
             f"Publishing cells of {self.layers} from '{self.input_topic}' "
@@ -128,6 +141,17 @@ class StairsCloudNode(Node):
 
     def on_grid_map(self, msg: GridMap) -> None:
         layers = list(msg.layers)
+        ko = self._keepout
+        if ko is not None:
+            ki = ko.info
+            ka = np.array(ko.data, dtype=np.int8).reshape(ki.height, ki.width)
+            kc = int((msg.info.pose.position.x - ki.origin.position.x)
+                     / ki.resolution)
+            kr = int((msg.info.pose.position.y - ki.origin.position.y)
+                     / ki.resolution)
+            if 0 <= kr < ki.height and 0 <= kc < ki.width and ka[kr, kc] > 50:
+                return
+
         if "slope" in layers and self.level_slope_deg > 0:
             d0 = msg.data[layers.index("slope")]
             h0, w0 = d0.layout.dim[0].size, d0.layout.dim[1].size
