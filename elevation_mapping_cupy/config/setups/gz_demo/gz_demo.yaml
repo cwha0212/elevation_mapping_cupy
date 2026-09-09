@@ -43,6 +43,14 @@
         topic_name: '/lidar/points_downsampled'
         data_type: pointcloud
 
+      lidar_left:
+        topic_name: '/lidar_left/points_downsampled'
+        data_type: pointcloud
+
+      lidar_right:
+        topic_name: '/lidar_right/points_downsampled'
+        data_type: pointcloud
+
       # Separate colour camera, mounted apart from the depth sensor the way
       # haechi's camera sits ahead of the lidar origin. Its rgb lands on the
       # elevation surface, so where a known-coloured marker ends up on the map

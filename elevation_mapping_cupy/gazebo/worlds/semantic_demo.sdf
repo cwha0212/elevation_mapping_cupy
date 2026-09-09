@@ -205,7 +205,7 @@
          sit squarely in the danger band. Both must come back with zero
          flagged cells. -->
     <!-- Stairs go somewhere. Without this the flight topped out on a 0.6 m
-         cliff, the crest was marked lethal -- correctly -- and the corridor
+         cliff, the crest was marked lethal - correctly - and the corridor
          test was asking for a route off a drop. Real flights end on a floor;
          this is that floor. -->
     <model name="stair_landing">
@@ -250,7 +250,7 @@
          with a flight descending off the far end. Descent is the case that
          matters most and the one no ground-level approach can produce: the
          robot has to be standing at the top to see it. -->
-    <!-- The hill. Up one side, over the crest, down the other -- the terrain
+    <!-- The hill. Up one side, over the crest, down the other - the terrain
          a route has to cross rather than skirt, which is the whole test: a
          planner that treats the up-slope as a wall never reaches the far
          side. Both faces are the D1 MaxPro's easy case (11.3 deg) and the
@@ -268,7 +268,7 @@
 
     <!-- Crest top must equal the ramp heads exactly. The ramp's top face
          starts at pavement height 0.12 and climbs 3.059 * sin(11.31 deg)
-         = 0.60, so the heads meet the crest at 0.72 -- not 0.61, which was
+         = 0.60, so the heads meet the crest at 0.72 - not 0.61, which was
          that same 0.60 miscounted from the ground instead of the pavement
          and left an 0.11 m step at both joints. -->
     <model name="hill_crest">
@@ -277,7 +277,7 @@
            footprint: the up-ramp's top corner sits at x=25.95 and its
            bevelled end face falls to 0.23 by x=26.05, so a crest that starts
            at its footprint edge leaves an 8 cm, half-metre-deep notch at
-           each joint -- which the lidar read as a step and dressed the crest
+           each joint - which the lidar read as a step and dressed the crest
            in phantom obstacles. The crest now spans corner to corner. -->
       <pose>26.530 2.0 0.360 0 0 0</pose>
       <link name="l">
@@ -375,6 +375,71 @@
             </scan>
             <range>
               <min>0.15</min>
+              <max>20.0</max>
+              <resolution>0.01</resolution>
+            </range>
+          </lidar>
+        </sensor>
+
+        <!-- The two MID360s, at their calibrated mounts (haechi_calibration
+             .yaml, T_lidarframe_sensor with the sim's base sitting 0.159 m
+             above lidar_frame - the same offset the camera pose already
+             uses). Both are tilted ~33 deg down and yawed to the sides, so
+             between them and the nose RSAIRY the robot sees the ground all
+             round instead of only where the nose sensor's cone reaches.
+             240x16 rather than the front's 360x32: every ray shares the GPU
+             with the camera and the segmentation, and the sides only need
+             near-field ground. -->
+        <sensor name="lidar_left" type="gpu_lidar">
+          <pose>-0.023 0.034 0.189 -0.015359 -0.604931 -1.551598</pose>
+          <update_rate>10</update_rate>
+          <always_on>true</always_on>
+          <topic>lidar_left</topic>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>240</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.14159</min_angle>
+                <max_angle>3.14159</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>16</samples>
+                <resolution>1</resolution>
+                <min_angle>-0.1222</min_angle>
+                <max_angle>0.9076</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.10</min>
+              <max>20.0</max>
+              <resolution>0.01</resolution>
+            </range>
+          </lidar>
+        </sensor>
+
+        <sensor name="lidar_right" type="gpu_lidar">
+          <pose>-0.024 -0.180 0.187 0.000000 -0.558505 1.570796</pose>
+          <update_rate>10</update_rate>
+          <always_on>true</always_on>
+          <topic>lidar_right</topic>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>240</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.14159</min_angle>
+                <max_angle>3.14159</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>16</samples>
+                <resolution>1</resolution>
+                <min_angle>-0.1222</min_angle>
+                <max_angle>0.9076</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.10</min>
               <max>20.0</max>
               <resolution>0.01</resolution>
             </range>

@@ -43,6 +43,25 @@ class VoxelDownsampleNode(Node):
             "self_filter_min", [0.0, 0.0, 0.0]).value]
         self.self_max = [float(v) for v in self.declare_parameter(
             "self_filter_max", [0.0, 0.0, 0.0]).value]
+        # For a tilted sensor the box is easier to state in the robot's own
+        # frame than in the sensor's. Give the sensor's mount pose (xyz+rpy,
+        # base frame) and the box above is tested on points transformed into
+        # base coordinates; leave it zeroed and the box stays sensor-frame.
+        import math as _math
+        mp = [float(v) for v in self.declare_parameter(
+            "sensor_mount_pose", [0.0] * 6).value]
+        self._mount = None
+        if any(abs(v) > 1e-9 for v in mp):
+            cr, sr = _math.cos(mp[3]), _math.sin(mp[3])
+            cp, sp = _math.cos(mp[4]), _math.sin(mp[4])
+            cy, sy = _math.cos(mp[5]), _math.sin(mp[5])
+            import numpy as _np
+            R = _np.array([
+                [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+                [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+                [-sp, cp * sr, cp * cr],
+            ])
+            self._mount = (R, _np.array(mp[:3]))
 
         qos = QoSPresetProfiles.SENSOR_DATA.value
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
@@ -69,7 +88,11 @@ class VoxelDownsampleNode(Node):
 
         lo, hi = np.array(self.self_min), np.array(self.self_max)
         if np.any(hi > lo):
-            inside = np.all((pts >= lo) & (pts <= hi), axis=1)
+            test = pts
+            if self._mount is not None:
+                R, t = self._mount
+                test = pts @ R.T + t
+            inside = np.all((test >= lo) & (test <= hi), axis=1)
             dropped = int(inside.sum())
             pts = pts[~inside]
             if dropped:

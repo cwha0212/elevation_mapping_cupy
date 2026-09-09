@@ -124,6 +124,8 @@ def generate_launch_description():
         arguments=[
             "/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock",
             "/lidar/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
+            "/lidar_left/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
+            "/lidar_right/points@sensor_msgs/msg/PointCloud2[ignition.msgs.PointCloudPacked",
             "/color_cam@sensor_msgs/msg/Image[ignition.msgs.Image",
             # A plain camera sensor puts its info on the bare /camera_info.
             "/camera_info@sensor_msgs/msg/CameraInfo[ignition.msgs.CameraInfo",
@@ -151,6 +153,30 @@ def generate_launch_description():
             "--x", str(LIDAR_XYZ[0]), "--y", str(LIDAR_XYZ[1]), "--z", str(LIDAR_XYZ[2]),
             "--roll", "0", "--pitch", "0", "--yaw", "0",
             "--frame-id", "base_link", "--child-frame-id", LIDAR_FRAME,
+        ],
+        parameters=[{"use_sim_time": True}],
+    )
+
+    lidar_left_tf = Node(
+        package="tf2_ros", executable="static_transform_publisher",
+        name="base_link_to_lidar_left",
+        arguments=[
+            "--x", "-0.023", "--y", "0.034", "--z", "0.189",
+            "--roll", "-0.015359", "--pitch", "-0.604931", "--yaw", "-1.551598",
+            "--frame-id", "base_link",
+            "--child-frame-id", "robot/base_link/lidar_left",
+        ],
+        parameters=[{"use_sim_time": True}],
+    )
+
+    lidar_right_tf = Node(
+        package="tf2_ros", executable="static_transform_publisher",
+        name="base_link_to_lidar_right",
+        arguments=[
+            "--x", "-0.024", "--y", "-0.18", "--z", "0.187",
+            "--roll", "0.000000", "--pitch", "-0.558505", "--yaw", "1.570796",
+            "--frame-id", "base_link",
+            "--child-frame-id", "robot/base_link/lidar_right",
         ],
         parameters=[{"use_sim_time": True}],
     )
@@ -196,6 +222,48 @@ def generate_launch_description():
             "use_sim_time": True,
             "self_filter_min": [-1.40, -0.32, -0.46],
             "self_filter_max": [0.16, 0.46, 0.22],
+        }],
+    )
+
+    # Same body box for both side sensors, stated in base coordinates:
+    # they sit on the deck tilted 33 degrees down, so the chassis, wheels
+    # and each other are all in view, and a sensor-frame box would need
+    # hand-rotating per mount.
+    lidar_left_downsample = Node(
+        package="elevation_mapping_cupy",
+        executable="voxel_downsample_node.py",
+        name="lidar_left_downsample",
+        output="screen",
+        parameters=[{
+            "input_topic": "/lidar_left/points",
+            "output_topic": "/lidar_left/points_downsampled",
+            "voxel_size": 0.05,
+            "max_range": 8.0,
+            "use_sim_time": True,
+            "sensor_mount_pose": [-0.023, 0.034, 0.189, -0.015359, -0.604931, -1.551598],
+            "self_filter_min": [-0.80, -0.42, -0.50],
+            "self_filter_max": [0.80, 0.42, 0.30],
+        }],
+    )
+
+    # Same body box for both side sensors, stated in base coordinates:
+    # they sit on the deck tilted 33 degrees down, so the chassis, wheels
+    # and each other are all in view, and a sensor-frame box would need
+    # hand-rotating per mount.
+    lidar_right_downsample = Node(
+        package="elevation_mapping_cupy",
+        executable="voxel_downsample_node.py",
+        name="lidar_right_downsample",
+        output="screen",
+        parameters=[{
+            "input_topic": "/lidar_right/points",
+            "output_topic": "/lidar_right/points_downsampled",
+            "voxel_size": 0.05,
+            "max_range": 8.0,
+            "use_sim_time": True,
+            "sensor_mount_pose": [-0.024, -0.18, 0.187, 0.000000, -0.558505, 1.570796],
+            "self_filter_min": [-0.80, -0.42, -0.50],
+            "self_filter_max": [0.80, 0.42, 0.30],
         }],
     )
 
@@ -271,6 +339,7 @@ def generate_launch_description():
             default_value=PathJoinSubstitution([share_dir, "rviz", "semantic_demo.rviz"]),
         ),
         gz_server, gz_gui, bridge, lidar_tf, color_tf,
-        downsample, semantic_node, elevation_mapping_node, image_view, octomap,
+        lidar_left_tf, lidar_right_tf,
+        downsample, lidar_left_downsample, lidar_right_downsample, semantic_node, elevation_mapping_node, image_view, octomap,
         TimerAction(period=20.0, actions=[rviz_node]),
     ])
