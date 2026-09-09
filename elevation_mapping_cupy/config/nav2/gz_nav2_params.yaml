@@ -320,7 +320,10 @@ global_costmap:
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: False
-        map_topic: /projected_map
+        # the fused grid: the octomap minus occupancy that falls inside the
+        # accumulated gait region, where marks predate stair recognition and
+        # nothing can ever clear them at the source
+        map_topic: /projected_map_nav
         # map_canvas publishes unknown as value 70; non-trinary turns that
         # into high-but-passable cost, so plans prefer confirmed-free ground.
         trinary_costmap: False

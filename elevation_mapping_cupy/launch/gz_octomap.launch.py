@@ -107,6 +107,19 @@ def generate_launch_description():
         remappings=[("cloud_in", "/stairs/cells")],
     )
 
+    # The planner's map is the driving grid minus what the gait grid knows
+    # better: occupancy inside a confidently-stairs/ramp region is stale by
+    # construction (the marks predate recognition and no free ray can reach
+    # them), so it is cleared before Nav2 ever sees it.
+    nav_grid_fuse = Node(
+        package="elevation_mapping_cupy",
+        executable="nav_grid_fuse_node.py",
+        name="nav_grid_fuse",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{"use_sim_time": True}],
+    )
+
     lidar_octomap = Node(
         package="octomap_server2",
         executable="octomap_server",
@@ -142,5 +155,6 @@ def generate_launch_description():
         trav_octomap,
         stairs_cloud,
         stairs_octomap,
+        nav_grid_fuse,
         lidar_octomap,
     ])

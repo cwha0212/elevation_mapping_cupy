@@ -147,19 +147,19 @@ Visualization Manager:
     Color Scheme: map
     Draw Behind: false
     Enabled: true
-    Name: Octomap2D
+    Name: NavGrid
     Topic:
       Depth: 5
       Durability Policy: Volatile
       History Policy: Keep Last
       Reliability Policy: Reliable
-      Value: /projected_map
+      Value: /projected_map_nav
     Update Topic:
       Depth: 5
       Durability Policy: Volatile
       History Policy: Keep Last
       Reliability Policy: Reliable
-      Value: /projected_map_updates
+      Value: /projected_map_nav_updates
     Use Timestamp: false
     Value: true
   - Alpha: 1
