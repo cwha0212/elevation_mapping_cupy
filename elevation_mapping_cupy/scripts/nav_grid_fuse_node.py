@@ -44,9 +44,18 @@ class NavGridFuseNode(Node):
         self.output_topic = self.declare_parameter(
             "output_topic", "/projected_map_nav"
         ).value
-        # Match the gait channel's dilate_cells. What was grown for early
-        # mode switching must be shrunk back before it is allowed to erase.
-        self.erode_cells = int(self.declare_parameter("erode_cells", 8).value)
+        # Two cells less than the gait channel's dilate_cells (8), and the
+        # difference is the whole mechanism. Eroding by the full dilation
+        # made the outer 0.4 m of the gait region a place nothing could ever
+        # be erased -- and the stale marks live exactly there, because the
+        # first riser IS the detection footprint's edge. Measured: 143 of the
+        # flight's 221 lethal cells sat in that ring and the corridor stayed
+        # shut; they only died once the robot faced the flight and the region
+        # grew past them, which read as the eraser being slow. At 6, the
+        # eraser reaches 0.1 m past the detector's own footprint, far short
+        # of a stairwell wall -- the stairs filter's wall veto already stops
+        # the footprint before one.
+        self.erode_cells = int(self.declare_parameter("erode_cells", 6).value)
 
         self.gait = None
         self.pub = self.create_publisher(OccupancyGrid, self.output_topic, 5)
