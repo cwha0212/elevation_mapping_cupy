@@ -54,8 +54,16 @@ class StairsCloudNode(Node):
         # that is not one costs a detour, missing one lets the robot walk on
         # in a gait that cannot handle it. Hence a low cut, both directions,
         # and a margin dilated around what was found.
+        # Confirmed only. 0.3 admitted candidate-grade cells, and that was
+        # defensible while this grid only closed ground off -- over-marking
+        # cost a detour. The fuse eraser changed the stakes: this grid now
+        # also authorises DELETING occupancy from the driving map, it never
+        # clears, and one candidate-grade misfire while the robot climbed the
+        # hill became a permanent licence that erased 25 cells of real
+        # wall-adjacent occupancy. A channel with two consumers whose error
+        # costs point in opposite directions has to satisfy the stricter one.
         self.min_confidence = float(
-            self.declare_parameter("min_confidence", 0.3).value
+            self.declare_parameter("min_confidence", 0.6).value
         )
         # 0.4 m of margin, and it is doing a specific job: the detectors gate
         # on total gain inside a 1.05 m window, so the first half-window of a
