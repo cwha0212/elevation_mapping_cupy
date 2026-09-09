@@ -221,6 +221,10 @@ class TraversabilityCloudNode(Node):
             # the map wherever the flag overlaps unseen ground.
             values = np.where(mask, np.maximum(values, self.stairs_score), values)
 
+        res = msg.info.resolution
+        cx = msg.info.pose.position.x
+        cy = msg.info.pose.position.y
+
         if self.drop_layer in layers and self.drop_threshold > 0:
             ddata = msg.data[layers.index(self.drop_layer)]
             dp = np.array(ddata.data, dtype=np.float32).reshape(h, w)
@@ -262,9 +266,6 @@ class TraversabilityCloudNode(Node):
                     demote[orow[held], ocol[held]] = True
                     values = np.where(demote, 0.0, values)
 
-        res = msg.info.resolution
-        cx = msg.info.pose.position.x
-        cy = msg.info.pose.position.y
 
         # grid_map convention, as published: row runs along -Y, column along -X
         # about the map centre.
