@@ -77,10 +77,17 @@ class NavGridFuseNode(Node):
             self.declare_parameter("level_slope_deg", 8.0).value
         )
 
+        self.hazard_topic = self.declare_parameter(
+            "hazard_topic", "/hazard/projected_map"
+        ).value
         self.gait = None
         self.terrain = None
+        self.hazard = None
         self.pub = self.create_publisher(OccupancyGrid, self.output_topic, 5)
         self.create_subscription(OccupancyGrid, self.gait_topic, self.on_gait, 5)
+        self.create_subscription(
+            OccupancyGrid, self.hazard_topic, self.on_hazard, 5
+        )
         self.create_subscription(GridMap, self.terrain_topic, self.on_terrain, 5)
         self.create_subscription(OccupancyGrid, self.nav_topic, self.on_nav, 5)
         self.get_logger().info(
@@ -92,6 +99,9 @@ class NavGridFuseNode(Node):
 
     def on_gait(self, msg: OccupancyGrid) -> None:
         self.gait = msg
+
+    def on_hazard(self, msg: OccupancyGrid) -> None:
+        self.hazard = msg
 
     def on_terrain(self, msg: GridMap) -> None:
         self.terrain = msg
@@ -188,9 +198,31 @@ class NavGridFuseNode(Node):
         if masks is not None:
             ok, veto, ti = masks
             clear |= self._lookup(ok, ti, wx, wy)
-            # the veto outranks every licence; outside the terrain window it
-            # cannot testify either way and the licences stand
+            # the live veto outranks every licence; outside the terrain
+            # window it cannot testify either way and the licences stand
             clear &= ~self._lookup(veto, ti, wx, wy)
+
+        # And the remembered one. The live veto goes blind wherever the
+        # terrain is occluded, and the far side of any structure always is:
+        # driving on the left erased the right border and driving on the
+        # right erased the left, because the world-anchored gait memory
+        # kept its licence while the defence lost its witness. A cell that
+        # was ever confidently a wall or a drop refuses erasure from memory,
+        # occluded or not.
+        hz = self.hazard
+        if hz is not None:
+            hi = hz.info
+            ha = np.array(hz.data, dtype=np.int8).reshape(hi.height, hi.width)
+            hmask = ha > 50
+            if hmask.any():
+                hmask = ndimage.binary_dilation(hmask, iterations=2)
+                hc2 = ((wx - hi.origin.position.x) / hi.resolution).astype(int)
+                hr2 = ((wy - hi.origin.position.y) / hi.resolution).astype(int)
+                hin = ((hr2 >= 0) & (hr2 < hi.height)
+                       & (hc2 >= 0) & (hc2 < hi.width))
+                remembered = np.zeros(rows.size, dtype=bool)
+                remembered[hin] = hmask[hr2[hin], hc2[hin]]
+                clear &= ~remembered
 
         if clear.any():
             na[rows[clear], cols[clear]] = 0

@@ -131,6 +131,31 @@ def generate_launch_description():
         remappings=[("cloud_in", "/gait_core/cells")],
     )
 
+    # Hazard memory: every cell that was ever confidently a wall or a drop,
+    # accumulated for the fuse's veto. miss=0.5 makes ray misses neutral --
+    # this octree only ever learns, because its one consumer is a refusal
+    # and a refusal must not fade while the hazard is merely out of view.
+    hazard_octomap = Node(
+        package="octomap_server2",
+        executable="octomap_server",
+        name="octomap_server",
+        namespace="hazard",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{
+            "use_sim_time": True,
+            "frame_id": "odom",
+            "base_frame_id": "base_link",
+            "resolution": 0.05,
+            "sensor_model/max_range": 8.0,
+            "sensor_model/miss": 0.5,
+            "filter_ground": False,
+            "occupancy_min_z": -0.10,
+            "occupancy_max_z": 0.10,
+        }],
+        remappings=[("cloud_in", "/hazard/cells")],
+    )
+
     # The planner's map is the driving grid minus what the gait grid knows
     # better: occupancy inside a confidently-stairs/ramp region is stale by
     # construction (the marks predate recognition and no free ray can reach
@@ -185,6 +210,7 @@ def generate_launch_description():
         stairs_cloud,
         stairs_octomap,
         gait_core_octomap,
+        hazard_octomap,
         nav_grid_fuse,
         lidar_octomap,
     ])

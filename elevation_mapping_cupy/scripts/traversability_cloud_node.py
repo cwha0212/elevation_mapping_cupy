@@ -185,6 +185,14 @@ class TraversabilityCloudNode(Node):
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
+        # The same hazard cells, on their own channel, for the hazard MEMORY
+        # octree. The fuse's live veto only defends where the terrain can
+        # testify this frame, and the far side of a hill is always occluded
+        # from wherever the robot is -- so whichever border was distant got
+        # erased by the (world-anchored, occlusion-blind) gait memory, and
+        # which one that was flipped with the side the robot drove on. A
+        # memory can only be refused by a memory.
+        self.hazard_pub = self.create_publisher(PointCloud2, "/hazard/cells", 5)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
         self._published = 0
@@ -324,6 +332,7 @@ class TraversabilityCloudNode(Node):
             hx2, hy2 = offsets(hr2, hc2)
             dx = np.concatenate([dx, hx2]).astype(np.float32)
             dy = np.concatenate([dy, hy2]).astype(np.float32)
+            self._hazard_cloud = (hx2, hy2)
 
         if self.bearings > 0 and self.march_range > 0:
             steps = np.arange(res, self.march_range, res, dtype=np.float32)
@@ -428,6 +437,10 @@ class TraversabilityCloudNode(Node):
         self.tf_broadcaster.sendTransform(tf)
 
         self.pub.publish(self._make_cloud(dx, dy, stamp))
+        hz = getattr(self, "_hazard_cloud", None)
+        self._hazard_cloud = None
+        if hz is not None:
+            self.hazard_pub.publish(self._make_cloud(hz[0], hz[1], stamp))
         self._published += 1
         self.get_logger().info(
             f"Obstacle cells this frame: {dx.size} (frames: {self._published})",
