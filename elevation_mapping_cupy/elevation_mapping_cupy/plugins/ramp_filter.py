@@ -117,6 +117,7 @@ def detect_ramps(elevation, valid, step, slope, roughness, resolution, params=No
 
     cand = _host(candidate, is_gpu)
     adm = _host(admissible, is_gpu)
+    smooth = _host(fine < p["max_riser_step"], is_gpu)
     elev_h = _host(elevation, is_gpu)
     valid_h = _host(valid, is_gpu)
     slope_h = _host(slope, is_gpu)
@@ -124,8 +125,15 @@ def detect_ramps(elevation, valid, step, slope, roughness, resolution, params=No
     dist_h = _host(dist, is_gpu)
 
     ones3 = np.ones((3, 3), bool)
-    mask = host_ndi.binary_opening(cand, structure=ones3) & adm
-    mask = host_ndi.binary_closing(mask, structure=ones3) & adm
+    # Re-intersect with the no-riser-step test after every morphological op,
+    # not just with admissible. The candidate stage excludes a slope's side
+    # rim exactly -- the fine window sees the 0.6 m lateral drop -- but
+    # closing glued those rim cells back on, they inherited the component's
+    # confirmed grade, and downstream that grade is a licence to erase
+    # occupancy: the marks guarding the side edge were being deleted by
+    # flags the detector never actually earned there.
+    mask = host_ndi.binary_opening(cand, structure=ones3) & adm & smooth
+    mask = host_ndi.binary_closing(mask, structure=ones3) & adm & smooth
 
     conf = np.zeros_like(elev_h, dtype=np.float32)
     labels, n = host_ndi.label(mask)

@@ -87,6 +87,16 @@ class StairsCloudNode(Node):
         self.core_topic = self.declare_parameter(
             "core_topic", "/gait_core/cells"
         ).value
+        # The core closes gaps of up to twice this many cells between flag
+        # regions before it goes out. A crest between two ramps and the seam
+        # of a flight are flat, so they never flag -- yet they are exactly
+        # where pre-recognition occupancy accumulates, and without a licence
+        # there the eraser can never touch it. Closing only bridges where
+        # flags stand on BOTH sides, so a landing's far cliff, which has
+        # flags on one side only, stays outside the licence.
+        self.core_close_cells = int(
+            self.declare_parameter("core_close_cells", 10).value
+        )
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
         self.core_pub = self.create_publisher(PointCloud2, self.core_topic, 5)
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -131,7 +141,12 @@ class StairsCloudNode(Node):
             flag &= near
         n_up = int((flag & (values > 0)).sum())
         n_down = int((flag & (values < 0)).sum())
-        core_rows, core_cols = np.nonzero(flag)
+        core = flag
+        if self.core_close_cells > 0:
+            core = ndimage.binary_closing(
+                core, iterations=self.core_close_cells
+            )
+        core_rows, core_cols = np.nonzero(core)
         cdx = -(core_cols.astype(np.float32) - w / 2.0 + 0.5) * res
         cdy = -(core_rows.astype(np.float32) - h / 2.0 + 0.5) * res
         if self.dilate_cells > 0:
