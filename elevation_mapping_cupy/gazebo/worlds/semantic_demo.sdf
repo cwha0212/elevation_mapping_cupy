@@ -273,10 +273,16 @@
          and left an 0.11 m step at both joints. -->
     <model name="hill_crest">
       <static>true</static>
+      <!-- 1.18 long, not 1.00. A tilted slab's TOP face ends short of its
+           footprint: the up-ramp's top corner sits at x=25.95 and its
+           bevelled end face falls to 0.23 by x=26.05, so a crest that starts
+           at its footprint edge leaves an 8 cm, half-metre-deep notch at
+           each joint -- which the lidar read as a step and dressed the crest
+           in phantom obstacles. The crest now spans corner to corner. -->
       <pose>26.530 2.0 0.360 0 0 0</pose>
       <link name="l">
-        <collision name="c"><geometry><box><size>1.00 2.0 0.72</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>1.00 2.0 0.72</size></box></geometry>
+        <collision name="c"><geometry><box><size>1.18 2.0 0.72</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.18 2.0 0.72</size></box></geometry>
           <material><ambient>0.55 0.55 0.58 1</ambient><diffuse>0.55 0.55 0.58 1</diffuse></material>
         </visual>
       </link>
