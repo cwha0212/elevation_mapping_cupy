@@ -14,12 +14,11 @@
     wall       y = 5.50            one long side is closed by the facade
     kerb       y = -1.50           the other is a 0.12 m drop to the roadway
     island     y in [ 1.0,  3.0]   everything to be judged, in one row:
-                 stairs    x 10.0..11.8   four 0.15 m risers
-                 landing   x 11.8..12.9   floor at the top, 0.60 m
+                 stairs    x  8.0.. 9.8   four 0.15 m risers
+                 landing   x  9.8..10.9   floor at the top, 0.60 m
                  bank 25   x 13.4..15.6
-                 bank 35   x 16.3..18.7
-                 ramp 11   x 22.5..25.5   up to a platform at 0.72
-                 descent   x 27.0..28.2   three steps back down
+                 bank 35   x 18.2..20.6
+                 hill      x 23.0..30.1   11.3 deg up, 1 m crest, 11.3 deg down
     car        (7.0, -3.4)         parked on the roadway, clear of the kerb
 
   The lanes either side of the island are 2.5 m, so the robot can circuit it,
@@ -146,7 +145,7 @@
          SAM-TP scores their appearance, and the 2D grid shows the verdict. -->
     <model name="stairs">
       <static>true</static>
-      <pose>10.2 1.9 0.12 0 0 0</pose>
+      <pose>8.2 1.9 0.12 0 0 0</pose>
       <link name="link">
         <collision name="s1"><pose>0.2 0 0.075 0 0 0</pose>
           <geometry><box><size>0.4 2.0 0.15</size></box></geometry></collision>
@@ -211,7 +210,7 @@
          this is that floor. -->
     <model name="stair_landing">
       <static>true</static>
-      <pose>12.35 1.9 0.30 0 0 0</pose>
+      <pose>10.35 1.9 0.30 0 0 0</pose>
       <link name="l">
         <collision name="c"><geometry><box><size>1.10 2.0 0.60</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>1.10 2.0 0.60</size></box></geometry>
@@ -233,7 +232,7 @@
 
     <model name="slope35">
       <static>true</static>
-      <pose>17.500 2.0 0.615 0 -0.6109 0</pose>
+      <pose>19.400 2.0 0.615 0 -0.6109 0</pose>
       <link name="link">
         <collision name="c"><geometry><box><size>2.442 2.0 0.5</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>2.442 2.0 0.5</size></box></geometry>
@@ -251,64 +250,47 @@
          with a flight descending off the far end. Descent is the case that
          matters most and the one no ground-level approach can produce: the
          robot has to be standing at the top to see it. -->
+    <!-- The hill. Up one side, over the crest, down the other -- the terrain
+         a route has to cross rather than skirt, which is the whole test: a
+         planner that treats the up-slope as a wall never reaches the far
+         side. Both faces are the D1 MaxPro's easy case (11.3 deg) and the
+         crest is flat and a full robot length long. -->
     <model name="ramp_up">
       <static>true</static>
-      <pose>24.000 2.0 0.175 0 -0.1974 0</pose>
-      <link name="link">
+      <pose>24.500 2.0 0.175 0 -0.1974 0</pose>
+      <link name="l">
         <collision name="c"><geometry><box><size>3.059 2.0 0.5</size></box></geometry></collision>
         <visual name="v"><geometry><box><size>3.059 2.0 0.5</size></box></geometry>
-          <material><ambient>0.30 0.26 0.22 1</ambient><diffuse>0.42 0.36 0.30 1</diffuse></material>
+          <material><ambient>0.5 0.52 0.55 1</ambient><diffuse>0.5 0.52 0.55 1</diffuse></material>
         </visual>
       </link>
     </model>
 
-    <model name="platform">
+    <model name="hill_crest">
       <static>true</static>
-      <pose>26.250 2.0 0.360 0 0 0</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>1.500 2.0 0.720</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>1.500 2.0 0.720</size></box></geometry>
-          <material><ambient>0.50 0.50 0.53 1</ambient>
-                    <diffuse>0.65 0.65 0.68 1</diffuse></material>
+      <pose>26.530 2.0 0.305 0 0 0</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>1.00 2.0 0.61</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.00 2.0 0.61</size></box></geometry>
+          <material><ambient>0.55 0.55 0.58 1</ambient><diffuse>0.55 0.55 0.58 1</diffuse></material>
         </visual>
       </link>
     </model>
 
-    <model name="desc_s1">
+    <model name="ramp_down">
       <static>true</static>
-      <pose>27.200 2.0 0.285 0 0 0</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.400 2.0 0.570</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.400 2.0 0.570</size></box></geometry>
-          <material><ambient>0.45 0.45 0.48 1</ambient>
-                    <diffuse>0.60 0.60 0.63 1</diffuse></material>
+      <pose>28.560 2.0 0.175 0 0.1974 0</pose>
+      <link name="l">
+        <collision name="c"><geometry><box><size>3.059 2.0 0.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>3.059 2.0 0.5</size></box></geometry>
+          <material><ambient>0.5 0.52 0.55 1</ambient><diffuse>0.5 0.52 0.55 1</diffuse></material>
         </visual>
       </link>
     </model>
 
-    <model name="desc_s2">
-      <static>true</static>
-      <pose>27.600 2.0 0.210 0 0 0</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.400 2.0 0.420</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.400 2.0 0.420</size></box></geometry>
-          <material><ambient>0.45 0.45 0.48 1</ambient>
-                    <diffuse>0.60 0.60 0.63 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
 
-    <model name="desc_s3">
-      <static>true</static>
-      <pose>28.000 2.0 0.135 0 0 0</pose>
-      <link name="link">
-        <collision name="c"><geometry><box><size>0.400 2.0 0.270</size></box></geometry></collision>
-        <visual name="v"><geometry><box><size>0.400 2.0 0.270</size></box></geometry>
-          <material><ambient>0.45 0.45 0.48 1</ambient>
-                    <diffuse>0.60 0.60 0.63 1</diffuse></material>
-        </visual>
-      </link>
-    </model>
+
+
 
 
 
