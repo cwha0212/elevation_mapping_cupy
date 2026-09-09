@@ -29,6 +29,7 @@ import numpy as np
 import rclpy
 from grid_map_msgs.msg import GridMap
 from rclpy.node import Node
+from rclpy.serialization import deserialize_message
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension
 
 
@@ -57,14 +58,37 @@ class GlobalHeightMapNode(Node):
         self.stamp = np.full((n, n), np.nan, dtype=np.float32)
         self.origin = None      # world xy of the canvas centre, set on first map
 
+        # How often the canvas actually repaints. The local map arrives at
+        # map rate with a megabyte of layers per message, and just RECEIVING
+        # that -- rclpy deserialises every delivery before the callback can
+        # decline it -- measured at 45% of a core. So the subscription is
+        # raw: bytes are pocketed for free, and one message per period gets
+        # deserialised and painted. At 0.4 m/s the window moves 0.4 m
+        # between 1 Hz paints of a 12 m window; nothing is lost.
+        self.paint_period = float(
+            self.declare_parameter("paint_period", 1.0).value
+        )
+        self._latest_raw = None
         self.pub = self.create_publisher(GridMap, self.output_topic, 1)
-        self.create_subscription(GridMap, self.input_topic, self.on_map, 5)
+        self.create_subscription(
+            GridMap, self.input_topic, self.on_raw, 5, raw=True
+        )
+        self.create_timer(self.paint_period, self.paint_latest)
         self.create_timer(self.publish_period, self.publish)
         self._painted = 0
         self.get_logger().info(
             f"{self.extent:.0f} m canvas at {self.resolution} m from "
             f"'{self.input_topic}' layer '{self.layer}'."
         )
+
+    def on_raw(self, data: bytes) -> None:
+        self._latest_raw = data
+
+    def paint_latest(self) -> None:
+        data, self._latest_raw = self._latest_raw, None
+        if data is None:
+            return
+        self.on_map(deserialize_message(data, GridMap))
 
     def on_map(self, msg: GridMap) -> None:
         names = list(msg.layers)
