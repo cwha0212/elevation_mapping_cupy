@@ -173,13 +173,22 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
     )
 
     # ---- both must be present in the same neighbourhood ------------------
+    # The fractions are of what was OBSERVED, not of the window. A flight
+    # seen from the side hides its own far half, and with the window as the
+    # denominator every unobserved cell silently counts as "not a riser":
+    # the term punishes the viewpoint instead of the evidence, and a
+    # perfectly alternating observed half fails the gate. Normalising by the
+    # observed fraction asks the right question -- of the ground actually
+    # measured here, does it alternate like a flight -- while the separate
+    # min_valid_ratio floor still refuses to answer from three cells.
     sw = p["struct_window"]
-    riser_frac = ndi.uniform_filter(riser.astype(f32), size=sw, mode="nearest")
-    tread_frac = ndi.uniform_filter(tread.astype(f32), size=sw, mode="nearest")
+    valid_frac = ndi.uniform_filter(valid.astype(f32), size=sw, mode="nearest")
+    seen = xp.maximum(valid_frac, 1e-3)
+    riser_frac = ndi.uniform_filter(riser.astype(f32), size=sw, mode="nearest") / seen
+    tread_frac = ndi.uniform_filter(tread.astype(f32), size=sw, mode="nearest") / seen
     gain = ndi.maximum_filter(big, size=sw, mode="nearest") - ndi.minimum_filter(
         small, size=sw, mode="nearest"
     )
-    valid_frac = ndi.uniform_filter(valid.astype(f32), size=sw, mode="nearest")
 
     candidate = (
         admissible

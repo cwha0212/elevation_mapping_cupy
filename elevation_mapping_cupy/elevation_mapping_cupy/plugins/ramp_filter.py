@@ -95,11 +95,18 @@ def detect_ramps(elevation, valid, step, slope, roughness, resolution, params=No
     )
 
     sw = p["struct_window"]
-    ramp_frac = ndi.uniform_filter(sloped.astype(f32), size=sw, mode="nearest")
+    # Fraction of what was observed, not of the window -- same reasoning as
+    # the stairs filter: a bank seen from the side hides its own far half,
+    # and a window-based denominator counts every hidden cell as "not
+    # sloped", failing ground whose observed part is unambiguous. The
+    # min_valid_ratio floor below still demands enough observation to judge.
+    valid_frac = ndi.uniform_filter(valid.astype(f32), size=sw, mode="nearest")
+    ramp_frac = ndi.uniform_filter(
+        sloped.astype(f32), size=sw, mode="nearest"
+    ) / xp.maximum(valid_frac, 1e-3)
     gain = ndi.maximum_filter(big, size=sw, mode="nearest") - ndi.minimum_filter(
         small, size=sw, mode="nearest"
     )
-    valid_frac = ndi.uniform_filter(valid.astype(f32), size=sw, mode="nearest")
 
     candidate = (
         sloped
