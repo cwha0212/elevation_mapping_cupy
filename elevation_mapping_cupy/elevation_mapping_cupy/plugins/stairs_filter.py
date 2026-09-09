@@ -228,6 +228,25 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
         if grade:
             conf[comp] = grade
 
+    # ---- trim the spectators ---------------------------------------------
+    # Every window test above is a neighbourhood test, so a flat lane cell
+    # beside the flight -- whose window frames the staircase's own side
+    # profile, a genuine riser-tread alternation -- collects the component's
+    # grade for standing in a good viewing spot: 143 permanent keepout cells
+    # on plain pavement, measured. The cut cannot live in the candidate
+    # gate; the slope ring around each riser is neither riser nor tread and
+    # pruning it there shatters the region before the component tests run.
+    # So the grade is assigned to the coherent region first, and then cells
+    # that neither sit within 0.15 m of a riser nor are tread within half a
+    # maximal tread of one hand their grade back. On a real flight that is
+    # nobody: treads put every cell within 0.20 m of a riser.
+    if conf.any():
+        tread_h = _host(tread, is_gpu)
+        near7 = host_ndi.maximum_filter(riser_h.astype(np.float32), size=7) > 0.5
+        near13 = host_ndi.maximum_filter(riser_h.astype(np.float32), size=13) > 0.5
+        structural = near7 | (tread_h & near13)
+        conf = np.where(structural, conf, 0.0)
+
     out = np.where(valid_h, conf, np.nan).astype(np.float32)
     if is_gpu:
         return xp.asarray(out)
