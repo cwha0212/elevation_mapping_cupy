@@ -157,6 +157,17 @@ class TraversabilityCloudNode(Node):
         self.drop_edge_support = float(
             self.declare_parameter("drop_edge_support", 0.25).value
         )
+        # A tilted observer asserts nothing. The odometry is planar, so on a
+        # grade every scan is projected through a pose wrong by the whole
+        # slope: the lane beside the hill reads smooth and safe, bearings
+        # run straight through where the side border stands, and the free
+        # rays they shoot eat the border out of the octomap -- which is why
+        # the borders vanished exactly while climbing and the far side never
+        # came back. While the map centre (the robot) sits on flagged
+        # climbing ground, this frame emits neither strikes nor free space.
+        self.level_slope_deg = float(
+            self.declare_parameter("level_slope_deg", 8.0).value
+        )
         self.map_frame = self.declare_parameter("map_frame", "odom").value
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
@@ -181,6 +192,13 @@ class TraversabilityCloudNode(Node):
         h = data.layout.dim[0].size
         w = data.layout.dim[1].size
         values = np.array(data.data, dtype=np.float32).reshape(h, w)
+
+        if "slope" in layers and self.level_slope_deg > 0:
+            sdata = msg.data[layers.index("slope")]
+            sl = np.array(sdata.data, dtype=np.float32).reshape(h, w)
+            centre = sl[h // 2, w // 2]
+            if np.isfinite(centre) and centre >= self.level_slope_deg:
+                return
         if "stairs" in layers and self.stairs_score > 0:
             sdata = msg.data[layers.index("stairs")]
             st = np.array(sdata.data, dtype=np.float32).reshape(h, w)

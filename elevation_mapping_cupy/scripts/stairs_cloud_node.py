@@ -76,6 +76,22 @@ class StairsCloudNode(Node):
         # Nothing here is ever cleared, by design, so one frame of far-field
         # noise would be permanent.
         self.max_range = float(self.declare_parameter("max_range", 4.5).value)
+        # Same tilt rule as the cloud: flags confirmed from a scan projected
+        # through a wrong pose feed the erase memory permanently.
+        self.level_slope_deg = float(
+            self.declare_parameter("level_slope_deg", 8.0).value
+        )
+        # One cell of erase reach past the flags. The half-window ring at a
+        # flight's entrance can never flag itself, so its stale marks kept a
+        # black bar across ground that is merely ambiguous. This used to be
+        # dangerous -- an over-reaching eraser once opened fake free ground
+        # -- but erasure now writes UNKNOWN, so the worst this reach can do
+        # is turn a mark grey, which is exactly what the user asked
+        # ambiguity to be. One cell stays short of the side rims, which the
+        # detectors exclude from flags by at least that much.
+        self.core_dilate_cells = int(
+            self.declare_parameter("core_dilate_cells", 1).value
+        )
 
         # A second, undilated cloud for the fuse eraser. The dilation above is
         # margin for early gait switching, and an eraser must not inherit it:
@@ -112,6 +128,13 @@ class StairsCloudNode(Node):
 
     def on_grid_map(self, msg: GridMap) -> None:
         layers = list(msg.layers)
+        if "slope" in layers and self.level_slope_deg > 0:
+            d0 = msg.data[layers.index("slope")]
+            h0, w0 = d0.layout.dim[0].size, d0.layout.dim[1].size
+            sl0 = np.array(d0.data, dtype=np.float32).reshape(h0, w0)
+            c0 = sl0[h0 // 2, w0 // 2]
+            if np.isfinite(c0) and c0 >= self.level_slope_deg:
+                return
         present = [name for name in self.layers if name in layers]
         if not present:
             self.get_logger().warning(
@@ -148,6 +171,10 @@ class StairsCloudNode(Node):
         if self.core_close_cells > 0:
             core = ndimage.binary_closing(
                 core, iterations=self.core_close_cells
+            )
+        if self.core_dilate_cells > 0 and core.any():
+            core = ndimage.binary_dilation(
+                core, iterations=self.core_dilate_cells
             )
         core_rows, core_cols = np.nonzero(core)
         cdx = -(core_cols.astype(np.float32) - w / 2.0 + 0.5) * res
