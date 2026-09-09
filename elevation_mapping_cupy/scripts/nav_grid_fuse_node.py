@@ -97,7 +97,14 @@ class NavGridFuseNode(Node):
             clear = np.zeros(rows.size, dtype=bool)
             clear[inb] = mask[gr[inb], gc[inb]]
             if clear.any():
-                na[rows[clear], cols[clear]] = 0
+                # UNKNOWN, not free. What the eraser knows is that the mark
+                # is overruled -- the thing that made it is climbable -- not
+                # that the ground is clear. Asserting free here is exactly
+                # the mistake the map's own first principle forbids (NaN is
+                # not 0): ambiguity goes out as unknown, Nav2 plans through
+                # unknown at a price, and only a real re-observation -- a
+                # free ray from the march -- ever asserts open ground.
+                na[rows[clear], cols[clear]] = -1
                 self.get_logger().info(
                     f"cleared {int(clear.sum())} stale marks inside the gait "
                     f"region",

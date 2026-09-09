@@ -87,15 +87,18 @@ class StairsCloudNode(Node):
         self.core_topic = self.declare_parameter(
             "core_topic", "/gait_core/cells"
         ).value
-        # The core closes gaps of up to twice this many cells between flag
-        # regions before it goes out. A crest between two ramps and the seam
-        # of a flight are flat, so they never flag -- yet they are exactly
-        # where pre-recognition occupancy accumulates, and without a licence
-        # there the eraser can never touch it. Closing only bridges where
-        # flags stand on BOTH sides, so a landing's far cliff, which has
-        # flags on one side only, stays outside the licence.
+        # 0, and deliberately so. The closing this parameter once enabled was
+        # built to erase stale marks on the crest between two ramp flags, but
+        # the crest marks came from a notch in the world geometry that has
+        # since been fixed at the source -- the bench reads zero lethal cells
+        # on the hill crossing without any bridging. What the closing still
+        # did was extend the erase licence past the flag rims where the two
+        # face regions merge, and a licence there erases the side borders --
+        # always the FAR one, because the near side is re-struck every frame
+        # and the far side is occluded and never comes back. The eraser ends
+        # where the evidence ends.
         self.core_close_cells = int(
-            self.declare_parameter("core_close_cells", 10).value
+            self.declare_parameter("core_close_cells", 0).value
         )
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
         self.core_pub = self.create_publisher(PointCloud2, self.core_topic, 5)
