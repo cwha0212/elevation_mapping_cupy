@@ -23,6 +23,8 @@
 # ground the robot has not seen in a long time -- which after enough drift
 # is exactly the ground not to trust.
 #
+from array import array
+
 import numpy as np
 import rclpy
 from grid_map_msgs.msg import GridMap
@@ -104,6 +106,13 @@ class GlobalHeightMapNode(Node):
     def publish(self) -> None:
         if self.origin is None:
             return
+        # Measured, not guessed: serialising 1.28M floats through tolist()
+        # every period cost 40% of a core, and most of the time nothing is
+        # listening -- this canvas is a reference surface, not a control
+        # input. Painting continues regardless; only the marshalling waits
+        # for someone to actually want the result.
+        if self.pub.get_subscription_count() == 0:
+            return
         msg = GridMap()
         msg.header.frame_id = "odom"
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -122,7 +131,9 @@ class GlobalHeightMapNode(Node):
                 MultiArrayDimension(label="row_index", size=self.n,
                                     stride=self.n),
             ]
-            a.data = arr.flatten().tolist()
+            # a typed buffer, not a python list: rclpy accepts array('f')
+            # directly and skips a million PyFloat allocations per publish
+            a.data = array("f", arr.ravel())
             msg.data.append(a)
         self.pub.publish(msg)
         self.get_logger().info(
