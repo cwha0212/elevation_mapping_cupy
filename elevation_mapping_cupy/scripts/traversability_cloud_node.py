@@ -144,6 +144,20 @@ class TraversabilityCloudNode(Node):
         self.wall_threshold = float(
             self.declare_parameter("wall_threshold", 0.30).value
         )
+        # A wall must hold still to count. The layer has no exemptions and
+        # the octomap never forgets, so one frame of frontier noise -- a
+        # grazing first return spiking a single cell -- would stamp a
+        # permanent obstacle onto open ground. Real walls are there next
+        # frame too; spikes are not.
+        self._last_wall = None
+        # And nothing gets stamped while the platform itself is tilted. The
+        # odometry is planar, so on a slope the scan is projected through a
+        # pose that is wrong by the whole grade and the terrain written near
+        # the robot is untrustworthy; the map centre's slope says whether
+        # the robot is on flagged climbing ground right now.
+        self.level_slope_deg = float(
+            self.declare_parameter("level_slope_deg", 8.0).value
+        )
         self.hazard_cells = int(self.declare_parameter("hazard_cells", 3).value)
         # Drop edges. A bearing that runs out of measured ground close by is
         # telling you something: within this radius the sensor sees all round
@@ -216,11 +230,21 @@ class TraversabilityCloudNode(Node):
             # NaN: an edge nobody has seen is not an edge yet.
             values = np.where(over, 0.0, values)
 
+        level = True
+        if "slope" in layers:
+            sdata2 = msg.data[layers.index("slope")]
+            sl2 = np.array(sdata2.data, dtype=np.float32).reshape(h, w)
+            centre = sl2[h // 2, w // 2]
+            level = (not np.isfinite(centre)) or centre < self.level_slope_deg
+
         if self.wall_layer in layers and self.wall_threshold > 0:
             wdata = msg.data[layers.index(self.wall_layer)]
             wl = np.array(wdata.data, dtype=np.float32).reshape(h, w)
             over = np.isfinite(wl) & (wl >= self.wall_threshold)
-            values = np.where(over, 0.0, values)
+            prev = self._last_wall
+            self._last_wall = over
+            if level and prev is not None and prev.shape == over.shape:
+                values = np.where(over & prev, 0.0, values)
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x

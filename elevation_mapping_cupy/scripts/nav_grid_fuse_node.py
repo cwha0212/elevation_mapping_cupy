@@ -66,6 +66,16 @@ class NavGridFuseNode(Node):
         self.safe_now = float(self.declare_parameter("safe_now", 0.7).value)
         self.drop_max = float(self.declare_parameter("drop_max", 0.08).value)
         self.wall_min = float(self.declare_parameter("wall_min", 0.30).value)
+        # A tilted observer cannot re-certify ground. The odometry is
+        # planar, so while the robot climbs, every scan is projected through
+        # a pose wrong by the grade and the terrain written near it reads
+        # smooth and safe where the hill's side border stands -- which both
+        # lifts the veto and grants the licence, and the borders vanish
+        # exactly while climbing. The map centre IS the robot, so its slope
+        # says whether to trust this frame's re-observations at all.
+        self.level_slope_deg = float(
+            self.declare_parameter("level_slope_deg", 8.0).value
+        )
 
         self.gait = None
         self.terrain = None
@@ -100,11 +110,17 @@ class NavGridFuseNode(Node):
             h, w = d.layout.dim[0].size, d.layout.dim[1].size
             return np.array(d.data, dtype=np.float32).reshape(h, w)
 
+        level = True
+        if "slope" in names:
+            sl = layer("slope")
+            centre = sl[sl.shape[0] // 2, sl.shape[1] // 2]
+            level = (not np.isfinite(centre)) or centre < self.level_slope_deg
+
         safe = layer(self.safe_layer)
         worst_safe = ndimage.minimum_filter(
             np.where(np.isfinite(safe), safe, -1.0), size=3, mode="nearest"
         )
-        ok = worst_safe >= self.safe_now
+        ok = (worst_safe >= self.safe_now) & level
 
         veto = np.zeros_like(ok)
         if self.drop_layer in names:
