@@ -76,6 +76,14 @@ DEFAULTS = dict(
     # lowest tread, are annexed; a stairwell wall (a metre up) and the top
     # platform (a flight up) both fail the height test by construction.
     foot_cells=4,
+    # A confirmed flight is a rectangle, not the cone the gates leave. Cell
+    # gates thin out exactly along the robot's boresight, where the view
+    # grazes the treads, so the surviving verdict tapers toward the robot
+    # (measured: the core's edge receded a further half tread on the
+    # approach line). A confirmed component is therefore FILLED: a wide
+    # closing bounded by the flight's own height span and range, so the
+    # region takes the flight's shape instead of the viewpoint's.
+    fill_cells=12,
     conf_candidate=0.4,
     conf_confirmed=0.8,
 )
@@ -235,6 +243,20 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
         grade = p["conf_confirmed"] if strong >= max(
             p["min_component_cells"] // 2, size // 4
         ) else p["conf_candidate"]
+        # A confirmed flight gets its rectangle back -- see the fill_cells
+        # note in DEFAULTS. The height window is the safety fence: walls a
+        # metre up and people on the treads never enter the fill.
+        if grade >= p["conf_confirmed"] and p["fill_cells"] > 0:
+            lo_h = float(np.nanmin(np.where(comp, elev_h, np.nan)))
+            hi_h = float(np.nanmax(np.where(comp, elev_h, np.nan)))
+            k = int(p["fill_cells"])
+            filled = host_ndi.binary_closing(
+                comp, structure=np.ones((k, k), bool))
+            filled &= finite
+            filled &= (elev_h >= lo_h - p["max_riser"])
+            filled &= (elev_h <= hi_h + p["max_riser"])
+            filled &= dist_h <= p["max_range"]
+            comp = comp | filled
         # ...and the flight's foot with it: the ground ring at the lowest
         # tread's level, first riser line included. Height does the safety
         # work -- see the foot_cells note in DEFAULTS.
