@@ -146,12 +146,15 @@ def generate_launch_description():
             # the undilated flags: erasure stops where the evidence stops...
             "gait_topic": "/gait_core/projected_map",
             "erode_cells": 0,
-            # ...plus the rim. The detector's footprint starts at the first
-            # tread's top, and the riser's own mark line (0.15-0.2 m of
-            # lethal cells right at the flight's foot) sits just outside it,
-            # walling the corridor shut. 0.2 m reaches it; what the reach
-            # wrongly touches turns unknown, not free.
-            "rim_cells": 4,
+            # ...plus the reach back to the flight's foot. The core is
+            # tread-middles by construction -- the cloud's slope gate drops
+            # every riser-adjacent cell -- so its edge sits half a tread
+            # short of the first riser, and the riser's own mark line
+            # (measured: core from x 8.53 against rim marks at 8.08-8.13)
+            # is half a tread plus a riser away. 0.4 m covers that; what
+            # the reach wrongly touches turns unknown, not free, and a
+            # live obstacle re-marks itself on the next scan.
+            "rim_cells": 8,
         }],
     )
 
