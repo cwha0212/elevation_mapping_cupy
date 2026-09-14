@@ -1,97 +1,87 @@
 #
-# Stairs = the terrain a quadruped can climb once it changes gait.
+# Stairs from the elevation histogram, not from riser lines.
 #
-# The thing that makes a staircase a staircase is that risers and flat treads
-# ALTERNATE. Crediting only the risers, as this filter used to, has two
-# consequences that turn out to be the same bug seen from two sides:
+# A staircase quantises height. Inside a window that spans a flight, the
+# observed elevations pile up on the tread levels, evenly spaced by the
+# riser; a bank fills the same span continuously, a wall makes two piles a
+# metre apart, a kerb makes two piles and nothing more. So the verdict is
+# asked of the histogram itself -- how many well-separated levels, how much
+# of the mass sits on them, and whether the level spacing is riser-sized.
 #
-#   * the flag lands on the vertical faces and skips the treads, so a flight
-#     comes out as stripes rather than as the solid region it is; and
-#   * a plain slope is riser-and-nothing-else, so it passes. With the step
-#     layer's 5 cell span, any plane between roughly 18 and 47 degrees sits
-#     inside the riser band with enough relief to clear the climb test and
-#     nothing tall enough to trip the wall veto. Measured on a 25 degree bank
-#     in the demo world: 203 of 998 observed cells flagged; on 35 degrees,
-#     243 of 1026. Those cells were then lifted to passable, overriding
-#     drivability's correct refusal. A robot would have been walked onto an
-#     embankment it cannot stand on.
+# The previous detector counted riser LINES in the map plane and demanded
+# riser/tread alternation ratios, which made the verdict a function of the
+# viewpoint: a flight seen side-on from the driving lane showed two lines
+# where the geometry demanded three, and the answer flickered with DDS
+# timing because every gate sat on a knife edge (measured: one confirming
+# frame in three otherwise-identical replays). The histogram is what the
+# flight looks like from anywhere, so the lane view confirms steadily --
+# 45-53 cells per frame across the whole north-lane pass on the canonical
+# bag, where the line counter never confirmed once.
 #
-# So the window has to see BOTH: riser-sized steps and genuinely flat, smooth
-# tread between them. Requiring both makes the flagged set cover the whole
-# footprint by construction, no morphology needed to fake it, and it puts a
-# bank's tread fraction at exactly zero.
+# What it deliberately does not do: confirm a thin side silhouette. From
+# the far lane the flight's flank puts too few samples on each level to
+# clear peak_frac, and lowering that bar was measured to hand the 25 degree
+# bank a confirmed-stairs verdict through lidar ring aliasing (528 cells at
+# peak_frac 0.06, 3 at 0.10). Ring piles and tread piles are near-identical
+# at range; the sample-share bar is what tells them apart, so it stays.
 #
-# Everything else here is about not being confidently wrong. A flagged cell
-# becomes PASSABLE downstream, and a false region does more than invite the
-# robot in: the free-space fan marches over the lifted values, so bearings
-# through it read clear and octomap erases whatever was correctly mapped
-# behind. Hence the range gate, the component tests, and the rule that
-# morphology may only ever reclassify cells that were individually admissible.
-#
-import math
-
 import numpy as np
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 
 DEFAULTS = dict(
-    # riser evidence, measured on a fine window of the elevation itself
-    min_riser=0.09,
-    max_riser=0.30,
-    riser_window=3,
-    # tread evidence: flat, level, smooth
-    max_tread_step=0.04,
-    # Real treads are level: measured on this staircase, median 2.6 degrees.
-    # 15 was loose enough to count an 11 degree ramp's surface as tread, and
-    # with the ramp's own edge supplying risers the whole thing read as a
-    # flight. 7 keeps the treads (their p90 is 13, but the fraction only has
-    # to clear 0.08 and it sits at 0.37) and drops the ramp.
-    max_tread_slope=7.0,
-    max_tread_roughness=0.03,
-    # the structural window both fractions are counted over
-    struct_window=21,
-    # Both fractions oscillate as the window slides over the tread period, so
-    # thresholds set near the mean fragment the region into one blob per
-    # riser. They can be low without costing anything: the separation does
-    # not come from how much tread there is, it comes from a plane having
-    # exactly none. A 25 degree bank scores tread_frac 0.000.
-    min_riser_ratio=0.10,
-    min_tread_ratio=0.08,
-    min_total_gain=0.25,
-    min_valid_ratio=0.5,
-    min_valid_ratio_confirmed=0.65,
-    # a cell touching a wall-sized face is never stairs
-    wall_window=3,
-    interior_erosion=5,
-    # trust nothing far away: at grazing incidence one pixel of noise becomes
-    # a riser, and morphology would turn that into confident structure
-    max_range=4.5,
-    max_variance=0.05,
-    # shape of the region
-    open_size=3,
-    close_size=3,
-    max_hole_cells=100,
-    min_component_cells=60,
-    # repetition is what separates a flight from a ledge or a terrace
-    min_risers=2,
-    min_risers_confirmed=3,
-    max_rise_std=0.04,
-    min_tread_depth=0.20,
-    max_tread_depth=0.60,
+    # 1.45 m: enough for FOUR levels of a 0.40 m-tread flight to fit with a
+    # countable share each -- at 1.05 m the fourth level was geometrically
+    # impossible and confirmation could never fire. The longer reach also
+    # raises the absolute per-level sample bar (peak_frac x a bigger window),
+    # which thins out lidar ring piles before they can impersonate treads.
+    struct_window=29,
+    # Height bin. Half the minimum riser: coarse enough that a noisy tread
+    # stays one pile, fine enough that two adjacent levels stay two.
+    bin_w=0.025,
+    # Level spacing that counts as a riser. A level only counts at all when
+    # another level sits a riser away from it -- the levels must CHAIN. A
+    # stairwell wall's top is a perfectly good pile of samples a metre above
+    # the flight, and it simply has no riser-spaced neighbour, so it drops
+    # out of the chain instead of poisoning a mean-gap or total-gain test.
+    min_riser=0.08,
+    max_riser=0.33,
+    # A level exists when it holds enough of the window's observed samples.
+    # peak_frac is the bank/stairs discriminator -- see the header note.
+    peak_min_cells=3,
+    peak_frac=0.10,
+    # A level must stand this many times over its neighbouring valley --
+    # see the prominence note at the peak test.
+    peak_prominence=2.0,
+    # Share of the window's samples sitting on the levels. A staircase is
+    # nothing but its levels; anything continuous leaks mass between them.
+    cover_cand=0.55,
+    cover_conf=0.65,
+    # Three levels = two risers reads as a candidate; four = three risers
+    # confirms, same repetition bar the line counter used.
+    levels_cand=3,
+    levels_conf=4,
+    # Beyond this the camera-free geometry stops voting. 6.0 rather than the
+    # old 4.5: with the 128-channel front lidar and the corrected ride
+    # height, the lane-distance evidence is real (validated on the canonical
+    # bag: confirmation appears, the banks stay silent).
+    max_range=6.0,
+    min_component_cells=40,
+    max_levels=7,
     conf_candidate=0.4,
     conf_confirmed=0.8,
 )
 
 
 def _gpu_modules(a):
-    """cupy and its ndimage if that is what we are holding, else numpy's."""
+    """scipy or cupyx, matching where the elevation actually lives."""
     try:
-        import cupy
+        import cupy as cp
 
-        if isinstance(a, cupy.ndarray):
+        if isinstance(a, cp.ndarray):
             import cupyx.scipy.ndimage as ndi
 
-            return cupy, ndi, True
+            return cp, ndi, True
     except ImportError:
         pass
     import scipy.ndimage as ndi
@@ -100,338 +90,184 @@ def _gpu_modules(a):
 
 
 def _host(a, is_gpu):
-    if not is_gpu:
-        return np.asarray(a)
-    import cupy
-
-    return cupy.asnumpy(a)
+    return a.get() if is_gpu else a
 
 
 def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=None):
-    """Signed stair confidence per cell.
+    """Stairs layer: +-conf_confirmed / +-conf_candidate / 0, nan unobserved.
 
-    Positive is a flight that climbs away from the robot, negative one that
-    drops away, zero is not stairs, NaN is unmeasured. Magnitude is
-    ``conf_candidate`` or ``conf_confirmed``.
-
-    Works on cupy or numpy arrays; the windowed arithmetic runs wherever the
-    input lives and only the per-component reasoning comes to the host, where
-    there are a handful of regions rather than fifty thousand cells.
+    step/slope/roughness are accepted for interface compatibility and
+    ignored: the histogram is asked of the elevation alone.
     """
-    import scipy.ndimage as host_ndi
-
     p = dict(DEFAULTS)
     if params:
-        p.update({k: v for k, v in params.items() if k in DEFAULTS})
+        for key, value in params.items():
+            if key in DEFAULTS:
+                d = DEFAULTS[key]
+                p[key] = int(value) if isinstance(d, int) else float(value)
 
     xp, ndi, is_gpu = _gpu_modules(elevation)
-    # The manager hands layers over from a few different places and they do
-    # not all arrive on the same device. Pull them onto whichever one the
-    # elevation lives on before anything touches them together.
-    step, slope, roughness, valid = (
-        xp.asarray(a) for a in (step, slope, roughness, valid)
-    )
+    valid = xp.asarray(valid)
     h, w = elevation.shape
     f32 = xp.float32
+    sw = p["struct_window"]
 
-    # ---- what the camera-free geometry is allowed to speak about ---------
     rows = xp.arange(h, dtype=f32) - h / 2.0 + 0.5
     cols = xp.arange(w, dtype=f32) - w / 2.0 + 0.5
     dist = xp.sqrt(rows[:, None] ** 2 + cols[None, :] ** 2) * resolution
 
-    tall = xp.isfinite(step) & (step > p["max_riser"])
-    wall_near = (
-        ndi.maximum_filter(tall.astype(f32), size=p["wall_window"], mode="nearest") > 0.5
-    )
-    admissible = valid & (dist <= p["max_range"]) & ~wall_near
-
-    # ---- riser and tread evidence, on a window sized for stair structure --
-    # The step layer's window is foot reach, which smears a riser across five
-    # cells and eats the tread core on any real stair with a tread under
-    # 0.30 m. A three cell window keeps them apart, and it raises the angle at
-    # which a plane starts looking like a riser from about 18 to about 32
-    # degrees for free.
-    big = xp.where(valid, elevation, -1e6)
     small = xp.where(valid, elevation, 1e6)
-    rw = p["riser_window"]
-    fine = ndi.maximum_filter(big, size=rw, mode="nearest") - ndi.minimum_filter(
-        small, size=rw, mode="nearest"
+    local_min = ndi.minimum_filter(small, size=sw, mode="nearest")
+    nvalid = ndi.uniform_filter(valid.astype(f32), size=sw, mode="nearest") * sw * sw
+
+    # ---- the histogram, one uniform_filter per height bin ----------------
+    finite = _host(valid, is_gpu)
+    if not finite.any():
+        return xp.full((h, w), xp.nan, dtype=f32)
+    el_host = _host(elevation, is_gpu)
+    lo = float(np.nanmin(np.where(finite, el_host, np.nan)))
+    hi = float(np.nanmax(np.where(finite, el_host, np.nan)))
+    nb = min(int((hi - lo) / p["bin_w"]) + 2, 160)
+    cnt = xp.zeros((nb, h, w), dtype=f32)
+    for b in range(nb):
+        m = valid & (elevation >= lo + b * p["bin_w"]) \
+            & (elevation < lo + (b + 1) * p["bin_w"])
+        cnt[b] = ndi.uniform_filter(m.astype(f32), size=sw,
+                                    mode="nearest") * sw * sw
+
+    # A level is a local maximum along the height axis, no closer to the
+    # next than a riser, holding a real share of the window's samples.
+    k = max(3, 2 * int(p["min_riser"] / p["bin_w"] / 2) + 1)
+    nms = ndi.maximum_filter(cnt, size=(k, 1, 1), mode="nearest")
+    thresh = xp.maximum(p["peak_min_cells"], p["peak_frac"] * nvalid)
+    # Prominence: a tread stands over EMPTY neighbouring bins, because a
+    # riser face is nearly vertical and leaves almost nothing between the
+    # levels. A smooth slope sliced by the bin grid makes stripes of equal
+    # mass -- peaks with full valleys -- and dies here, which is what keeps
+    # a plain bank from impersonating a flight one bin-width at a time.
+    valley = ndi.minimum_filter(cnt, size=(k, 1, 1), mode="nearest")
+    peaks = ((cnt >= nms) & (cnt >= thresh)
+             & (cnt >= p["peak_prominence"] * valley + p["peak_min_cells"]))
+
+    # ...and it only counts as part of a FLIGHT when another level sits a
+    # riser away. A wall top, a lone ledge, the platform seam: piles with no
+    # riser-spaced neighbour, gone from the chain without a special case.
+    gmin = max(1, int(round(p["min_riser"] / p["bin_w"])))
+    gmax = max(gmin, int(round(p["max_riser"] / p["bin_w"])))
+    neighbour = xp.zeros_like(peaks)
+    for g in range(gmin, gmax + 1):
+        neighbour[g:] |= peaks[:-g]
+        neighbour[:-g] |= peaks[g:]
+    chained = peaks & neighbour
+    levels = chained.sum(axis=0)
+
+    # Coverage: of the samples inside the chain's height span, how many sit
+    # on the levels. The denominator stops at the span so a wall towering
+    # over a stairwell does not dilute a perfectly combed flight below it,
+    # while a bank -- which fills its own span continuously -- still fails.
+    idx = xp.arange(nb, dtype=f32)[:, None, None]
+    bmin = xp.min(xp.where(chained, idx, xp.inf), axis=0)
+    bmax = xp.max(xp.where(chained, idx, -xp.inf), axis=0)
+    within = (idx >= bmin[None] - 1) & (idx <= bmax[None] + 1)
+    near = ndi.maximum_filter(chained.astype(f32), size=(3, 1, 1),
+                              mode="nearest")
+    mass_chain = (cnt * near).sum(axis=0)
+    mass_span = (cnt * within).sum(axis=0)
+    cover = mass_chain / xp.maximum(mass_span, 1e-3)
+
+    ok_levels = (levels >= p["levels_cand"]) & (levels <= p["max_levels"])
+    cand = (valid & (dist <= p["max_range"]) & ok_levels
+            & (cover >= p["cover_cand"]))
+    confirmed = cand & (levels >= p["levels_conf"]) & (cover >= p["cover_conf"])
+
+    # The verdict belongs to the flight, not to its audience: a lane cell
+    # beside the stairs passes every window test by looking at them. A cell
+    # keeps its verdict only if its own height sits on one of the levels and
+    # above the window's base, which no spectator on the surrounding ground
+    # does and every tread above the first does.
+    rel_bin = xp.clip(
+        ((xp.nan_to_num(elevation, nan=lo) - lo) / p["bin_w"]).astype(xp.int32),
+        0, nb - 1,
     )
-    fine_ok = (
-        ndi.uniform_filter(valid.astype(f32), size=rw, mode="nearest") > 0.5
-    )
+    on_level = xp.take_along_axis(
+        near, rel_bin[None, :, :].astype(xp.int64), axis=0
+    )[0] > 0.5
+    raised = elevation > (local_min + p["min_riser"] / 2.0)
+    cand = cand & on_level & raised
+    confirmed = confirmed & on_level & raised
 
-    riser = admissible & fine_ok & (fine >= p["min_riser"]) & (fine <= p["max_riser"])
-    tread = (
-        admissible
-        & fine_ok
-        & (fine < p["max_tread_step"])
-        & xp.isfinite(slope)
-        & (slope < p["max_tread_slope"])
-        & xp.isfinite(roughness)
-        & (roughness < p["max_tread_roughness"])
-    )
+    # ---- components, sign, grade: small-region work on the host ----------
+    import scipy.ndimage as host_ndi
 
-    # ---- both must be present in the same neighbourhood ------------------
-    # The fractions are of what was OBSERVED, not of the window. A flight
-    # seen from the side hides its own far half, and with the window as the
-    # denominator every unobserved cell silently counts as "not a riser":
-    # the term punishes the viewpoint instead of the evidence, and a
-    # perfectly alternating observed half fails the gate. Normalising by the
-    # observed fraction asks the right question -- of the ground actually
-    # measured here, does it alternate like a flight -- while the separate
-    # min_valid_ratio floor still refuses to answer from three cells.
-    sw = p["struct_window"]
-    valid_frac = ndi.uniform_filter(valid.astype(f32), size=sw, mode="nearest")
-    seen = xp.maximum(valid_frac, 1e-3)
-    riser_frac = ndi.uniform_filter(riser.astype(f32), size=sw, mode="nearest") / seen
-    tread_frac = ndi.uniform_filter(tread.astype(f32), size=sw, mode="nearest") / seen
-    gain = ndi.maximum_filter(big, size=sw, mode="nearest") - ndi.minimum_filter(
-        small, size=sw, mode="nearest"
-    )
-
-    candidate = (
-        admissible
-        & (riser_frac >= p["min_riser_ratio"])
-        & (tread_frac >= p["min_tread_ratio"])
-        & (gain >= p["min_total_gain"])
-        & (valid_frac >= p["min_valid_ratio"])
-    )
-
-    # ---- the rest is small-region reasoning; do it on the host -----------
-    cand = _host(candidate, is_gpu)
-    adm = _host(admissible, is_gpu)
-    riser_h = _host(riser, is_gpu)
-    tall_h = _host(tall, is_gpu)
-    elev_h = _host(elevation, is_gpu)
-    valid_h = _host(valid, is_gpu)
-    fine_h = _host(fine, is_gpu)
-    vfrac_h = _host(valid_frac, is_gpu)
-
-    ones3 = np.ones((p["open_size"], p["open_size"]), bool)
-    mask = host_ndi.binary_opening(cand, structure=ones3) & adm
-    mask = host_ndi.binary_closing(
-        mask, structure=np.ones((p["close_size"], p["close_size"]), bool)
-    ) & adm
-    mask = _fill_safe_holes(mask, adm, tall_h, valid_h, p["max_hole_cells"], host_ndi)
-
-    conf = np.zeros_like(elev_h, dtype=np.float32)
+    cand_h = _host(cand, is_gpu)
+    conf_h = _host(confirmed, is_gpu)
+    elev_h = el_host
     dist_h = _host(dist, is_gpu)
 
-    labels, n = host_ndi.label(mask)
-    for k in range(1, n + 1):
-        comp = labels == k
-        grade = _grade_component(
-            comp, riser_h, tall_h, elev_h, fine_h, vfrac_h, dist_h, resolution, p,
-            host_ndi,
-        )
-        if grade:
-            conf[comp] = grade
-
-    # ---- trim the spectators ---------------------------------------------
-    # Every window test above is a neighbourhood test, so a flat lane cell
-    # beside the flight -- whose window frames the staircase's own side
-    # profile, a genuine riser-tread alternation -- collects the component's
-    # grade for standing in a good viewing spot: 143 permanent keepout cells
-    # on plain pavement, measured. The cut cannot live in the candidate
-    # gate; the slope ring around each riser is neither riser nor tread and
-    # pruning it there shatters the region before the component tests run.
-    # So the grade is assigned to the coherent region first, and then cells
-    # that neither sit within 0.15 m of a riser nor are tread within half a
-    # maximal tread of one hand their grade back. On a real flight that is
-    # nobody: treads put every cell within 0.20 m of a riser.
-    if conf.any():
-        tread_h = _host(tread, is_gpu)
-        near7 = host_ndi.maximum_filter(riser_h.astype(np.float32), size=7) > 0.5
-        near13 = host_ndi.maximum_filter(riser_h.astype(np.float32), size=13) > 0.5
-        structural = near7 | (tread_h & near13)
-        conf = np.where(structural, conf, 0.0)
-
-    out = np.where(valid_h, conf, np.nan).astype(np.float32)
-    if is_gpu:
-        return xp.asarray(out)
-    return out
-
-
-def _fill_safe_holes(mask, admissible, tall, valid, max_cells, ndi):
-    """Fill enclosed gaps, but never fill one that is hiding something.
-
-    A hole in a flight is usually a tread the ratios just missed. It can also
-    be a person standing on the stairs, a stairwell void, or a bollard, and
-    those arrive enclosed by stairs exactly the same way. So each hole is
-    judged: anything containing a wall-sized step or an unmeasured cell, or
-    simply too big to be a gap in the evidence, stays a hole.
-    """
-    holes = ndi.binary_fill_holes(mask) & ~mask
-    if not holes.any():
-        return mask
-    labels, n = ndi.label(holes)
-    keep = np.zeros_like(mask)
-    for k in range(1, n + 1):
-        hole = labels == k
-        if hole.sum() > max_cells:
+    cand_h = host_ndi.binary_opening(cand_h, structure=np.ones((3, 3), bool))
+    out = np.zeros((h, w), dtype=np.float32)
+    labels, n = host_ndi.label(cand_h)
+    for c in range(1, n + 1):
+        comp = labels == c
+        size = int(comp.sum())
+        if size < p["min_component_cells"]:
             continue
-        if tall[hole].any() or (~valid[hole]).any():
-            continue
-        keep |= hole
-    return (mask | keep) & admissible
+        sign = _climb_sign(comp, elev_h, dist_h)
+        strong = int((conf_h & comp).sum())
+        grade = p["conf_confirmed"] if strong >= max(
+            p["min_component_cells"] // 2, size // 4
+        ) else p["conf_candidate"]
+        out[comp] = sign * grade
+
+    out = np.where(finite, out, np.nan).astype(np.float32)
+    return xp.asarray(out) if is_gpu else out
 
 
-def _climb_sign(comp, elevation, dist, min_corr=0.2):
+def _climb_sign(comp, elevation, dist, min_step=0.05):
     """Does this flight rise or fall as you walk away from the robot?
 
-    Asked as the correlation between a cell's height and its range, which is
-    the question itself rather than a proxy for it. Comparing against the
-    ground under the robot sounds simpler but is measured exactly where it is
-    least reliable: approaching a descent the robot stands at the lip, half
-    its footprint on each level, and the estimate lands on the wrong side.
+    Asked as the angle between the region's own uphill direction -- the
+    least-squares height gradient over its cells -- and the direction from
+    the robot to the region. Range-based readings (correlation with range,
+    near half against far half) looked like the same question and were not:
+    on a full-width flight most of the range is sideways distance, which
+    diluted the trend below any usable threshold (correlation -0.18 on a
+    plain descending flight against a -0.2 bar). The gradient is immune to
+    the width of the flight.
 
-    Near zero correlation means the flight runs past the robot rather than
-    away from it, so it is standing on the flight. That returns positive: a
-    robot already on stairs has to be able to keep going.
+    A flat gradient, or a region the robot is standing in, means the flight
+    runs past rather than away. That returns positive: a robot already on
+    stairs has to be able to keep going.
+    Comparing against the ground under the robot sounds simpler but is
+    measured exactly where it is least reliable: approaching a descent the
+    robot stands at the lip, half its footprint on each level, and the
+    estimate lands on the wrong side.
     """
-    e = elevation[comp].astype(np.float64)
-    d = dist[comp].astype(np.float64)
-    ok = np.isfinite(e) & np.isfinite(d)
-    if ok.sum() < 3:
+    rr, cc = np.nonzero(comp)
+    e = elevation[rr, cc].astype(np.float64)
+    ok = np.isfinite(e)
+    if ok.sum() < 6:
         return 1.0
-    e, d = e[ok], d[ok]
-    se, sd = e.std(), d.std()
-    if se < 1e-6 or sd < 1e-6:
+    rr, cc, e = rr[ok].astype(np.float64), cc[ok].astype(np.float64), e[ok]
+    r0, c0 = rr - rr.mean(), cc - cc.mean()
+    # least-squares height gradient over the region: which way is uphill
+    srr, scc, src = (r0 * r0).sum(), (c0 * c0).sum(), (r0 * c0).sum()
+    det = srr * scc - src * src
+    if det < 1e-9:
         return 1.0
-    corr = float(((e - e.mean()) * (d - d.mean())).mean() / (se * sd))
-    return -1.0 if corr < -min_corr else 1.0
-
-
-def _climb_axis(riser_sel, comp, elevation, min_cells):
-    """The axis a flight climbs along, taken from the risers themselves.
-
-    A riser is a long thin line lying across the climb, so the biggest one's
-    own principal axis gives the direction the treads run, and the climb is
-    square to it. Estimating it instead from how height covaries with
-    position over the whole region sounds equivalent and is not: a partly
-    seen flight is lopsided, which tilted the axis by 18 degrees here, and a
-    riser line 1.6 m long projects 0.49 m along a tilted axis -- wider than
-    the 0.40 m between risers, so all four smeared into one another.
-    """
-    from scipy import ndimage as ndi
-
-    labels, n = ndi.label(riser_sel)
-    if n == 0:
-        return None, None
-    sizes = ndi.sum_labels(riser_sel, labels, np.arange(1, n + 1))
-    biggest = labels == (1 + int(np.argmax(sizes)))
-    rr, cc = np.nonzero(biggest)
-    if rr.size >= min_cells and rr.std() + cc.std() > 1e-6:
-        pts = np.stack([rr - rr.mean(), cc - cc.mean()]).astype(np.float64)
-        evals, evecs = np.linalg.eigh(pts @ pts.T)
-        along = evecs[:, int(np.argmax(evals))]      # runs with the riser
-        ur, uc = -along[1], along[0]                 # square to it: the climb
-    else:
-        ur, uc = 0.0, 1.0
-
-    # point it uphill, so the sign of the projection means something
-    er, ec = np.nonzero(comp & np.isfinite(elevation))
-    if er.size >= 3:
-        proj = er * ur + ec * uc
-        if float(np.cov(elevation[er, ec].astype(np.float64), proj)[0, 1]) < 0:
-            ur, uc = -ur, -uc
-    return float(ur), float(uc)
-
-
-def _riser_profile(comp, riser, elevation, fine, resolution, min_cells=3):
-    """How many risers this region has, how far apart, and how even.
-
-    Counted by projecting the riser cells onto the region's own climb
-    direction and looking for clusters along it, rather than by counting
-    connected blobs. A riser face that comes back in three noisy pieces is
-    one riser, and blob counting would call it three -- which inflates the
-    count past the confirmation threshold and shrinks the apparent tread
-    depth until anything passes.
-    """
-    sel = riser & comp
-    n_sel = int(sel.sum())
-    if n_sel < min_cells:
-        return 0, None, None
-
-    ur, uc = _climb_axis(sel, comp, elevation, min_cells)
-    if ur is None:
-        return 0, None, None
-
-    rr, cc = np.nonzero(sel)
-    proj = (rr * ur + cc * uc) * resolution
-    lo, hi = float(proj.min()), float(proj.max())
-    if hi - lo < resolution:
-        return 1, None, None
-
-    nbins = max(int((hi - lo) / resolution) + 1, 2)
-    hist, edges = np.histogram(proj, bins=nbins, range=(lo, hi + 1e-6))
-    occupied = np.flatnonzero(hist > max(1, int(0.02 * n_sel)))
-    if occupied.size == 0:
-        return 0, None, None
-
-    runs, start, prev = [], occupied[0], occupied[0]
-    for i in occupied[1:]:
-        if i > prev + 1:
-            runs.append((start, prev))
-            start = i
-        prev = i
-    runs.append((start, prev))
-
-    centres = np.array([(edges[a] + edges[b + 1]) / 2.0 for a, b in runs])
-    depth = float(np.median(np.diff(centres))) if centres.size >= 2 else None
-
-    rises = []
-    for a, b in runs:
-        in_run = (proj >= edges[a]) & (proj <= edges[b + 1])
-        if in_run.any():
-            rises.append(float(np.median(fine[rr[in_run], cc[in_run]])))
-    rise_std = float(np.std(rises)) if len(rises) >= 2 else 0.0
-    return centres.size, depth, rise_std
-
-
-def _grade_component(comp, riser, tall, elevation, fine, valid_frac, dist,
-                     resolution, p, ndi):
-    """Confidence for one candidate region, or 0 if it is not a flight."""
-    if comp.sum() < p["min_component_cells"]:
-        return 0.0
-    # A curb line has plenty of area but no width; erosion is the cheap test
-    # that rejects long thin things and speckle in one go.
-    core = ndi.binary_erosion(comp, structure=np.ones((3, 3), bool))
-    if core.sum() < p["min_component_cells"]:
-        return 0.0
-
-    n_risers, depth, rise_std = _riser_profile(
-        comp, riser, elevation, fine, resolution
-    )
-    if n_risers < p["min_risers"]:
-        return 0.0
-
-    sign = _climb_sign(comp, elevation, dist)
-
-    confirmed = True
-    if n_risers < p["min_risers_confirmed"]:
-        confirmed = False
-    else:
-        if rise_std is None or rise_std > p["max_rise_std"]:
-            confirmed = False
-        if depth is None or not (
-            p["min_tread_depth"] <= depth <= p["max_tread_depth"]
-        ):
-            confirmed = False
-        # a wall along the edge is ordinary -- stairwell sides, the top lip,
-        # a handrail foot. A wall through the middle means this is not one
-        # flight.
-        interior = ndi.binary_erosion(
-            comp, structure=np.ones((p["interior_erosion"], p["interior_erosion"]), bool)
-        )
-        if interior.any() and tall[interior].any():
-            confirmed = False
-        if float(valid_frac[comp].mean()) < p["min_valid_ratio_confirmed"]:
-            confirmed = False
-
-    conf = p["conf_confirmed"] if confirmed else p["conf_candidate"]
-    return sign * conf
+    ser, sec = (r0 * e).sum(), (c0 * e).sum()
+    gr = (scc * ser - src * sec) / det
+    gc = (srr * sec - src * ser) / det
+    g = float(np.hypot(gr, gc))
+    if g < 1e-4:                       # flat to the gradient: runs past us
+        return 1.0
+    h, w = elevation.shape
+    ar, ac = rr.mean() - h / 2.0 + 0.5, cc.mean() - w / 2.0 + 0.5
+    away = float(np.hypot(ar, ac))
+    if away < 1.0:                     # standing on it: keep going
+        return 1.0
+    heads_up = (gr * ar + gc * ac) / (g * away)
+    return -1.0 if heads_up < -0.2 else 1.0
 
 
 class StairsFilter(PluginBase):
@@ -448,7 +284,8 @@ class StairsFilter(PluginBase):
     Args:
         cell_n (int): map width/height in cells (injected by the manager).
         resolution (float): cell size in meters (injected by the manager).
-        step_layer / slope_layer / roughness_layer (str): inputs.
+        step_layer / slope_layer / roughness_layer (str): accepted for
+            interface compatibility; the histogram reads elevation alone.
         **kwargs: any key in DEFAULTS overrides that threshold.
     """
 

@@ -78,33 +78,29 @@ stairs_filter:
   is_height_layer: False
   layer_name: "stairs"          # +confirmed climb .. -confirmed descent, 0 not stairs
   extra_params:
-    # A flight is riser AND tread, alternating. Crediting only risers made the
-    # layer stripy and let any 18-47 degree bank through as climbable; a plane
-    # has a tread fraction of exactly zero, which is where the separation
-    # comes from. The ratios are deliberately low: both fractions oscillate
-    # as the window slides over the tread period, and thresholds near their
-    # mean fragment a flight into one blob per riser.
-    min_riser: 0.09
-    max_riser: 0.30             # D1 MaxPro climbs 30 cm continuous stairs
-    riser_window: 3             # stair structure, not foot reach
-    max_tread_step: 0.04
-    max_tread_slope: 15.0
-    max_tread_roughness: 0.03
-    struct_window: 21           # 1.05 m: two to three risers at 0.4 m treads
-    min_riser_ratio: 0.10
-    min_tread_ratio: 0.08
-    min_total_gain: 0.25
-    min_valid_ratio: 0.5
-    min_valid_ratio_confirmed: 0.65
-    wall_window: 3              # a cell touching a wall-sized face is never stairs
-    interior_erosion: 5         # a wall through the middle disqualifies; along the edge does not
-    max_range: 4.5              # past this a grazing ray's noise looks like a riser
-    min_risers: 2
-    min_risers_confirmed: 3     # repetition: what a terrace and a lone ledge lack
-    max_rise_std: 0.04
-    min_tread_depth: 0.20
-    max_tread_depth: 0.60
-    min_component_cells: 60
+    # A staircase quantises height: the window's elevation histogram piles
+    # up on riser-spaced levels, and the verdict is asked of those piles --
+    # how many, whether they chain at riser spacing, how much of the mass
+    # sits on them. Viewpoint-invariant, which the old riser-line counting
+    # was not: the lane-side view now confirms where it used to flicker.
+    struct_window: 29           # 1.45 m: four levels of a 0.40 m tread fit
+    bin_w: 0.025                # half a minimum riser per height bin
+    min_riser: 0.08             # levels chain when spaced like a riser...
+    max_riser: 0.33             # ...so a wall top or a lone ledge drops out
+    peak_frac: 0.10             # a level's share of the window's samples.
+                                # The bank/stairs discriminator: lower it
+                                # and lidar ring piles impersonate treads.
+    peak_prominence: 2.0        # a tread stands over near-empty bins
+    cover_cand: 0.55
+    cover_conf: 0.65
+    levels_cand: 3              # two risers reads as a candidate
+    levels_conf: 4              # three risers confirms
+    max_levels: 7
+    max_range: 6.0              # the 128ch front lidar and the true ride
+                                # height keep lane-distance evidence real;
+                                # validated on the canonical bag with the
+                                # banks staying silent
+    min_component_cells: 40
 ramp_filter:
   enable: True
   fill_nan: False
