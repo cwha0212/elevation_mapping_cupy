@@ -217,7 +217,12 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
     # verdict and the size belong to the cells that actually passed. An
     # opening here was measured to erase the entire (real) staircase: 116
     # surviving cells, all of them in stripes thinner than its structure.
-    bridged = host_ndi.binary_closing(cand_h, structure=np.ones((3, 3), bool))
+    # The closing spans a riser line: each riser's own cells sit off-level
+    # and split the flight into one belt per tread -- measured, the first
+    # tread's 158 candidate cells rode a separate component from the
+    # confirmed body across a two-cell gap, stuck at candidate grade with
+    # the whole corridor shut behind them.
+    bridged = host_ndi.binary_closing(cand_h, structure=np.ones((5, 5), bool))
     out = np.zeros((h, w), dtype=np.float32)
     labels, n = host_ndi.label(bridged)
     for c in range(1, n + 1):
