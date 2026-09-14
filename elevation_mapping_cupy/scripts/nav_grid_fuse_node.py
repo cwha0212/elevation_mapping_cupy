@@ -89,24 +89,33 @@ class NavGridFuseNode(Node):
         mask = ga > 50
         if self.erode_cells > 0 and mask.any():
             mask = ndimage.binary_erosion(mask, iterations=self.erode_cells)
-        if self.rim_cells > 0 and mask.any():
-            mask = ndimage.binary_dilation(mask, iterations=self.rim_cells)
         if not mask.any():
             self.pub.publish(msg)
             return
 
         na = np.array(msg.data, dtype=np.int8).reshape(ni.height, ni.width)
+        # The gait mask is transplanted into the NAV grid before the rim
+        # stretch. The gait grid is an octomap projection cropped to its own
+        # bounding box, and that box ends exactly where the evidence ends --
+        # at the flight's foot. A dilation inside the cropped array cannot
+        # cross its edge, so the rim (which lives one cell past it) stayed
+        # untouchable however far rim_cells reached: measured, 9 of 76 rim
+        # cells cleared, the 9 that happened to fall inside the box.
+        gr_, gc_ = np.nonzero(mask)
+        wx = gi.origin.position.x + (gc_ + 0.5) * gi.resolution
+        wy = gi.origin.position.y + (gr_ + 0.5) * gi.resolution
+        nc = ((wx - ni.origin.position.x) / ni.resolution).astype(int)
+        nr = ((wy - ni.origin.position.y) / ni.resolution).astype(int)
+        inb = (nr >= 0) & (nr < ni.height) & (nc >= 0) & (nc < ni.width)
+        mask_nav = np.zeros((ni.height, ni.width), dtype=bool)
+        mask_nav[nr[inb], nc[inb]] = True
+        if self.rim_cells > 0 and mask_nav.any():
+            mask_nav = ndimage.binary_dilation(mask_nav,
+                                               iterations=self.rim_cells)
+
         rows, cols = np.nonzero(na > 50)
         if rows.size:
-            # world position of each occupied nav cell, looked up in the gait
-            # grid -- the two grids share a frame but not an origin or extent
-            wx = ni.origin.position.x + (cols + 0.5) * ni.resolution
-            wy = ni.origin.position.y + (rows + 0.5) * ni.resolution
-            gc = ((wx - gi.origin.position.x) / gi.resolution).astype(int)
-            gr = ((wy - gi.origin.position.y) / gi.resolution).astype(int)
-            inb = (gr >= 0) & (gr < gi.height) & (gc >= 0) & (gc < gi.width)
-            clear = np.zeros(rows.size, dtype=bool)
-            clear[inb] = mask[gr[inb], gc[inb]]
+            clear = mask_nav[rows, cols]
             if clear.any():
                 # UNKNOWN, not free. What the eraser knows is that the mark
                 # is overruled -- the thing that made it is climbable -- not
