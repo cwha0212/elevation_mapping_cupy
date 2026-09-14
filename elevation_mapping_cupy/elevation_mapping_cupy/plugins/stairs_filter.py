@@ -204,11 +204,16 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
     elev_h = el_host
     dist_h = _host(dist, is_gpu)
 
-    cand_h = host_ndi.binary_opening(cand_h, structure=np.ones((3, 3), bool))
+    # Label over a closed copy so observation gaps do not shatter one flight
+    # into sub-threshold shards -- the lane view arrives striped -- but the
+    # verdict and the size belong to the cells that actually passed. An
+    # opening here was measured to erase the entire (real) staircase: 116
+    # surviving cells, all of them in stripes thinner than its structure.
+    bridged = host_ndi.binary_closing(cand_h, structure=np.ones((3, 3), bool))
     out = np.zeros((h, w), dtype=np.float32)
-    labels, n = host_ndi.label(cand_h)
+    labels, n = host_ndi.label(bridged)
     for c in range(1, n + 1):
-        comp = labels == c
+        comp = (labels == c) & cand_h
         size = int(comp.sum())
         if size < p["min_component_cells"]:
             continue
