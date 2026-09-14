@@ -146,16 +146,14 @@ def generate_launch_description():
             # the undilated flags: erasure stops where the evidence stops...
             "gait_topic": "/gait_core/projected_map",
             "erode_cells": 0,
-            # ...plus the reach back to the flight's foot. The core is
-            # tread-middles by construction -- the cloud's slope gate drops
-            # every riser-adjacent cell -- and it is thinnest exactly on the
-            # robot's own approach line, where the boresight view grazes the
-            # treads: measured on the frontal bag, the nearest core cell to
-            # a centre rim mark is 0.45-0.65 m away (half a tread, a riser,
-            # and the boresight recession). 0.7 m covers the measured worst
-            # case; what the reach wrongly touches turns unknown, not free,
-            # and a live obstacle re-marks itself on the next scan.
-            "rim_cells": 14,
+            # ...plus a small reach past it. The heavy lifting moved into
+            # the detector: the direction-gated foot annex puts the flight's
+            # entry ground (rim included) INTO the core along the climb
+            # axis, so the fuse only needs to bridge discretisation. A wide
+            # isotropic reach here was measured eating the flank boundary
+            # (21 of 35 side rim marks gone at 0.7 m) -- the sides are
+            # exactly what must survive.
+            "rim_cells": 4,
         }],
     )
 

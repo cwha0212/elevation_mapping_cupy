@@ -258,19 +258,60 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
             filled &= dist_h <= p["max_range"]
             comp = comp | filled
         # ...and the flight's foot with it: the ground ring at the lowest
-        # tread's level, first riser line included. Height does the safety
-        # work -- see the foot_cells note in DEFAULTS.
+        # tread's level, first riser line included. Height does part of the
+        # safety work (see the foot_cells note in DEFAULTS); DIRECTION does
+        # the rest. The ring is kept only along the climb axis -- the ends
+        # where a robot enters or leaves the flight -- because an isotropic
+        # ring annexed the ground off the flanks too, and the eraser then
+        # ate the side boundary (measured: 21 of 35 flank rim marks gone).
         if p["foot_cells"] > 0:
             lowest = float(np.nanmin(np.where(comp, elev_h, np.nan)))
             ring = host_ndi.binary_dilation(
                 comp, iterations=int(p["foot_cells"])
             ) & ~comp & finite
             foot = ring & (np.abs(elev_h - lowest) <= p["max_riser"])
+            axis = _climb_axis_of(comp, elev_h)
+            if axis is not None and foot.any():
+                mr, mc = (a.mean() for a in np.nonzero(comp))
+                fr_, fc_ = np.nonzero(foot)
+                vr, vc = fr_ - mr, fc_ - mc
+                norm = np.hypot(vr, vc) + 1e-9
+                along = np.abs(vr * axis[0] + vc * axis[1]) / norm
+                keep = along >= 0.5
+                foot = np.zeros_like(foot)
+                foot[fr_[keep], fc_[keep]] = True
             comp = comp | foot
         out[comp] = sign * grade
 
     out = np.where(finite, out, np.nan).astype(np.float32)
     return xp.asarray(out) if is_gpu else out
+
+
+def _climb_axis_of(comp, elevation):
+    """Unit vector of the region's uphill direction, or None if flat.
+
+    The least-squares height gradient over the region's cells: the same
+    quantity _climb_sign uses, exposed for the foot annexation's direction
+    gate.
+    """
+    rr, cc = np.nonzero(comp)
+    e = elevation[rr, cc].astype(np.float64)
+    ok = np.isfinite(e)
+    if ok.sum() < 6:
+        return None
+    rr, cc, e = rr[ok].astype(np.float64), cc[ok].astype(np.float64), e[ok]
+    r0, c0 = rr - rr.mean(), cc - cc.mean()
+    srr, scc, src = (r0 * r0).sum(), (c0 * c0).sum(), (r0 * c0).sum()
+    det = srr * scc - src * src
+    if det < 1e-9:
+        return None
+    ser, sec = (r0 * e).sum(), (c0 * e).sum()
+    gr = (scc * ser - src * sec) / det
+    gc = (srr * sec - src * ser) / det
+    g = float(np.hypot(gr, gc))
+    if g < 1e-4:
+        return None
+    return gr / g, gc / g
 
 
 def _climb_sign(comp, elevation, dist, min_step=0.05):
