@@ -357,17 +357,21 @@
           <lidar>
             <scan>
               <horizontal>
-                <samples>360</samples>
+                <samples>720</samples>
                 <resolution>1</resolution>
                 <min_angle>-3.14159</min_angle>
                 <max_angle>3.14159</max_angle>
               </horizontal>
               <vertical>
-                <!-- 360x16 rather than 720x32. Every raycast runs on the same
-                     GPU as the camera, the segmentation and RViz, and at the
-                     full count RViz stopped repainting. A 0.05 m map does not
-                     resolve more than this anyway. -->
-                <samples>32</samples>
+                <!-- The robot's front lidar is a dense 128-channel unit and
+                     the voxel filter reduces it to the map's 0.05 m before
+                     anything downstream sees it, so the map's evidence
+                     density is set by the sensor, not the filter. At the old
+                     360x32 a riser seen side-on from the lane got one ring
+                     at most and the stairs gates starved on real structure.
+                     Raycast cost only matters while a recording runs, and
+                     recordings run headless. -->
+                <samples>128</samples>
                 <resolution>1</resolution>
                 <min_angle>-1.0472</min_angle>
                 <max_angle>0.5236</max_angle>
