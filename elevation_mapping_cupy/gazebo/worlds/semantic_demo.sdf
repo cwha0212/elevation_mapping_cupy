@@ -319,8 +319,13 @@
          68 kg, climbs 30 cm continuous stairs, 45 deg gradient). Wheeled
          rather than legged because only the sensor geometry and the
          footprint reach the mapping layer; the gait does not. -->
+    <!-- The robot's ride height is anchored by the real machine: the left
+         MID360 sits about 0.60 m off the ground, and the calibrated mount
+         puts it 0.189 m above base_link, so base_link belongs at 0.41 m.
+         The wheels (radius 0.25, axle 0.16 below base) settle it exactly
+         there; the calibrated sensor extrinsics stay untouched. -->
     <model name="robot">
-      <pose>2.0 4.2 0.62 0 0 0</pose>
+      <pose>2.0 4.2 0.42 0 0 0</pose>
       <self_collide>false</self_collide>
 
       <link name="base_link">
@@ -479,11 +484,11 @@
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.25</radius><length>0.10</length></cylinder></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.25</radius><length>0.10</length></cylinder></geometry>
         </visual>
       </link>
 
@@ -495,11 +500,11 @@
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.25</radius><length>0.10</length></cylinder></geometry>
           <surface><friction><ode><mu>1.0</mu><mu2>1.0</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><cylinder><radius>0.34</radius><length>0.10</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.25</radius><length>0.10</length></cylinder></geometry>
         </visual>
       </link>
 
@@ -511,11 +516,11 @@
                    <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
         </inertial>
         <collision name="collision">
-          <geometry><sphere><radius>0.34</radius></sphere></geometry>
+          <geometry><sphere><radius>0.25</radius></sphere></geometry>
           <surface><friction><ode><mu>0.05</mu><mu2>0.05</mu2></ode></friction></surface>
         </collision>
         <visual name="visual">
-          <geometry><sphere><radius>0.34</radius></sphere></geometry>
+          <geometry><sphere><radius>0.25</radius></sphere></geometry>
         </visual>
       </link>
 
@@ -548,7 +553,7 @@
         <left_joint>left_wheel_joint</left_joint>
         <right_joint>right_wheel_joint</right_joint>
         <wheel_separation>0.52</wheel_separation>
-        <wheel_radius>0.34</wheel_radius>
+        <wheel_radius>0.25</wheel_radius>
         <odom_publish_frequency>50</odom_publish_frequency>
         <max_linear_acceleration>1.0</max_linear_acceleration>
         <topic>/model/robot/cmd_vel</topic>
