@@ -23,9 +23,14 @@ import tempfile
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    AndSubstitution,
+    LaunchConfiguration,
+    NotSubstitution,
+    PathJoinSubstitution,
+)
 from launch_ros.actions import Node
 
 LIDAR_FRAME = "robot/base_link/lidar"
@@ -103,17 +108,25 @@ def generate_launch_description():
 
     gui = LaunchConfiguration("gui")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    # sim:=false runs the perception stack alone, for feeding from a recorded
+    # bag instead of a live world: everything the simulator (or the robot)
+    # provides -- /clock, sensor topics, /odom, the dynamic /tf -- is expected
+    # to come from the bag, so the server, gui and bridge all stay down. The
+    # static transforms are not gated: they describe the sensor mounts, which
+    # are the stack's own business, and repeating what the bag recorded is
+    # harmless where missing them is not.
+    sim = LaunchConfiguration("sim")
 
     resolved_world = _world_with_textures(world_path, share_dir)
     gz_server = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-s", "-v", "2", resolved_world],
         output="screen", additional_env=_render_env(headless=True),
-        condition=UnlessCondition(gui),
+        condition=IfCondition(AndSubstitution(sim, NotSubstitution(gui))),
     )
     gz_gui = ExecuteProcess(
         cmd=["ign", "gazebo", "-r", "-v", "2", resolved_world],
         output="screen", additional_env=_render_env(headless=False),
-        condition=IfCondition(gui),
+        condition=IfCondition(AndSubstitution(sim, gui)),
     )
 
     bridge = Node(
@@ -144,6 +157,7 @@ def generate_launch_description():
             ("/camera_info", "/front_cam/camera_info"),
         ],
         parameters=[{"use_sim_time": True}],
+        condition=IfCondition(sim),
     )
 
     lidar_tf = Node(
@@ -324,6 +338,12 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("gui", default_value="true"),
         DeclareLaunchArgument("launch_rviz", default_value="true"),
+        DeclareLaunchArgument(
+            "sim",
+            default_value="true",
+            description="false: no Gazebo and no bridge; sensor topics, "
+            "/clock, /odom and /tf are expected from a bag replay.",
+        ),
         DeclareLaunchArgument(
             "samtp_engine",
             default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
