@@ -68,6 +68,14 @@ DEFAULTS = dict(
     max_range=6.0,
     min_component_cells=40,
     max_levels=7,
+    # A flight includes its own foot. The level trims hand the verdict to
+    # cells ON the treads, which leaves the first riser's line and the half
+    # tread of ground before it outside every region the gait eraser may
+    # touch -- and the riser's occupancy marks live exactly there. Cells
+    # within this reach of a component, at heights within a riser of its
+    # lowest tread, are annexed; a stairwell wall (a metre up) and the top
+    # platform (a flight up) both fail the height test by construction.
+    foot_cells=4,
     conf_candidate=0.4,
     conf_confirmed=0.8,
 )
@@ -222,6 +230,16 @@ def detect_stairs(elevation, valid, step, slope, roughness, resolution, params=N
         grade = p["conf_confirmed"] if strong >= max(
             p["min_component_cells"] // 2, size // 4
         ) else p["conf_candidate"]
+        # ...and the flight's foot with it: the ground ring at the lowest
+        # tread's level, first riser line included. Height does the safety
+        # work -- see the foot_cells note in DEFAULTS.
+        if p["foot_cells"] > 0:
+            lowest = float(np.nanmin(np.where(comp, elev_h, np.nan)))
+            ring = host_ndi.binary_dilation(
+                comp, iterations=int(p["foot_cells"])
+            ) & ~comp & finite
+            foot = ring & (np.abs(elev_h - lowest) <= p["max_riser"])
+            comp = comp | foot
         out[comp] = sign * grade
 
     out = np.where(finite, out, np.nan).astype(np.float32)
