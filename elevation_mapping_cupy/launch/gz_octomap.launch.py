@@ -143,9 +143,15 @@ def generate_launch_description():
         condition=UnlessCondition(is_lidar),
         parameters=[{
             "use_sim_time": True,
-            # the undilated flags: erasure stops where the evidence stops
+            # the undilated flags: erasure stops where the evidence stops...
             "gait_topic": "/gait_core/projected_map",
             "erode_cells": 0,
+            # ...plus the rim. The detector's footprint starts at the first
+            # tread's top, and the riser's own mark line (0.15-0.2 m of
+            # lethal cells right at the flight's foot) sits just outside it,
+            # walling the corridor shut. 0.2 m reaches it; what the reach
+            # wrongly touches turns unknown, not free.
+            "rim_cells": 4,
         }],
     )
 

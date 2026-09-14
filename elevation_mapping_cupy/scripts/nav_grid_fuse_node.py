@@ -56,6 +56,15 @@ class NavGridFuseNode(Node):
         # of a stairwell wall -- the stairs filter's wall veto already stops
         # the footprint before one.
         self.erode_cells = int(self.declare_parameter("erode_cells", 6).value)
+        # The histogram detector's footprint starts at the first tread's TOP,
+        # so the riser's own occupancy line sits just outside it: measured, a
+        # 76-cell wall at x 8.03..8.18 against a footprint from 8.2, walling
+        # the corridor shut with the eraser powerless one cell away. rim_cells
+        # stretches the eraser that far past the (eroded) region -- the rim
+        # belongs to the flight even though it is not ON the flight. Kept
+        # small: what it wrongly touches turns unknown, not free, and a live
+        # obstacle re-marks itself on the next scan.
+        self.rim_cells = int(self.declare_parameter("rim_cells", 0).value)
 
         self.gait = None
         self.pub = self.create_publisher(OccupancyGrid, self.output_topic, 5)
@@ -80,6 +89,8 @@ class NavGridFuseNode(Node):
         mask = ga > 50
         if self.erode_cells > 0 and mask.any():
             mask = ndimage.binary_erosion(mask, iterations=self.erode_cells)
+        if self.rim_cells > 0 and mask.any():
+            mask = ndimage.binary_dilation(mask, iterations=self.rim_cells)
         if not mask.any():
             self.pub.publish(msg)
             return
