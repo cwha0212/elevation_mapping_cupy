@@ -148,13 +148,14 @@ def generate_launch_description():
             "erode_cells": 0,
             # ...plus the reach back to the flight's foot. The core is
             # tread-middles by construction -- the cloud's slope gate drops
-            # every riser-adjacent cell -- so its edge sits half a tread
-            # short of the first riser, and the riser's own mark line
-            # (measured: core from x 8.53 against rim marks at 8.08-8.13)
-            # is half a tread plus a riser away. 0.4 m covers that; what
-            # the reach wrongly touches turns unknown, not free, and a
-            # live obstacle re-marks itself on the next scan.
-            "rim_cells": 8,
+            # every riser-adjacent cell -- and it is thinnest exactly on the
+            # robot's own approach line, where the boresight view grazes the
+            # treads: measured on the frontal bag, the nearest core cell to
+            # a centre rim mark is 0.45-0.65 m away (half a tread, a riser,
+            # and the boresight recession). 0.7 m covers the measured worst
+            # case; what the reach wrongly touches turns unknown, not free,
+            # and a live obstacle re-marks itself on the next scan.
+            "rim_cells": 14,
         }],
     )
 
