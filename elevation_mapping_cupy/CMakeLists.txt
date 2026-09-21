@@ -35,6 +35,7 @@ install(PROGRAMS
   scripts/nav_grid_fuse_node.py
   scripts/traversability_cloud_node.py
   scripts/voxel_downsample_node.py
+  scripts/grid_latch_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
