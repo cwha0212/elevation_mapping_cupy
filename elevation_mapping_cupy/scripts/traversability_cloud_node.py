@@ -304,6 +304,8 @@ class TraversabilityCloudNode(Node):
                 # further down, not by this one.
                 low = np.isfinite(elev) & (elev - ground < self.min_obstacle_rise)
                 values = np.where(low, np.maximum(values, self.threshold), values)
+
+        res = msg.info.resolution
         cx = msg.info.pose.position.x
         cy = msg.info.pose.position.y
 
