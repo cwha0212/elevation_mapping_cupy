@@ -33,6 +33,15 @@ CAMERA_RPY_DEG = (-86.6693, -3.3177, -87.4774)
 CAMERA_PARENT_FRAME = "lidar_frame"
 CAMERA_CHILD_FRAME = "camera_color_optical_frame"
 
+# haechi_data/calib/haechi_calibration.yaml, `camera:` -- the robot publishes
+# no CameraInfo, so these travel with the launch instead. Row-major K, the
+# resolution it was calibrated at, and t_reference = t_camera + offset.
+CAMERA_K = [632.05027422, 0.0, 626.09047259,
+            0.0, 633.89951429, 343.05708742,
+            0.0, 0.0, 1.0]
+CAMERA_SIZE = [1280, 720]
+CAMERA_TIME_OFFSET_S = 0.019554
+
 
 def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
@@ -45,9 +54,6 @@ def generate_launch_description():
         if not os.path.exists(path):
             raise FileNotFoundError(f"Config file {path} does not exist")
 
-    semantic_config_path = os.path.join(
-        get_package_share_directory("semantic_sensor"), "config", "haechi.yaml"
-    )
 
     use_semantics = LaunchConfiguration("use_semantics")
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -73,19 +79,45 @@ def generate_launch_description():
         ],
     )
 
-    # Namespaced so the republished camera_info lands on
-    # /front_cam/camera_info_resized, which the elevation mapping config expects.
+    # The camera publishes JPEG and nothing else -- see `camera.topic` in the
+    # calibration -- and SAM-TP wants pixels, so the branch starts with a
+    # decode. On the robot and on a bag alike.
+    image_decode = Node(
+        package="image_transport",
+        executable="republish",
+        name="front_cam_decompress",
+        output="screen",
+        condition=IfCondition(use_semantics),
+        arguments=["compressed", "raw"],
+        remappings=[
+            ("in/compressed", "/camera/image_raw/compressed"),
+            ("out", "/front_cam/image_raw"),
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
+    )
+
+    # SAM-TP, the same model the simulated path runs. This branch used to be
+    # semantic_sensor's Cityscapes classifier and was left behind when SAM-TP
+    # replaced it: the real robot has been running with no camera verdict at
+    # all, which is why `safety` here has been nothing but the geometry.
+    #
+    # haechi publishes no CameraInfo, so the calibration is injected -- K and
+    # size straight from haechi_calibration.yaml, and the camera-to-reference
+    # time offset with them.
     semantic_node = Node(
-        package="semantic_sensor",
-        executable="image_node",
+        package="elevation_mapping_cupy",
+        executable="samtp_node.py",
         namespace="front_cam",
-        name="semantic_image_node",
+        name="samtp_node",
         output="screen",
         condition=IfCondition(use_semantics),
         parameters=[
             {
-                "sensor_name": "haechi_front_cam",
-                "config_path": semantic_config_path,
+                "engine_path": LaunchConfiguration("samtp_engine"),
+                "image_topic": "/front_cam/image_raw",
+                "camera_k": CAMERA_K,
+                "camera_size": CAMERA_SIZE,
+                "time_offset_s": CAMERA_TIME_OFFSET_S,
                 "use_sim_time": use_sim_time,
             }
         ],
@@ -142,7 +174,15 @@ def generate_launch_description():
                 "up LiDAR-only geometry first.",
             ),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
+            DeclareLaunchArgument(
+                "samtp_engine",
+                default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
+                description="TensorRT engine for SAM-TP. Machine specific, so "
+                "it lives outside the repo and is rebuilt per device with "
+                "trtexec --onnx=... --fp16.",
+            ),
             camera_tf,
+            image_decode,
             semantic_node,
             downsample,
             elevation_mapping_node,

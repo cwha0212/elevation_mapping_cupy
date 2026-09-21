@@ -69,13 +69,15 @@
 
       # Semantics, front cone only. The labels are painted onto the map cells
       # and persist as the robot walks, so coverage accumulates over time.
-      # Published by semantic_sensor/image_node (namespace front_cam), which
-      # also republishes the resized CameraInfo this needs.
+      # SAM-TP, published by scripts/samtp_node.py in the front_cam
+      # namespace. One float channel: `untrav`, the negated raw
+      # traversability logit (high = hard ground). Not a sigmoid -- the
+      # contrast the model produces would be squeezed out of the map.
       front_cam:
-        topic_name: '/front_cam/semantic_image'
-        camera_info_topic_name: '/front_cam/camera_info_resized'
-        channel_info_topic_name: '/front_cam/channel_info'
-        channels: ['person', 'car', 'bicycle']   # must match semantic_sensor/config/haechi.yaml
+        topic_name: '/front_cam/samtp_score'
+        camera_info_topic_name: '/front_cam/samtp_camera_info'
+        channel_info_topic_name: '/front_cam/samtp_channel_info'
+        channels: ['untrav']
         data_type: image
 
     #### Publishers ########
@@ -97,6 +99,6 @@
         basic_layers: ['elevation']
         fps: 3.0
       elevation_map_semantic:
-        layers: ['person', 'car', 'bicycle']
+        layers: ['elevation', 'untrav']
         basic_layers: []
         fps: 3.0
