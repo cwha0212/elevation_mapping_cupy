@@ -36,6 +36,7 @@ import rclpy
 from cv_bridge import CvBridge
 from elevation_map_msgs.msg import ChannelInfo
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import Bool
 
@@ -99,12 +100,21 @@ class SamTPNode(Node):
             self.create_subscription(
                 CameraInfo, self.camera_info_topic, self._on_info, 2
             )
+        # Sensor-data QoS, because that is what a camera offers. Subscribing
+        # reliably to a best-effort publisher is not an error anywhere: the
+        # subscription is created, the node logs that it is running, and not
+        # one image ever arrives. Measured on the real bag, which is exactly
+        # how SAM-TP came to be "wired up" and contributing nothing.
         if "compressed" in self.image_topic:
             self.create_subscription(
-                CompressedImage, self.image_topic, self._on_image, 2
+                CompressedImage, self.image_topic, self._on_image,
+                qos_profile_sensor_data,
             )
         else:
-            self.create_subscription(Image, self.image_topic, self._on_image, 2)
+            self.create_subscription(
+                Image, self.image_topic, self._on_image,
+                qos_profile_sensor_data,
+            )
 
         self.get_logger().info(
             f"SAM-TP on '{self.image_topic}' -> samtp_score (untrav), "

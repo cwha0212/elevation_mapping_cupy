@@ -79,23 +79,6 @@ def generate_launch_description():
         ],
     )
 
-    # The camera publishes JPEG and nothing else -- see `camera.topic` in the
-    # calibration -- and SAM-TP wants pixels, so the branch starts with a
-    # decode. On the robot and on a bag alike.
-    image_decode = Node(
-        package="image_transport",
-        executable="republish",
-        name="front_cam_decompress",
-        output="screen",
-        condition=IfCondition(use_semantics),
-        arguments=["compressed", "raw"],
-        remappings=[
-            ("in/compressed", "/camera/image_raw/compressed"),
-            ("out", "/front_cam/image_raw"),
-        ],
-        parameters=[{"use_sim_time": use_sim_time}],
-    )
-
     # SAM-TP, the same model the simulated path runs. This branch used to be
     # semantic_sensor's Cityscapes classifier and was left behind when SAM-TP
     # replaced it: the real robot has been running with no camera verdict at
@@ -114,7 +97,12 @@ def generate_launch_description():
         parameters=[
             {
                 "engine_path": LaunchConfiguration("samtp_engine"),
-                "image_topic": "/front_cam/image_raw",
+                # Straight off the camera's own topic. SAM-TP decodes JPEG
+                # itself, so the decode hop that used to sit here is gone --
+                # and with it a QoS mismatch that silently starved the whole
+                # branch: image_transport's republish subscribes reliably,
+                # the camera publishes best effort, and nothing crossed.
+                "image_topic": "/camera/image_raw/compressed",
                 "camera_k": CAMERA_K,
                 "camera_size": CAMERA_SIZE,
                 "time_offset_s": CAMERA_TIME_OFFSET_S,
@@ -182,7 +170,6 @@ def generate_launch_description():
                 "trtexec --onnx=... --fp16.",
             ),
             camera_tf,
-            image_decode,
             semantic_node,
             downsample,
             elevation_mapping_node,
