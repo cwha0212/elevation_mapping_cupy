@@ -32,6 +32,7 @@ def generate_launch_description():
             "threshold": threshold,
             # haechi maps in odom, per config/setups/haechi/haechi.yaml.
             "map_frame": "odom",
+            "scan_topic": LaunchConfiguration("scan_topic"),
         }],
     )
 
@@ -63,6 +64,12 @@ def generate_launch_description():
             description="safety below this becomes an obstacle. Against the "
             "0.20 m step limit, 0.15 m risers score 0.25: 0.4 calls stairs an "
             "obstacle, 0.2 leaves them climbable.",
+        ),
+        DeclareLaunchArgument(
+            "scan_topic",
+            default_value="",
+            description="Publish the fan as a LaserScan here too (e.g. "
+            "/terrain_scan) for a 2D navigation stack. Empty = off.",
         ),
         trav_cloud,
         octomap,

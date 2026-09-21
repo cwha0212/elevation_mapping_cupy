@@ -46,7 +46,8 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
 from rclpy.node import Node
-from sensor_msgs.msg import PointCloud2, PointField
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 from nav_msgs.msg import OccupancyGrid
 from tf2_ros import TransformBroadcaster
 
@@ -173,6 +174,20 @@ class TraversabilityCloudNode(Node):
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
+        # The same fan as a LaserScan, for the 2D navigation stack. Off by
+        # default: a robot already has a /scan from its own lidar and this
+        # one answers a different question (what the terrain chain judged,
+        # not what the beam hit), so wiring the two together is a decision
+        # the launch makes, not this node.
+        self.scan_topic = self.declare_parameter("scan_topic", "").value
+        self.scan_range_min = float(
+            self.declare_parameter("scan_range_min", 0.05).value
+        )
+        self.scan_pub = (
+            self.create_publisher(
+                LaserScan, self.scan_topic, qos_profile_sensor_data)
+            if self.scan_topic else None
+        )
         self.tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
         # While the robot stands inside gait terrain -- the keepout region,
@@ -288,6 +303,11 @@ class TraversabilityCloudNode(Node):
         if not (self.bearings > 0 and self.march_range > 0):
             rows, cols = np.nonzero(unsafe_cells)
         dx, dy = offsets(rows, cols)
+        # The same verdicts, in the shape a 2D navigation stack reads. NaN is
+        # the default because that is what a bearing says when it was stopped
+        # by unknown ground: a scan consumer drops NaN, so nothing is marked
+        # and nothing is cleared, which is the same silence the cloud keeps.
+        scan_ranges = np.full(self.bearings, np.nan, dtype=np.float32)
 
         if self.bearings > 0 and self.march_range > 0:
             steps = np.arange(res, self.march_range, res, dtype=np.float32)
@@ -331,10 +351,19 @@ class TraversabilityCloudNode(Node):
                 dx = np.concatenate([dx, hx]).astype(np.float32)
                 dy = np.concatenate([dy, hy]).astype(np.float32)
                 n_hit = int(seen.sum())
+                # Undeduplicated on purpose: the cloud dedupes by cell so a
+                # surface goes in once, but a scan owes every bearing its own
+                # answer.
+                scan_ranges[struck] = steps[at[struck]]
 
             if clear.any():
                 dx = np.concatenate([dx, ux[clear] * self.far_range]).astype(np.float32)
                 dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
+                # Infinity, not far_range: the cloud puts a point past
+                # octomap's reach so the ray truncates into pure free space,
+                # and the scan equivalent of "nothing out there" is inf. A
+                # finite reading would plant an obstacle at the fan's edge.
+                scan_ranges[clear] = np.inf
 
             n_drop = 0
             shadow = int(round(self.drop_edge_shadow / res))
@@ -372,6 +401,7 @@ class TraversabilityCloudNode(Node):
                         continue
                     dx = np.concatenate([dx, [ux[b] * steps[f - 1]]]).astype(np.float32)
                     dy = np.concatenate([dy, [uy[b] * steps[f - 1]]]).astype(np.float32)
+                    scan_ranges[b] = steps[f - 1]
                     n_drop += 1
 
             self.get_logger().info(
@@ -392,11 +422,41 @@ class TraversabilityCloudNode(Node):
         self.tf_broadcaster.sendTransform(tf)
 
         self.pub.publish(self._make_cloud(dx, dy, stamp))
+        if self.scan_pub is not None:
+            self.scan_pub.publish(self._make_scan(scan_ranges, stamp))
         self._published += 1
         self.get_logger().info(
             f"Obstacle cells this frame: {dx.size} (frames: {self._published})",
             throttle_duration_sec=5.0,
         )
+
+    def _make_scan(self, ranges: np.ndarray, stamp) -> LaserScan:
+        """The fan's verdicts as a LaserScan, in the cloud's own frame.
+
+        The three answers a bearing can give map onto the three things a
+        scan reading can be, so nothing is lost in the translation:
+
+            struck / drop edge -> a finite range: mark it, clear up to it
+            clear to the end   -> inf: clear, mark nothing
+            stopped by unknown -> NaN: say nothing at all
+
+        The inf case needs the consumer to agree -- Nav2's obstacle layer
+        ignores infinite readings unless `inf_is_valid` is set on the
+        source, and without it the fan will mark obstacles but never clear
+        them.
+        """
+        scan = LaserScan()
+        scan.header.stamp = stamp
+        scan.header.frame_id = self.cloud_frame
+        scan.angle_min = 0.0
+        scan.angle_increment = float(2.0 * np.pi / self.bearings)
+        scan.angle_max = float(scan.angle_increment * (self.bearings - 1))
+        scan.range_min = float(self.scan_range_min)
+        # Above the longest finite reading the march can produce, or every
+        # obstacle at the fan's edge would be dropped as out of range.
+        scan.range_max = float(self.march_range + 1e-3)
+        scan.ranges = [float(v) for v in ranges]
+        return scan
 
     def _make_cloud(self, dx: np.ndarray, dy: np.ndarray, stamp) -> PointCloud2:
         n = int(dx.size)
