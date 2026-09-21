@@ -149,7 +149,11 @@ def generate_launch_description():
         parameters=[
             core_param_path,
             robot_param_path,
-            {"use_sim_time": use_sim_time, "plugin_config_file": plugin_config_path},
+            {"use_sim_time": use_sim_time, "plugin_config_file": plugin_config_path,
+             # Last wins, so this overrides the config. The map is allocated
+             # once at startup -- setting map_length on a running node does
+             # nothing at all, quietly, which cost one experiment already.
+             "map_length": LaunchConfiguration("map_length")},
         ],
     )
 
@@ -162,6 +166,13 @@ def generate_launch_description():
                 "up LiDAR-only geometry first.",
             ),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
+            DeclareLaunchArgument(
+                "map_length",
+                default_value="10.0",
+                description="Side of the square elevation map, metres. Bigger "
+                "reaches further and costs cells: 20 m at 0.05 is four times "
+                "the map.",
+            ),
             DeclareLaunchArgument(
                 "samtp_engine",
                 default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
