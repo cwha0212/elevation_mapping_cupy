@@ -52,8 +52,14 @@ def generate_launch_description():
         namespace="terrain",
         output="screen",
         parameters=[{
-            "frame_id": "odom",
-            "base_frame_id": "base_link",
+            # `map`, not `odom`. This stack's odom rides ON the robot -- a
+            # static identity to lidar_frame -- so an octree anchored there
+            # is anchored to the robot: measured over a 56 m route, the grid
+            # came out 9x10 m, the size of the elevation window, while
+            # navi's own map of the same run covered 65x96 m. The fixed
+            # world frame here is `map`, the one LIO corrects.
+            "frame_id": "map",
+            "base_frame_id": "lidar_frame",
             # Matches the elevation map, so a grid cell is a map cell.
             "resolution": 0.05,
             # The elevation map is 10 m square, so nothing useful arrives from
