@@ -99,6 +99,9 @@
         basic_layers: ['elevation']
         fps: 3.0
       elevation_map_semantic:
+        # basic_layers cannot be empty here: an empty sequence arrives as an
+        # untyped parameter and the node refuses it at startup, taking the
+        # whole chain down with it.
         layers: ['elevation', 'untrav']
-        basic_layers: []
+        basic_layers: ['elevation']
         fps: 3.0
