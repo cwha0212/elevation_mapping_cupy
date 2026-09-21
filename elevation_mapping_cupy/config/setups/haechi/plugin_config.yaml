@@ -39,6 +39,23 @@ drivability_filter:
   extra_params:
     layers: ["slope", "step", "roughness"]
     limits: [25.0, 0.20, 0.05]
+semantic_safety_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "safety"                      # 1 safe .. 0 forbidden
+  extra_params:
+    base_layer: "drivability"
+    # The camera's veto, when there is a camera: SAM-TP's traversability
+    # logit arrives as `untrav`. Run without semantics and the filter finds
+    # no hazard layer and hands the geometry straight back, which is the
+    # documented behaviour and the reason this can be enabled now -- the fan
+    # downstream reads `safety`, and without this filter haechi never had
+    # that layer, so the whole terrain-obstacle path was silently inert.
+    hazard_layers: ["untrav"]
+    hazard_low: 1.0
+    hazard_high: 3.0
+    hazard_range: 4.0
 stairs_filter:
   enable: True
   fill_nan: False

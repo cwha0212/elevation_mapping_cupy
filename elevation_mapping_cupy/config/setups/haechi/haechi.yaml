@@ -87,7 +87,13 @@
       # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
       # launch selects it over the digging chain via plugin_config_file).
       elevation_map_terrain:
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'stairs', 'ramp', 'drop']
+        # `safety` has to be on this list, not just computed: the fan reads
+        # it off the published message, and while it was missing the whole
+        # terrain-obstacle path was inert on the real robot -- the fan never
+        # marched, /traversability/obstacles never carried a point, and the
+        # /projected_map that looked fine in the logs was navi_indoor's own
+        # lidar octomap, not this chain's.
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety', 'stairs', 'ramp', 'drop']
         basic_layers: ['elevation']
         fps: 3.0
       elevation_map_semantic:
