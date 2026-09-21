@@ -454,6 +454,30 @@ Visualization Manager:
     Use Timestamp: false
     Binary representation: false
     Binary threshold: 100
+  - Class: rviz_default_plugins/Map
+    Name: TerrainOctomap
+    Enabled: true
+    Value: true
+    Topic:
+      Value: /terrain/projected_map
+      Depth: 1
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Durability Policy: Transient Local
+      Filter size: 10
+    Alpha: 0.7
+    Color Scheme: map
+    Draw Behind: false
+    Resolution: 0.05
+    Update Topic:
+      Value: /terrain/projected_map_updates
+      Depth: 5
+      History Policy: Keep Last
+      Reliability Policy: Reliable
+      Durability Policy: Volatile
+    Use Timestamp: false
+    Binary representation: false
+    Binary threshold: 100
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48

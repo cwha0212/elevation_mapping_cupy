@@ -39,8 +39,9 @@ def generate_launch_description():
             # bearing -- the sim keeps the old behaviour, where a 0.12 m kerb
             # is exactly what must stop it.
             "min_obstacle_rise": LaunchConfiguration("min_obstacle_rise"),
-            # navi's own 2D scan blanks the rear; match it.
-            "scan_rear_blank_deg": LaunchConfiguration("scan_rear_blank_deg"),
+            # navi's own 2D scan blanks the rear; the fan does the same,
+            # for the cloud octomap reads as well as the scan.
+            "rear_blank_deg": LaunchConfiguration("rear_blank_deg"),
         }],
     )
 
@@ -48,6 +49,7 @@ def generate_launch_description():
         package="octomap_server2",
         executable="octomap_server",
         name="octomap_server",
+        namespace="terrain",
         output="screen",
         parameters=[{
             "frame_id": "odom",
@@ -81,10 +83,11 @@ def generate_launch_description():
             "the simulated setups want.",
         ),
         DeclareLaunchArgument(
-            "scan_rear_blank_deg",
+            "rear_blank_deg",
             default_value="40.0",
-            description="Half-angle of the rear arc blanked in the scan, "
-            "matching navi's own 2D scan. 0 keeps the full circle.",
+            description="Half-angle of the rear arc the fan stays silent "
+            "about, in the cloud and the scan alike, matching navi's own 2D "
+            "scan. 0 keeps the full circle.",
         ),
         DeclareLaunchArgument(
             "scan_topic",

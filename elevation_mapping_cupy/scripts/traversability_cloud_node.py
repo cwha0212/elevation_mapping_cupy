@@ -183,12 +183,12 @@ class TraversabilityCloudNode(Node):
         self.scan_range_min = float(
             self.declare_parameter("scan_range_min", 0.05).value
         )
-        # Behind the robot the scan is blanked, the way navi's own 2D scan
-        # blanks it: the body and whatever it carries sit in that arc, and
-        # what little ground shows past them is the least trustworthy in the
-        # map. 0 keeps the full circle.
-        self.scan_rear_blank_deg = float(
-            self.declare_parameter("scan_rear_blank_deg", 0.0).value
+        # Behind the robot the fan says nothing, the way navi's own 2D scan
+        # blanks that arc: the body and whatever it carries sit in it. The
+        # blanking is applied to the bearings themselves, so the cloud and
+        # the scan agree. 0 keeps the full circle.
+        self.rear_blank_deg = float(
+            self.declare_parameter("rear_blank_deg", 0.0).value
         )
         # Height above the robot's own ground before a cell may block a
         # bearing -- see the note where it is applied. 0 = off.
@@ -356,6 +356,18 @@ class TraversabilityCloudNode(Node):
             theta = np.linspace(0.0, 2 * np.pi, self.bearings, endpoint=False)
             ux = np.cos(theta, dtype=np.float32)
             uy = np.sin(theta, dtype=np.float32)
+            # The arc behind the robot, which navi's own 2D scan leaves out
+            # and this fan now leaves out too -- in the cloud as well as the
+            # scan, so the octomap built from one agrees with the planner
+            # reading the other. Behind the body the sensors see the robot
+            # and whatever it carries before they see ground, and what
+            # little ground shows past them is the worst-measured in the
+            # map. A blanked bearing says nothing: no mark, no clearing.
+            rear = np.zeros(self.bearings, dtype=bool)
+            if self.rear_blank_deg > 0.0:
+                half = np.radians(min(self.rear_blank_deg, 180.0))
+                rear = np.abs(np.arctan2(np.sin(theta - np.pi),
+                                         np.cos(theta - np.pi))) <= half
             mx = ux[:, None] * steps[None, :]
             my = uy[:, None] * steps[None, :]
             mc = np.clip((w / 2.0 - 0.5 - mx / res).round().astype(np.int32), 0, w - 1)
@@ -375,7 +387,7 @@ class TraversabilityCloudNode(Node):
             unknown_m = ~sam_known & (steps[None, :] >= self.blind_radius)
             blocked = unsafe_m | unknown_m
             any_blocked = blocked.any(axis=1)
-            clear = ~any_blocked
+            clear = ~any_blocked & ~rear
             first = np.where(any_blocked, blocked.argmax(axis=1), steps.size)
             idx = np.arange(self.bearings)
             at = np.minimum(first, steps.size - 1)
@@ -383,7 +395,7 @@ class TraversabilityCloudNode(Node):
             # the first solid cell on each bearing, deduplicated: close in,
             # many bearings land on one cell; at the far end the spacing is a
             # shade under the cell size, so a surface still comes out whole.
-            struck = any_blocked & unsafe_m[idx, at]
+            struck = any_blocked & unsafe_m[idx, at] & ~rear
             n_hit = 0
             if struck.any():
                 seen = np.zeros((h, w), dtype=bool)
@@ -417,6 +429,7 @@ class TraversabilityCloudNode(Node):
                 stopped_unknown = any_blocked & unknown_m[idx, at] & ~unsafe_m[idx, at]
                 near = (
                     stopped_unknown
+                    & ~rear
                     & (steps[at] <= self.drop_edge_range)
                     & (first >= support)
                     & (first + shadow <= steps.size)
@@ -497,12 +510,6 @@ class TraversabilityCloudNode(Node):
         # Above the longest finite reading the march can produce, or every
         # obstacle at the fan's edge would be dropped as out of range.
         scan.range_max = float(self.march_range + 1e-3)
-        if self.scan_rear_blank_deg > 0.0:
-            half = np.radians(min(self.scan_rear_blank_deg, 180.0))
-            ang = scan.angle_min + np.arange(ranges.size) * scan.angle_increment
-            rear = np.abs(np.arctan2(np.sin(ang - np.pi),
-                                     np.cos(ang - np.pi))) <= half
-            ranges = np.where(rear, np.nan, ranges)
         scan.ranges = [float(v) for v in ranges]
         return scan
 
