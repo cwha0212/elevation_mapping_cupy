@@ -33,6 +33,14 @@ def generate_launch_description():
             # haechi maps in odom, per config/setups/haechi/haechi.yaml.
             "map_frame": "odom",
             "scan_topic": LaunchConfiguration("scan_topic"),
+            # Outdoors the safety score is dominated by vegetation, and a
+            # quadruped walks through what it can step over. Only something
+            # standing this far above the ground under the robot may block a
+            # bearing -- the sim keeps the old behaviour, where a 0.12 m kerb
+            # is exactly what must stop it.
+            "min_obstacle_rise": 0.30,
+            # navi's own 2D scan blanks the rear; match it.
+            "scan_rear_blank_deg": 40.0,
         }],
     )
 

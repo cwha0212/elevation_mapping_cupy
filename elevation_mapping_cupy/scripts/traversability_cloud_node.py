@@ -183,6 +183,18 @@ class TraversabilityCloudNode(Node):
         self.scan_range_min = float(
             self.declare_parameter("scan_range_min", 0.05).value
         )
+        # Behind the robot the scan is blanked, the way navi's own 2D scan
+        # blanks it: the body and whatever it carries sit in that arc, and
+        # what little ground shows past them is the least trustworthy in the
+        # map. 0 keeps the full circle.
+        self.scan_rear_blank_deg = float(
+            self.declare_parameter("scan_rear_blank_deg", 0.0).value
+        )
+        # Height above the robot's own ground before a cell may block a
+        # bearing -- see the note where it is applied. 0 = off.
+        self.min_obstacle_rise = float(
+            self.declare_parameter("min_obstacle_rise", 0.0).value
+        )
         self.scan_pub = (
             self.create_publisher(
                 LaserScan, self.scan_topic, qos_profile_sensor_data)
@@ -263,7 +275,35 @@ class TraversabilityCloudNode(Node):
             # NaN: an edge nobody has seen is not an edge yet.
             values = np.where(over, 0.0, values)
 
-        res = msg.info.resolution
+        # What a 2D scan is allowed to call an obstacle.
+        #
+        # A low safety score means "poor ground", and outdoors that is mostly
+        # vegetation: measured on the real bag, 84% of the map scored under
+        # the 0.4 threshold and the median cell scored 0.00, so 619 of 720
+        # bearings struck something and the robot came out walled in at 0.8 m.
+        # None of it was a wall. The geometry cannot tell grass from masonry
+        # -- that was SAM-TP's job -- but it can tell how tall a thing is, and
+        # a quadruped walks through what is shorter than it can step over.
+        #
+        # So with this set, a cell only blocks if it ALSO stands this far
+        # above the ground the robot is standing on. 0 keeps the old
+        # behaviour, which is what the simulated setups want: there a 0.12 m
+        # kerb is exactly the thing that must stop the robot.
+        if self.min_obstacle_rise > 0 and "elevation" in layers:
+            edata = msg.data[layers.index("elevation")]
+            elev = np.array(edata.data, dtype=np.float32).reshape(h, w)
+            rr = np.arange(h, dtype=np.float32) - h / 2.0 + 0.5
+            cc = np.arange(w, dtype=np.float32) - w / 2.0 + 0.5
+            near = (rr[:, None] ** 2 + cc[None, :] ** 2) * (
+                msg.info.resolution ** 2) <= self.blind_radius ** 2
+            under = elev[near & np.isfinite(elev)]
+            if under.size >= 4:
+                ground = float(np.median(under))
+                # Unmeasured cells are left alone: their height says nothing,
+                # and a cell nobody has seen is judged by the unknown rule
+                # further down, not by this one.
+                low = np.isfinite(elev) & (elev - ground < self.min_obstacle_rise)
+                values = np.where(low, np.maximum(values, self.threshold), values)
         cx = msg.info.pose.position.x
         cy = msg.info.pose.position.y
 
@@ -455,6 +495,12 @@ class TraversabilityCloudNode(Node):
         # Above the longest finite reading the march can produce, or every
         # obstacle at the fan's edge would be dropped as out of range.
         scan.range_max = float(self.march_range + 1e-3)
+        if self.scan_rear_blank_deg > 0.0:
+            half = np.radians(min(self.scan_rear_blank_deg, 180.0))
+            ang = scan.angle_min + np.arange(ranges.size) * scan.angle_increment
+            rear = np.abs(np.arctan2(np.sin(ang - np.pi),
+                                     np.cos(ang - np.pi))) <= half
+            ranges = np.where(rear, np.nan, ranges)
         scan.ranges = [float(v) for v in ranges]
         return scan
 
