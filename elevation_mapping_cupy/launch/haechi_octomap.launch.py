@@ -42,10 +42,13 @@ def generate_launch_description():
             # navi's own 2D scan blanks the rear; the fan does the same,
             # for the cloud octomap reads as well as the scan.
             "rear_blank_deg": LaunchConfiguration("rear_blank_deg"),
-            # Out to the map's own edge. The elevation map is 10 m square
-            # about the robot, so 5 m is the inscribed radius and every
-            # bearing that asks for more leaves the map -- which the march
-            # now reports as unknown rather than inventing an answer.
+            # Not the map's edge, though the march would now reach it
+            # honestly: past about 3 m the terrain read is mostly vegetation
+            # and grazing returns, and marching into that finds obstacles
+            # rather than ground. Measured over the route at 5 m against
+            # 3.5: clear bearings 438 -> 121, terrain obstacles 21.7k ->
+            # 63.3k, costmap free space cut by more than half. Range is not
+            # the limiting thing here; the evidence at range is.
             "march_range": LaunchConfiguration("march_range"),
         }],
     )
@@ -102,9 +105,10 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "march_range",
-            default_value="5.0",
+            default_value="3.5",
             description="How far each bearing marches. Half the elevation "
-            "map's length is the most that stays inside it.",
+            "map's length is the most that stays inside it, but the useful "
+            "limit is shorter -- see the note at the parameter.",
         ),
         DeclareLaunchArgument(
             "rear_blank_deg",
