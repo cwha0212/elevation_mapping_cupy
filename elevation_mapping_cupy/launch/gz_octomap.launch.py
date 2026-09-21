@@ -43,8 +43,7 @@ def generate_launch_description():
         # ramp is set so only a confident verdict moves the number, so the
         # geometry still decides everywhere the camera is unsure.
         parameters=[{"use_sim_time": True, "threshold": threshold,
-                     "layer": "safety",
-                     "scan_topic": LaunchConfiguration("scan_topic")}],
+                     "layer": "safety"}],
     )
 
     # The cloud is already flat and robot-centred, so the band only has to
@@ -188,12 +187,6 @@ def generate_launch_description():
             "threshold",
             default_value="0.4",
             description="drivability below this becomes an obstacle (traversability source).",
-        ),
-        DeclareLaunchArgument(
-            "scan_topic",
-            default_value="",
-            description="Publish the fan as a LaserScan here too (e.g. "
-            "/terrain_scan) for a 2D navigation stack. Empty = off.",
         ),
         trav_cloud,
         trav_octomap,

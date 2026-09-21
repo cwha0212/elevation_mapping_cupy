@@ -46,8 +46,7 @@ import rclpy
 from geometry_msgs.msg import TransformStamped
 from grid_map_msgs.msg import GridMap
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import LaserScan, PointCloud2, PointField
+from sensor_msgs.msg import PointCloud2, PointField
 from nav_msgs.msg import OccupancyGrid
 from tf2_ros import TransformBroadcaster
 
@@ -174,40 +173,6 @@ class TraversabilityCloudNode(Node):
         self.cloud_frame = self.declare_parameter("cloud_frame", "trav_origin").value
 
         self.pub = self.create_publisher(PointCloud2, self.output_topic, 5)
-        # The same fan as a LaserScan, for the 2D navigation stack. Off by
-        # default: a robot already has a /scan from its own lidar and this
-        # one answers a different question (what the terrain chain judged,
-        # not what the beam hit), so wiring the two together is a decision
-        # the launch makes, not this node.
-        self.scan_topic = self.declare_parameter("scan_topic", "").value
-        self.scan_range_min = float(
-            self.declare_parameter("scan_range_min", 0.05).value
-        )
-        # Behind the robot the fan says nothing, the way navi's own 2D scan
-        # blanks that arc: the body and whatever it carries sit in it. The
-        # blanking is applied to the bearings themselves, so the cloud and
-        # the scan agree. 0 keeps the full circle.
-        self.rear_blank_deg = float(
-            self.declare_parameter("rear_blank_deg", 0.0).value
-        )
-        # Height above the robot's own ground before a cell may block a
-        # bearing -- see the note where it is applied. 0 = off.
-        self.min_obstacle_rise = float(
-            self.declare_parameter("min_obstacle_rise", 0.0).value
-        )
-        # How far around a cell to look for the ground it stands on. Wide
-        # enough to reach past anything the robot should avoid walking into,
-        # so the reference is the ground beside it rather than its own top;
-        # narrow enough that a slope only shifts it by the slope over that
-        # distance.
-        self.ground_window = float(
-            self.declare_parameter("ground_window", 1.5).value
-        )
-        self.scan_pub = (
-            self.create_publisher(
-                LaserScan, self.scan_topic, qos_profile_sensor_data)
-            if self.scan_topic else None
-        )
         self.tf_broadcaster = TransformBroadcaster(self)
         self.create_subscription(GridMap, self.input_topic, self.on_grid_map, 5)
         # While the robot stands inside gait terrain -- the keepout region,
@@ -283,46 +248,6 @@ class TraversabilityCloudNode(Node):
             # NaN: an edge nobody has seen is not an edge yet.
             values = np.where(over, 0.0, values)
 
-        # What a 2D scan is allowed to call an obstacle.
-        #
-        # A low safety score means "poor ground", and outdoors that is mostly
-        # vegetation: measured on the real bag, 84% of the map scored under
-        # the 0.4 threshold and the median cell scored 0.00, so 619 of 720
-        # bearings struck something and the robot came out walled in at 0.8 m.
-        # None of it was a wall. The geometry cannot tell grass from masonry
-        # -- that was SAM-TP's job -- but it can tell how tall a thing is, and
-        # a quadruped walks through what is shorter than it can step over.
-        #
-        # So with this set, a cell only blocks if it ALSO stands this far
-        # above the ground the robot is standing on. 0 keeps the old
-        # behaviour, which is what the simulated setups want: there a 0.12 m
-        # kerb is exactly the thing that must stop the robot.
-        if self.min_obstacle_rise > 0 and "elevation" in layers:
-            edata = msg.data[layers.index("elevation")]
-            elev = np.array(edata.data, dtype=np.float32).reshape(h, w)
-            # Height above the LOCAL ground, not above the robot's own feet.
-            #
-            # One ground level for the whole map is a flat-world assumption
-            # and the world is not flat: walking uphill, ground three metres
-            # ahead stands higher than the robot by more than the threshold
-            # and the slope itself becomes an obstacle; walking downhill, a
-            # real rock sitting below the robot's level reads as nothing at
-            # all. The question is whether a cell stands above ITS OWN
-            # surroundings, so the reference is a local low -- a minimum over
-            # a window wide enough to contain the ground beside any obstacle
-            # the robot cares about, narrow enough that a slope barely moves
-            # it.
-            win = max(3, int(round(self.ground_window / msg.info.resolution)))
-            filled = np.where(np.isfinite(elev), elev, np.inf)
-            ground = ndimage.minimum_filter(filled, size=win, mode="nearest")
-            ground = np.where(np.isfinite(ground), ground, np.nan)
-            # Unmeasured cells are left alone: their height says nothing,
-            # and a cell nobody has seen is judged by the unknown rule
-            # further down, not by this one.
-            low = (np.isfinite(elev) & np.isfinite(ground)
-                   & (elev - ground < self.min_obstacle_rise))
-            values = np.where(low, np.maximum(values, self.threshold), values)
-
         res = msg.info.resolution
         cx = msg.info.pose.position.x
         cy = msg.info.pose.position.y
@@ -363,48 +288,16 @@ class TraversabilityCloudNode(Node):
         if not (self.bearings > 0 and self.march_range > 0):
             rows, cols = np.nonzero(unsafe_cells)
         dx, dy = offsets(rows, cols)
-        # The same verdicts, in the shape a 2D navigation stack reads. NaN is
-        # the default because that is what a bearing says when it was stopped
-        # by unknown ground: a scan consumer drops NaN, so nothing is marked
-        # and nothing is cleared, which is the same silence the cloud keeps.
-        scan_ranges = np.full(self.bearings, np.nan, dtype=np.float32)
 
         if self.bearings > 0 and self.march_range > 0:
             steps = np.arange(res, self.march_range, res, dtype=np.float32)
             theta = np.linspace(0.0, 2 * np.pi, self.bearings, endpoint=False)
             ux = np.cos(theta, dtype=np.float32)
             uy = np.sin(theta, dtype=np.float32)
-            # The arc behind the robot, which navi's own 2D scan leaves out
-            # and this fan now leaves out too -- in the cloud as well as the
-            # scan, so the octomap built from one agrees with the planner
-            # reading the other. Behind the body the sensors see the robot
-            # and whatever it carries before they see ground, and what
-            # little ground shows past them is the worst-measured in the
-            # map. A blanked bearing says nothing: no mark, no clearing.
-            rear = np.zeros(self.bearings, dtype=bool)
-            if self.rear_blank_deg > 0.0:
-                half = np.radians(min(self.rear_blank_deg, 180.0))
-                rear = np.abs(np.arctan2(np.sin(theta - np.pi),
-                                         np.cos(theta - np.pi))) <= half
             mx = ux[:, None] * steps[None, :]
             my = uy[:, None] * steps[None, :]
-            # Where the march leaves the map, say so.
-            #
-            # Clipping the indices to the array -- which is what this did --
-            # makes every sample past the edge read the border cell again and
-            # again, and the march believes it. A safe border cell then hands
-            # back free space that is not in the map at all, out to whatever
-            # march_range asks for; an unsafe one plants obstacles out there.
-            # The map is map_length square about the robot, so the inscribed
-            # radius is half of it and every bearing reaches the edge sooner
-            # or later. Past it the bearing knows nothing, which is the one
-            # honest answer, and the same one it gives for unmeasured ground.
-            raw_c = (w / 2.0 - 0.5 - mx / res).round()
-            raw_r = (h / 2.0 - 0.5 - my / res).round()
-            inside = ((raw_c >= 0) & (raw_c < w)
-                      & (raw_r >= 0) & (raw_r < h))
-            mc = np.clip(raw_c.astype(np.int32), 0, w - 1)
-            mr = np.clip(raw_r.astype(np.int32), 0, h - 1)
+            mc = np.clip((w / 2.0 - 0.5 - mx / res).round().astype(np.int32), 0, w - 1)
+            mr = np.clip((h / 2.0 - 0.5 - my / res).round().astype(np.int32), 0, h - 1)
             finite = np.isfinite(values)
             worst = ndimage.minimum_filter(
                 np.where(finite, values, np.inf),
@@ -416,13 +309,11 @@ class TraversabilityCloudNode(Node):
             )
             sam_worst = worst[mr, mc]
             sam_known = supported[mr, mc]
-            unsafe_m = (inside & sam_known & np.isfinite(sam_worst)
-                        & (sam_worst < self.threshold))
-            unknown_m = ((~sam_known | ~inside)
-                         & (steps[None, :] >= self.blind_radius))
+            unsafe_m = sam_known & np.isfinite(sam_worst) & (sam_worst < self.threshold)
+            unknown_m = ~sam_known & (steps[None, :] >= self.blind_radius)
             blocked = unsafe_m | unknown_m
             any_blocked = blocked.any(axis=1)
-            clear = ~any_blocked & ~rear
+            clear = ~any_blocked
             first = np.where(any_blocked, blocked.argmax(axis=1), steps.size)
             idx = np.arange(self.bearings)
             at = np.minimum(first, steps.size - 1)
@@ -430,7 +321,7 @@ class TraversabilityCloudNode(Node):
             # the first solid cell on each bearing, deduplicated: close in,
             # many bearings land on one cell; at the far end the spacing is a
             # shade under the cell size, so a surface still comes out whole.
-            struck = any_blocked & unsafe_m[idx, at] & ~rear
+            struck = any_blocked & unsafe_m[idx, at]
             n_hit = 0
             if struck.any():
                 seen = np.zeros((h, w), dtype=bool)
@@ -440,19 +331,10 @@ class TraversabilityCloudNode(Node):
                 dx = np.concatenate([dx, hx]).astype(np.float32)
                 dy = np.concatenate([dy, hy]).astype(np.float32)
                 n_hit = int(seen.sum())
-                # Undeduplicated on purpose: the cloud dedupes by cell so a
-                # surface goes in once, but a scan owes every bearing its own
-                # answer.
-                scan_ranges[struck] = steps[at[struck]]
 
             if clear.any():
                 dx = np.concatenate([dx, ux[clear] * self.far_range]).astype(np.float32)
                 dy = np.concatenate([dy, uy[clear] * self.far_range]).astype(np.float32)
-                # Infinity, not far_range: the cloud puts a point past
-                # octomap's reach so the ray truncates into pure free space,
-                # and the scan equivalent of "nothing out there" is inf. A
-                # finite reading would plant an obstacle at the fan's edge.
-                scan_ranges[clear] = np.inf
 
             n_drop = 0
             shadow = int(round(self.drop_edge_shadow / res))
@@ -464,7 +346,6 @@ class TraversabilityCloudNode(Node):
                 stopped_unknown = any_blocked & unknown_m[idx, at] & ~unsafe_m[idx, at]
                 near = (
                     stopped_unknown
-                    & ~rear
                     & (steps[at] <= self.drop_edge_range)
                     & (first >= support)
                     & (first + shadow <= steps.size)
@@ -472,8 +353,6 @@ class TraversabilityCloudNode(Node):
                 cand = np.nonzero(near)[0]
                 for b in cand:
                     f = first[b]
-                    if not inside[b, f:f + shadow].all():
-                        continue  # the map ended here, not the ground
                     if not unknown_m[b, f:f + shadow].all():
                         continue  # a hole in the returns, not a drop
                     bs, bc = mr[b, f - support:f], mc[b, f - support:f]
@@ -493,7 +372,6 @@ class TraversabilityCloudNode(Node):
                         continue
                     dx = np.concatenate([dx, [ux[b] * steps[f - 1]]]).astype(np.float32)
                     dy = np.concatenate([dy, [uy[b] * steps[f - 1]]]).astype(np.float32)
-                    scan_ranges[b] = steps[f - 1]
                     n_drop += 1
 
             self.get_logger().info(
@@ -514,41 +392,11 @@ class TraversabilityCloudNode(Node):
         self.tf_broadcaster.sendTransform(tf)
 
         self.pub.publish(self._make_cloud(dx, dy, stamp))
-        if self.scan_pub is not None:
-            self.scan_pub.publish(self._make_scan(scan_ranges, stamp))
         self._published += 1
         self.get_logger().info(
             f"Obstacle cells this frame: {dx.size} (frames: {self._published})",
             throttle_duration_sec=5.0,
         )
-
-    def _make_scan(self, ranges: np.ndarray, stamp) -> LaserScan:
-        """The fan's verdicts as a LaserScan, in the cloud's own frame.
-
-        The three answers a bearing can give map onto the three things a
-        scan reading can be, so nothing is lost in the translation:
-
-            struck / drop edge -> a finite range: mark it, clear up to it
-            clear to the end   -> inf: clear, mark nothing
-            stopped by unknown -> NaN: say nothing at all
-
-        The inf case needs the consumer to agree -- Nav2's obstacle layer
-        ignores infinite readings unless `inf_is_valid` is set on the
-        source, and without it the fan will mark obstacles but never clear
-        them.
-        """
-        scan = LaserScan()
-        scan.header.stamp = stamp
-        scan.header.frame_id = self.cloud_frame
-        scan.angle_min = 0.0
-        scan.angle_increment = float(2.0 * np.pi / self.bearings)
-        scan.angle_max = float(scan.angle_increment * (self.bearings - 1))
-        scan.range_min = float(self.scan_range_min)
-        # Above the longest finite reading the march can produce, or every
-        # obstacle at the fan's edge would be dropped as out of range.
-        scan.range_max = float(self.march_range + 1e-3)
-        scan.ranges = [float(v) for v in ranges]
-        return scan
 
     def _make_cloud(self, dx: np.ndarray, dy: np.ndarray, stamp) -> PointCloud2:
         n = int(dx.size)

@@ -47,24 +47,12 @@
       rgb: 'color'
       default: 'exponential'
 
-    #### What the map is allowed to hear ########
-    # The default 10.5 m lets tree canopy and the tops of walls into a map
-    # whose whole job is the ground. Measured on the first real bag: the
-    # ground under the robot sits 0.70 m below `lidar_frame`, so 1.5 m up
-    # reaches ~2.2 m above ground -- everything a quadruped could climb,
-    # step over or bump into, and nothing overhead.
-    max_height_range: 1.5
-
     #### Subscribers ########
     subscribers:
       # Geometry, 360 degrees. The deskewed topic is the rotation-corrected
-      # merge of all three LiDARs; header frame is `lidar_frame`. It arrives
-      # by way of the voxel downsampler in haechi.launch.py: the raw merge
-      # carries far grazing returns the map cannot use, and measured on the
-      # first real bag they turned the terrain chain to noise past 3 m
-      # (slope median 33 deg at 3-5 m, 80% of cells called undrivable).
+      # merge of all three LiDARs; header frame is `lidar_frame`.
       merged_lidar:
-        topic_name: '/points/merged_deskewed_ds'
+        topic_name: '/points/merged_deskewed'
         data_type: pointcloud
 
       # Semantics, front cone only. The labels are painted onto the map cells
@@ -89,12 +77,6 @@
       # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
       # launch selects it over the digging chain via plugin_config_file).
       elevation_map_terrain:
-        # `safety` has to be on this list, not just computed: the fan reads
-        # it off the published message, and while it was missing the whole
-        # terrain-obstacle path was inert on the real robot -- the fan never
-        # marched, /traversability/obstacles never carried a point, and the
-        # /projected_map that looked fine in the logs was navi_indoor's own
-        # lidar octomap, not this chain's.
         layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety', 'stairs', 'ramp', 'drop']
         basic_layers: ['elevation']
         fps: 3.0

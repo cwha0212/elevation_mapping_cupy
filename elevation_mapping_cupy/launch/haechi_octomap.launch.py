@@ -32,24 +32,6 @@ def generate_launch_description():
             "threshold": threshold,
             # haechi maps in odom, per config/setups/haechi/haechi.yaml.
             "map_frame": "odom",
-            "scan_topic": LaunchConfiguration("scan_topic"),
-            # Outdoors the safety score is dominated by vegetation, and a
-            # quadruped walks through what it can step over. Only something
-            # standing this far above the ground under the robot may block a
-            # bearing -- the sim keeps the old behaviour, where a 0.12 m kerb
-            # is exactly what must stop it.
-            "min_obstacle_rise": LaunchConfiguration("min_obstacle_rise"),
-            # navi's own 2D scan blanks the rear; the fan does the same,
-            # for the cloud octomap reads as well as the scan.
-            "rear_blank_deg": LaunchConfiguration("rear_blank_deg"),
-            # Not the map's edge, though the march would now reach it
-            # honestly: past about 3 m the terrain read is mostly vegetation
-            # and grazing returns, and marching into that finds obstacles
-            # rather than ground. Measured over the route at 5 m against
-            # 3.5: clear bearings 438 -> 121, terrain obstacles 21.7k ->
-            # 63.3k, costmap free space cut by more than half. Range is not
-            # the limiting thing here; the evidence at range is.
-            "march_range": LaunchConfiguration("march_range"),
         }],
     )
 
@@ -57,33 +39,19 @@ def generate_launch_description():
         package="octomap_server2",
         executable="octomap_server",
         name="octomap_server",
-        namespace="terrain",
         output="screen",
         parameters=[{
-            # `map`, not `odom`. This stack's odom rides ON the robot -- a
-            # static identity to lidar_frame -- so an octree anchored there
-            # is anchored to the robot: measured over a 56 m route, the grid
-            # came out 9x10 m, the size of the elevation window, while
-            # navi's own map of the same run covered 65x96 m. The fixed
-            # world frame here is `map`, the one LIO corrects.
-            "frame_id": "map",
-            "base_frame_id": "lidar_frame",
+            "frame_id": "odom",
+            "base_frame_id": "base_link",
             # Matches the elevation map, so a grid cell is a map cell.
             "resolution": 0.05,
             # The elevation map is 10 m square, so nothing useful arrives from
             # further than its half-width.
             "sensor_model/max_range": 5.0,
             "filter_ground": False,
-            # No height band. The cloud is a flat sheet by construction and
-            # the verdict on it is already altitude-free, so there is nothing
-            # for a band to filter -- while the sheet itself rides at the
-            # robot's own height, which walks up and down with the ground.
-            # Measured: with a +-0.10 m band about world z=0 the projection
-            # held only the first stretch of a 56 m route, because after that
-            # the robot was no longer standing where it started. The octree
-            # kept the cells; the 2D projection dropped them.
-            "occupancy_min_z": -50.0,
-            "occupancy_max_z": 50.0,
+            # The cloud is flat by construction; the band only covers z=0.
+            "occupancy_min_z": -0.10,
+            "occupancy_max_z": 0.10,
         }],
         remappings=[("cloud_in", "/traversability/obstacles")],
     )
@@ -95,33 +63,6 @@ def generate_launch_description():
             description="safety below this becomes an obstacle. Against the "
             "0.20 m step limit, 0.15 m risers score 0.25: 0.4 calls stairs an "
             "obstacle, 0.2 leaves them climbable.",
-        ),
-        DeclareLaunchArgument(
-            "min_obstacle_rise",
-            default_value="0.30",
-            description="Height above the ground under the robot before a "
-            "cell may block a bearing. 0 disables the test, which is what "
-            "the simulated setups want.",
-        ),
-        DeclareLaunchArgument(
-            "march_range",
-            default_value="3.5",
-            description="How far each bearing marches. Half the elevation "
-            "map's length is the most that stays inside it, but the useful "
-            "limit is shorter -- see the note at the parameter.",
-        ),
-        DeclareLaunchArgument(
-            "rear_blank_deg",
-            default_value="40.0",
-            description="Half-angle of the rear arc the fan stays silent "
-            "about, in the cloud and the scan alike, matching navi's own 2D "
-            "scan. 0 keeps the full circle.",
-        ),
-        DeclareLaunchArgument(
-            "scan_topic",
-            default_value="",
-            description="Publish the fan as a LaserScan here too (e.g. "
-            "/terrain_scan) for a 2D navigation stack. Empty = off.",
         ),
         trav_cloud,
         octomap,
