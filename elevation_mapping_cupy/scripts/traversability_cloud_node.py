@@ -195,6 +195,14 @@ class TraversabilityCloudNode(Node):
         self.min_obstacle_rise = float(
             self.declare_parameter("min_obstacle_rise", 0.0).value
         )
+        # How far around a cell to look for the ground it stands on. Wide
+        # enough to reach past anything the robot should avoid walking into,
+        # so the reference is the ground beside it rather than its own top;
+        # narrow enough that a slope only shifts it by the slope over that
+        # distance.
+        self.ground_window = float(
+            self.declare_parameter("ground_window", 1.5).value
+        )
         self.scan_pub = (
             self.create_publisher(
                 LaserScan, self.scan_topic, qos_profile_sensor_data)
@@ -292,18 +300,28 @@ class TraversabilityCloudNode(Node):
         if self.min_obstacle_rise > 0 and "elevation" in layers:
             edata = msg.data[layers.index("elevation")]
             elev = np.array(edata.data, dtype=np.float32).reshape(h, w)
-            rr = np.arange(h, dtype=np.float32) - h / 2.0 + 0.5
-            cc = np.arange(w, dtype=np.float32) - w / 2.0 + 0.5
-            near = (rr[:, None] ** 2 + cc[None, :] ** 2) * (
-                msg.info.resolution ** 2) <= self.blind_radius ** 2
-            under = elev[near & np.isfinite(elev)]
-            if under.size >= 4:
-                ground = float(np.median(under))
-                # Unmeasured cells are left alone: their height says nothing,
-                # and a cell nobody has seen is judged by the unknown rule
-                # further down, not by this one.
-                low = np.isfinite(elev) & (elev - ground < self.min_obstacle_rise)
-                values = np.where(low, np.maximum(values, self.threshold), values)
+            # Height above the LOCAL ground, not above the robot's own feet.
+            #
+            # One ground level for the whole map is a flat-world assumption
+            # and the world is not flat: walking uphill, ground three metres
+            # ahead stands higher than the robot by more than the threshold
+            # and the slope itself becomes an obstacle; walking downhill, a
+            # real rock sitting below the robot's level reads as nothing at
+            # all. The question is whether a cell stands above ITS OWN
+            # surroundings, so the reference is a local low -- a minimum over
+            # a window wide enough to contain the ground beside any obstacle
+            # the robot cares about, narrow enough that a slope barely moves
+            # it.
+            win = max(3, int(round(self.ground_window / msg.info.resolution)))
+            filled = np.where(np.isfinite(elev), elev, np.inf)
+            ground = ndimage.minimum_filter(filled, size=win, mode="nearest")
+            ground = np.where(np.isfinite(ground), ground, np.nan)
+            # Unmeasured cells are left alone: their height says nothing,
+            # and a cell nobody has seen is judged by the unknown rule
+            # further down, not by this one.
+            low = (np.isfinite(elev) & np.isfinite(ground)
+                   & (elev - ground < self.min_obstacle_rise))
+            values = np.where(low, np.maximum(values, self.threshold), values)
 
         res = msg.info.resolution
         cx = msg.info.pose.position.x
