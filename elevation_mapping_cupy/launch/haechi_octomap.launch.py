@@ -66,9 +66,16 @@ def generate_launch_description():
             # further than its half-width.
             "sensor_model/max_range": 5.0,
             "filter_ground": False,
-            # The cloud is flat by construction; the band only covers z=0.
-            "occupancy_min_z": -0.10,
-            "occupancy_max_z": 0.10,
+            # No height band. The cloud is a flat sheet by construction and
+            # the verdict on it is already altitude-free, so there is nothing
+            # for a band to filter -- while the sheet itself rides at the
+            # robot's own height, which walks up and down with the ground.
+            # Measured: with a +-0.10 m band about world z=0 the projection
+            # held only the first stretch of a 56 m route, because after that
+            # the robot was no longer standing where it started. The octree
+            # kept the cells; the 2D projection dropped them.
+            "occupancy_min_z": -50.0,
+            "occupancy_max_z": 50.0,
         }],
         remappings=[("cloud_in", "/traversability/obstacles")],
     )
