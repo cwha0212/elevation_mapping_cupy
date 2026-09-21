@@ -42,6 +42,11 @@ def generate_launch_description():
             # navi's own 2D scan blanks the rear; the fan does the same,
             # for the cloud octomap reads as well as the scan.
             "rear_blank_deg": LaunchConfiguration("rear_blank_deg"),
+            # Out to the map's own edge. The elevation map is 10 m square
+            # about the robot, so 5 m is the inscribed radius and every
+            # bearing that asks for more leaves the map -- which the march
+            # now reports as unknown rather than inventing an answer.
+            "march_range": LaunchConfiguration("march_range"),
         }],
     )
 
@@ -94,6 +99,12 @@ def generate_launch_description():
             description="Height above the ground under the robot before a "
             "cell may block a bearing. 0 disables the test, which is what "
             "the simulated setups want.",
+        ),
+        DeclareLaunchArgument(
+            "march_range",
+            default_value="5.0",
+            description="How far each bearing marches. Half the elevation "
+            "map's length is the most that stays inside it.",
         ),
         DeclareLaunchArgument(
             "rear_blank_deg",

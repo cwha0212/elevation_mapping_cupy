@@ -388,8 +388,23 @@ class TraversabilityCloudNode(Node):
                                          np.cos(theta - np.pi))) <= half
             mx = ux[:, None] * steps[None, :]
             my = uy[:, None] * steps[None, :]
-            mc = np.clip((w / 2.0 - 0.5 - mx / res).round().astype(np.int32), 0, w - 1)
-            mr = np.clip((h / 2.0 - 0.5 - my / res).round().astype(np.int32), 0, h - 1)
+            # Where the march leaves the map, say so.
+            #
+            # Clipping the indices to the array -- which is what this did --
+            # makes every sample past the edge read the border cell again and
+            # again, and the march believes it. A safe border cell then hands
+            # back free space that is not in the map at all, out to whatever
+            # march_range asks for; an unsafe one plants obstacles out there.
+            # The map is map_length square about the robot, so the inscribed
+            # radius is half of it and every bearing reaches the edge sooner
+            # or later. Past it the bearing knows nothing, which is the one
+            # honest answer, and the same one it gives for unmeasured ground.
+            raw_c = (w / 2.0 - 0.5 - mx / res).round()
+            raw_r = (h / 2.0 - 0.5 - my / res).round()
+            inside = ((raw_c >= 0) & (raw_c < w)
+                      & (raw_r >= 0) & (raw_r < h))
+            mc = np.clip(raw_c.astype(np.int32), 0, w - 1)
+            mr = np.clip(raw_r.astype(np.int32), 0, h - 1)
             finite = np.isfinite(values)
             worst = ndimage.minimum_filter(
                 np.where(finite, values, np.inf),
@@ -401,8 +416,10 @@ class TraversabilityCloudNode(Node):
             )
             sam_worst = worst[mr, mc]
             sam_known = supported[mr, mc]
-            unsafe_m = sam_known & np.isfinite(sam_worst) & (sam_worst < self.threshold)
-            unknown_m = ~sam_known & (steps[None, :] >= self.blind_radius)
+            unsafe_m = (inside & sam_known & np.isfinite(sam_worst)
+                        & (sam_worst < self.threshold))
+            unknown_m = ((~sam_known | ~inside)
+                         & (steps[None, :] >= self.blind_radius))
             blocked = unsafe_m | unknown_m
             any_blocked = blocked.any(axis=1)
             clear = ~any_blocked & ~rear
@@ -455,6 +472,8 @@ class TraversabilityCloudNode(Node):
                 cand = np.nonzero(near)[0]
                 for b in cand:
                     f = first[b]
+                    if not inside[b, f:f + shadow].all():
+                        continue  # the map ended here, not the ground
                     if not unknown_m[b, f:f + shadow].all():
                         continue  # a hole in the returns, not a drop
                     bs, bc = mr[b, f - support:f], mc[b, f - support:f]
