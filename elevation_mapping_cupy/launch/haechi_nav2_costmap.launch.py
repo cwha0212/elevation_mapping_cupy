@@ -63,6 +63,11 @@ def generate_launch_description():
             "autostart": True,
             "node_names": ["costmap/costmap"],
             "bond_timeout": 0.0,
+            # The static layer blocks on its map, and a transition that
+            # blocks long enough simply times out -- leaving the costmap
+            # inactive, publishing nothing, with one warning to show for
+            # it. Start this after the grid exists, and check the state
+            # afterwards rather than assuming autostart took.
         }],
     )
 
