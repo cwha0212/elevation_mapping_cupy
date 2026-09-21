@@ -400,6 +400,36 @@ Visualization Manager:
       Value: /elevation_mapping_node/elevation_map_terrain
     Use Rainbow: true
     Value: true
+  - Class: rviz_default_plugins/LaserScan
+    Name: TerrainScan
+    Enabled: true
+    Value: true
+    Topic:
+      Value: /terrain_scan
+      Depth: 5
+      History Policy: Keep Last
+      Reliability Policy: Best Effort
+      Durability Policy: Volatile
+      Filter size: 10
+    Style: Spheres
+    Size (m): 0.08
+    Alpha: 1
+    Decay Time: 0
+    Position Transformer: XYZ
+    Color Transformer: FlatColor
+    Color: 255; 85; 0
+    Selectable: true
+    Use Fixed Frame: true
+    Use rainbow: true
+    Invert Rainbow: false
+    Autocompute Intensity Bounds: true
+    Max Color: 255; 255; 255
+    Min Color: 0; 0; 0
+    Max Intensity: 4096
+    Min Intensity: 0
+    Axis: Z
+    Channel Name: intensity
+    Queue Size: 10
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
