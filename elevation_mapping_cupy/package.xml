@@ -20,6 +20,10 @@
     <depend>geometry_msgs</depend>
     <depend>elevation_map_msgs</depend>
     <depend>grid_map_msgs</depend>
+    <depend>grid_map_core</depend>
+    <depend>grid_map_ros</depend>
+    <depend>nav_msgs</depend>
+    <depend>rclcpp</depend>
     <depend>python3-scipy</depend>
     <depend>python3-numpy</depend>
     <depend>tf2_ros</depend>
