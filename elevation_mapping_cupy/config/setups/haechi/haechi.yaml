@@ -47,12 +47,24 @@
       rgb: 'color'
       default: 'exponential'
 
+    #### What the map is allowed to hear ########
+    # The default 10.5 m lets tree canopy and the tops of walls into a map
+    # whose whole job is the ground. Measured on the first real bag: the
+    # ground under the robot sits 0.70 m below `lidar_frame`, so 1.5 m up
+    # reaches ~2.2 m above ground -- everything a quadruped could climb,
+    # step over or bump into, and nothing overhead.
+    max_height_range: 1.5
+
     #### Subscribers ########
     subscribers:
       # Geometry, 360 degrees. The deskewed topic is the rotation-corrected
-      # merge of all three LiDARs; header frame is `lidar_frame`.
+      # merge of all three LiDARs; header frame is `lidar_frame`. It arrives
+      # by way of the voxel downsampler in haechi.launch.py: the raw merge
+      # carries far grazing returns the map cannot use, and measured on the
+      # first real bag they turned the terrain chain to noise past 3 m
+      # (slope median 33 deg at 3-5 m, 80% of cells called undrivable).
       merged_lidar:
-        topic_name: '/points/merged_deskewed'
+        topic_name: '/points/merged_deskewed_ds'
         data_type: pointcloud
 
       # Semantics, front cone only. The labels are painted onto the map cells

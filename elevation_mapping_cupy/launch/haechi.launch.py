@@ -91,6 +91,36 @@ def generate_launch_description():
         ],
     )
 
+    # The same thinning the simulated robot has had all along, which the real
+    # one was missing: the merged cloud went into the mapper raw, at full
+    # density and full range, and the terrain chain measured noise instead of
+    # ground past about 3 m -- slope median 33 degrees at 3-5 m against 7
+    # degrees underfoot, 80% of those cells called undrivable. Range is the
+    # cure: a grazing return at 8 m lands a whole smear of cells on one
+    # reading, and the map is 10 m wide anyway.
+    #
+    # The self box is stated in `lidar_frame` (origin = left MID360, axes
+    # robot FLU): the body reaches forward to the nose sensor at x 0.69 and
+    # sits mostly to -y of the left mount. Its floor stops 0.2 m above the
+    # measured ground (-0.70 m here) so the filter eats the chassis and not
+    # the ground under it. Provisional until the body is measured -- the
+    # robot profile's own sensor_height is still a TODO copied from guard.
+    downsample = Node(
+        package="elevation_mapping_cupy",
+        executable="voxel_downsample_node.py",
+        name="merged_downsample",
+        output="screen",
+        parameters=[{
+            "input_topic": "/points/merged_deskewed",
+            "output_topic": "/points/merged_deskewed_ds",
+            "voxel_size": 0.05,
+            "max_range": 8.0,
+            "use_sim_time": use_sim_time,
+            "self_filter_min": [-1.00, -0.60, -0.50],
+            "self_filter_max": [0.85, 0.20, 0.30],
+        }],
+    )
+
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy",
         executable="elevation_mapping_node.py",
@@ -114,6 +144,7 @@ def generate_launch_description():
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             camera_tf,
             semantic_node,
+            downsample,
             elevation_mapping_node,
         ]
     )
