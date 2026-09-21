@@ -38,9 +38,9 @@ def generate_launch_description():
             # standing this far above the ground under the robot may block a
             # bearing -- the sim keeps the old behaviour, where a 0.12 m kerb
             # is exactly what must stop it.
-            "min_obstacle_rise": 0.30,
+            "min_obstacle_rise": LaunchConfiguration("min_obstacle_rise"),
             # navi's own 2D scan blanks the rear; match it.
-            "scan_rear_blank_deg": 40.0,
+            "scan_rear_blank_deg": LaunchConfiguration("scan_rear_blank_deg"),
         }],
     )
 
@@ -72,6 +72,19 @@ def generate_launch_description():
             description="safety below this becomes an obstacle. Against the "
             "0.20 m step limit, 0.15 m risers score 0.25: 0.4 calls stairs an "
             "obstacle, 0.2 leaves them climbable.",
+        ),
+        DeclareLaunchArgument(
+            "min_obstacle_rise",
+            default_value="0.30",
+            description="Height above the ground under the robot before a "
+            "cell may block a bearing. 0 disables the test, which is what "
+            "the simulated setups want.",
+        ),
+        DeclareLaunchArgument(
+            "scan_rear_blank_deg",
+            default_value="40.0",
+            description="Half-angle of the rear arc blanked in the scan, "
+            "matching navi's own 2D scan. 0 keeps the full circle.",
         ),
         DeclareLaunchArgument(
             "scan_topic",
