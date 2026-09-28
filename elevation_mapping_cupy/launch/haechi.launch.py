@@ -23,7 +23,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 # T_lidarframe_camera. Degrees here, radians at the call site -- the same
@@ -111,6 +111,35 @@ def generate_launch_description():
         ],
     )
 
+    # Self-body cut, the same one navi_lidar v0.6.4 applies at merge time
+    # (footprint polygon, horizontal, z-independent), for bags recorded
+    # before that version existed. The polygon is navi's haechi footprint in
+    # lidar_frame: nav2.footprint (base_link) shifted by odom_2d_to_base_link
+    # (+0.23, -0.105), i.e. x -0.53..0.77, y -0.38..0.18 -- 1.30 x 0.56 m,
+    # measured 2026-09-16. Nothing else is filtered: voxel is set below the
+    # map cell so it only de-duplicates, and range stays open.
+    body_filter = LaunchConfiguration("body_filter")
+    body_cut = Node(
+        package="elevation_mapping_cupy",
+        executable="voxel_downsample_node.py",
+        name="body_cut",
+        output="screen",
+        condition=IfCondition(body_filter),
+        parameters=[{
+            "input_topic": "/points/merged_deskewed",
+            "output_topic": "/points/merged_deskewed_cut",
+            "voxel_size": 0.02,
+            "max_range": 0.0,
+            "self_filter_min": [-0.53, -0.38, -10.0],
+            "self_filter_max": [0.77, 0.18, 10.0],
+            "use_sim_time": use_sim_time,
+        }],
+    )
+    lidar_topic = PythonExpression([
+        "'/points/merged_deskewed_cut' if '", body_filter,
+        "'.lower() in ('true', '1') else '/points/merged_deskewed'",
+    ])
+
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy",
         executable="elevation_mapping_node.py",
@@ -119,7 +148,11 @@ def generate_launch_description():
         parameters=[
             core_param_path,
             robot_param_path,
-            {"use_sim_time": use_sim_time, "plugin_config_file": plugin_config_path},
+            {
+                "use_sim_time": use_sim_time,
+                "plugin_config_file": plugin_config_path,
+                "subscribers.merged_lidar.topic_name": lidar_topic,
+            },
         ],
     )
 
@@ -150,6 +183,13 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument(
+                "body_filter",
+                default_value="true",
+                description="Drop returns inside the robot's own footprint before "
+                "mapping. Needed for bags recorded before navi_lidar v0.6.4; "
+                "harmless after, since the polygon is the same.",
+            ),
+            DeclareLaunchArgument(
                 "samtp_engine",
                 default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
                 description="TensorRT engine for SAM-TP. Machine specific, so "
@@ -164,6 +204,7 @@ def generate_launch_description():
             ),
             camera_tf,
             semantic_node,
+            body_cut,
             elevation_mapping_node,
             terrain_grid,
         ]
