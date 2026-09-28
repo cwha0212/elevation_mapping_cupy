@@ -199,8 +199,12 @@ class ElevationMappingNode(Node):
         # Assign to self.param so it won't use defaults. This is research code: crash loudly if
         # a required parameter is missing or mistyped.
         if self.has_parameter("plugin_config_file"):
-            plugin_config_file = self.get_parameter("plugin_config_file").get_parameter_value().string_value
+            # One file, or a list of files merged in order (the gait chain
+            # rides on top of the navigation chain that way).
+            plugin_config_file = self.get_parameter("plugin_config_file").value
             assert plugin_config_file
+            if not isinstance(plugin_config_file, str):
+                plugin_config_file = [str(v) for v in plugin_config_file]
             self.param.plugin_config_file = plugin_config_file
         if self.has_parameter("weight_file"):
             weight_file = self.get_parameter("weight_file").get_parameter_value().string_value
@@ -386,7 +390,7 @@ class ElevationMappingNode(Node):
 
     def register_timers(self) -> None:
         self.time_pose_update = self.create_timer(
-            0.1,
+            1.0 / self.update_pose_fps,
             self.pose_update
         )
         self.timer_variance = self.create_timer(
