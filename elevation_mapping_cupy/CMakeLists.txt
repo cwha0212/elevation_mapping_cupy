@@ -45,24 +45,21 @@ ament_python_install_package(${PROJECT_NAME})
 
 install(PROGRAMS
   scripts/elevation_mapping_node.py
-  scripts/synthetic_pointcloud_tf_publisher.py
   scripts/samtp_node.py
-  scripts/stairs_cloud_node.py
-  scripts/nav_grid_fuse_node.py
   scripts/traversability_cloud_node.py
   scripts/voxel_downsample_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
-  DIRECTORY launch config rviz gazebo
+  DIRECTORY launch config rviz
   DESTINATION share/${PROJECT_NAME}
 )
 
-# Install test files for integration tests
+# The integration test's parameter file only; the tests themselves run from source.
 install(
-  DIRECTORY test
-  DESTINATION share/${PROJECT_NAME}
+  DIRECTORY test/config
+  DESTINATION share/${PROJECT_NAME}/test
 )
 
 if(BUILD_TESTING)
@@ -79,11 +76,6 @@ if(BUILD_TESTING)
     TIMEOUT 120
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
-  ament_add_pytest_test(test_map_services
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_map_services.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
   ament_add_pytest_test(test_gridmap_layout
     ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_gridmap_layout.py
     TIMEOUT 120
@@ -96,11 +88,6 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_repo_config_sanity
     ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_repo_config_sanity.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_inpainting_plugin
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_inpainting_plugin.py
     TIMEOUT 120
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
@@ -139,9 +126,9 @@ if(BUILD_TESTING)
     TIMEOUT 120
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
-  ament_add_pytest_test(test_semantic_launch_descriptions
-    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_semantic_launch_descriptions.py
-    TIMEOUT 120
+  ament_add_pytest_test(test_stairs_detect
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_stairs_detect.py
+    TIMEOUT 180
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
 
@@ -163,16 +150,7 @@ if(BUILD_TESTING)
     ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
   )
 
-  add_ros_isolated_launch_test(test/test_map_save_load_services.py
-    TIMEOUT 240
-    ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
-  )
 
-  # Smoke-test the actual golden-path launch file (without RViz).
-  add_ros_isolated_launch_test(test/test_synthetic_demo_launch.py
-    TIMEOUT 180
-    ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
-  )
 endif()
 
 ament_export_dependencies(${dependencies})

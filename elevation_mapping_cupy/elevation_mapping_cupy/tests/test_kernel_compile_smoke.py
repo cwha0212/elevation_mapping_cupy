@@ -19,7 +19,6 @@ def test_kernels_compile_and_one_update_step_runs():
     # parents[2] = ROS package root (contains config/).
     root = Path(__file__).resolve().parents[2]
     p = Parameter(
-        use_chainer=False,
         weight_file=str(root / "config" / "core" / "weights.dat"),
         plugin_config_file=str(root / "config" / "core" / "plugin_config.yaml"),
     )
@@ -57,7 +56,6 @@ def test_extra_point_channels_match_contiguous_xyz_input():
 
     def make_map():
         p = Parameter(
-            use_chainer=False,
             weight_file=str(root / "config" / "core" / "weights.dat"),
             plugin_config_file=str(root / "config" / "core" / "plugin_config.yaml"),
         )
@@ -95,7 +93,6 @@ def test_dense_cell_fusion_is_order_invariant():
 
     def run(points):
         p = Parameter(
-            use_chainer=False,
             weight_file=str(root / "config" / "core" / "weights.dat"),
             plugin_config_file=str(root / "config" / "core" / "plugin_config.yaml"),
         )
@@ -128,7 +125,6 @@ def test_dense_cell_fusion_is_order_invariant():
 def test_nan_and_inf_points_are_rejected_in_the_kernel():
     root = Path(__file__).resolve().parents[2]
     p = Parameter(
-        use_chainer=False,
         weight_file=str(root / "config" / "core" / "weights.dat"),
         plugin_config_file=str(root / "config" / "core" / "plugin_config.yaml"),
     )

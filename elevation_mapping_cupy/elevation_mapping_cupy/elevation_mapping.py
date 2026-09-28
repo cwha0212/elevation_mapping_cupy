@@ -11,34 +11,21 @@ from typing import Dict, List, Any, Tuple, Union, Optional
 
 import numpy as np
 
-from elevation_mapping_cupy.traversability_filter import (
-    get_filter_chainer,
-    get_filter_torch,
-)
+from elevation_mapping_cupy.traversability_filter import get_filter_torch
 from elevation_mapping_cupy.parameter import Parameter
 
 from elevation_mapping_cupy.kernels import (
     add_points_kernel,
 )
 
-from elevation_mapping_cupy.kernels import sum_kernel
 from elevation_mapping_cupy.kernels import error_counting_kernel
 from elevation_mapping_cupy.kernels import finalize_map_kernel
 from elevation_mapping_cupy.kernels import dilation_filter_kernel
 from elevation_mapping_cupy.kernels import normal_filter_kernel
-from elevation_mapping_cupy.kernels import polygon_mask_kernel
 from elevation_mapping_cupy.kernels import image_to_map_correspondence_kernel
 
-from elevation_mapping_cupy.map_initializer import MapInitializer
 from elevation_mapping_cupy.plugins.plugin_manager import PluginManager
 from elevation_mapping_cupy.semantic_map import SemanticMap
-from elevation_mapping_cupy.traversability_polygon import (
-    get_masked_traversability,
-    is_traversable,
-    calculate_area,
-    transform_to_map_position,
-    transform_to_map_index,
-)
 
 import cupy as cp
 
@@ -47,48 +34,6 @@ pool = cp.get_default_memory_pool()
 cp.cuda.set_allocator(pool.malloc)
 
 
-@dataclass
-class GridGeometry:
-    """Lightweight holder describing a GridMap's geometry."""
-
-    length_x: float
-    length_y: float
-    resolution: float
-    center: np.ndarray
-    orientation: np.ndarray
-
-    @property
-    def bounds_x(self) -> Tuple[float, float]:
-        half = self.length_x / 2.0
-        return self.center[0] - half, self.center[0] + half
-
-    @property
-    def bounds_y(self) -> Tuple[float, float]:
-        half = self.length_y / 2.0
-        return self.center[1] - half, self.center[1] + half
-
-    @property
-    def shape(self) -> Tuple[int, int]:
-        cols = int(round(self.length_x / self.resolution))
-        rows = int(round(self.length_y / self.resolution))
-        return rows, cols
-
-
-BASE_LAYER_TO_INDEX = {
-    "elevation": 0,
-    "variance": 1,
-    "is_valid": 2,
-    "traversability": 3,
-    "time": 4,
-    "upper_bound": 5,
-    "is_upper_bound": 6,
-}
-
-NORMAL_LAYER_TO_INDEX = {
-    "normal_x": 0,
-    "normal_y": 1,
-    "normal_z": 2,
-}
 
 
 class ElevationMap:
@@ -145,11 +90,7 @@ class ElevationMap:
         # No shell substitutions in research code: param.weight_file is expected to be a real path.
         param.load_weights(param.weight_file)
 
-        if param.use_chainer:
-            self.traversability_filter = get_filter_chainer(param.w1, param.w2, param.w3, param.w_out)
-        else:
-            self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
-        self.untraversable_polygon = xp.zeros((1, 2))
+        self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
 
         # Semantic layers fed by image and pointcloud channels.
         self.semantic_map = SemanticMap(param)
@@ -166,7 +107,6 @@ class ElevationMap:
         self.plugin_manager = PluginManager(cell_n=self.cell_n, resolution=self.resolution)
         self.plugin_manager.load_plugin_settings(param.plugin_config_file)
 
-        self.map_initializer = MapInitializer(self.initial_variance, param.initialized_variance, xp=cp, method="points")
 
     def clear(self):
         """Reset all the layers of the elevation & the semantic map."""
@@ -303,9 +243,6 @@ class ElevationMap:
         )
         self.traversability_input = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
         self.traversability_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
-        self.min_filtered = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
-        self.min_filtered_mask = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
-        self.mask = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
 
         self.add_points_kernel = add_points_kernel(
             self.resolution,
@@ -349,10 +286,6 @@ class ElevationMap:
         )
 
         self.dilation_filter_kernel = dilation_filter_kernel(self.cell_n, self.cell_n, self.param.dilation_size)
-        self.dilation_filter_kernel_initializer = dilation_filter_kernel(
-            self.cell_n, self.cell_n, self.param.dilation_size_initialize
-        )
-        self.polygon_mask_kernel = polygon_mask_kernel(self.cell_n, self.cell_n, self.resolution)
         self.normal_filter_kernel = normal_filter_kernel(self.cell_n, self.cell_n, self.resolution)
 
     def compile_image_kernels(self):
@@ -451,9 +384,6 @@ class ElevationMap:
                 size=(self.cell_n * self.cell_n),
             )
 
-            # Semantic channels carried alongside xyz, if the cloud has any.
-            self.semantic_map.update_layers_pointcloud(points_all, channels, R, t, self.new_map)
-
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)
 
@@ -493,14 +423,6 @@ class ElevationMap:
         near_map[6] = cp.where(valid_idx, near_map[6], 0.0)
         self.elevation_map[:, self.cell_min : self.cell_max, self.cell_min : self.cell_max] = near_map
 
-    def get_additive_mean_error(self):
-        """Returns the additive mean error.
-
-        Returns:
-
-        """
-        return self.additive_mean_error
-
     def update_variance(self):
         """Adds the time variacne to the valid cells."""
         self.elevation_map[1] += self.param.time_variance * self.elevation_map[2]
@@ -508,12 +430,6 @@ class ElevationMap:
     def update_time(self):
         """adds the time interval to the time layer."""
         self.elevation_map[4] += self.param.time_interval
-
-    def update_upper_bound_with_valid_elevation(self):
-        """Filters all invalid cell's upper_bound and is_upper_bound layers."""
-        mask = self.elevation_map[2] > 0.5
-        self.elevation_map[5] = cp.where(mask, self.elevation_map[0], self.elevation_map[5])
-        self.elevation_map[6] = cp.where(mask, 0.0, self.elevation_map[6])
 
     def input_pointcloud(
         self,
@@ -893,486 +809,3 @@ class ElevationMap:
         m = xp.flip(m, 0)
         m = xp.flip(m, 1)
         return m
-
-    def _transform_to_elevation_mapping_coordinate_convention(self, m):
-        """Transform the map to the grid_map coordinate convention.
-
-        elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
-        grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
-        transformBufferOrderToMapFrame returns {-index[0], -index[1]})
-        To transform back to a normal array, we need to apply the inverse transformation:
-        Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
-        Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
-        Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
-        This is equivalent to: flip(flip(m, 0), 1).T
-
-        Args:
-            m (cupy._core.core.ndarray):
-
-        Returns:
-            cupy._core.core.ndarray:
-        """
-        m = xp.flip(m, 0)
-        m = xp.flip(m, 1)
-        m = m.T
-        return m
-
-    def get_normal_maps(self):
-        """Get the normal maps.
-
-        Returns:
-            maps: the three normal values for each cell
-        """
-        normal = self.normal_map.copy()
-        normal_x = normal[0, 1:-1, 1:-1]
-        normal_y = normal[1, 1:-1, 1:-1]
-        normal_z = normal[2, 1:-1, 1:-1]
-        maps = xp.stack([normal_x, normal_y, normal_z], axis=0)
-        maps = xp.flip(maps, 1)
-        maps = xp.flip(maps, 2)
-        maps = xp.asnumpy(maps)
-        return maps
-
-    def get_normal_ref(self, normal_x_data, normal_y_data, normal_z_data):
-        """Get the normal maps as reference.
-
-        Args:
-            normal_x_data:
-            normal_y_data:
-            normal_z_data:
-        """
-        maps = self.get_normal_maps()
-        self.stream = cp.cuda.Stream(non_blocking=True)
-        normal_x_data[...] = xp.asnumpy(maps[0], stream=self.stream)
-        normal_y_data[...] = xp.asnumpy(maps[1], stream=self.stream)
-        normal_z_data[...] = xp.asnumpy(maps[2], stream=self.stream)
-
-    def get_layer(self, name):
-        """Return the layer with the name input.
-
-        Args:
-            name: The layers name.
-
-        Returns:
-            return_map: The rqeuested layer.
-
-        """
-        if name in self.layer_names:
-            idx = self.layer_names.index(name)
-            return_map = self.elevation_map[idx]
-        elif name in self.semantic_map.layer_names:
-            idx = self.semantic_map.layer_names.index(name)
-            return_map = self.semantic_map.semantic_map[idx]
-        elif name in self.plugin_manager.layer_names:
-            self.plugin_manager.update_with_name(
-                name,
-                self.elevation_map,
-                self.layer_names,
-                semantic_map=self.semantic_map.semantic_map,
-                semantic_params=self.semantic_map.layer_names,
-                rotation=self.base_rotation,
-                elements_to_shift=self.semantic_map.elements_to_shift,
-            )
-            return_map = self.plugin_manager.get_map_with_name(name)
-        else:
-            print("Layer {} is not in the map, returning traversabiltiy!".format(name))
-            return
-        return return_map
-
-    def get_polygon_traversability(self, polygon, result):
-        """Check if input polygons are traversable.
-
-        Args:
-            polygon (cupy._core.core.ndarray):
-            result (numpy.ndarray):
-
-        Returns:
-            Union[None, int]:
-        """
-        polygon = xp.asarray(polygon)
-        area = calculate_area(polygon)
-        polygon = polygon.astype(self.data_type)
-        pmin = self.center[:2] - self.map_length / 2 + self.resolution
-        pmax = self.center[:2] + self.map_length / 2 - self.resolution
-        polygon[:, 0] = polygon[:, 0].clip(pmin[0], pmax[0])
-        polygon[:, 1] = polygon[:, 1].clip(pmin[1], pmax[1])
-        polygon_min = polygon.min(axis=0)
-        polygon_max = polygon.max(axis=0)
-        polygon_bbox = cp.concatenate([polygon_min, polygon_max]).flatten()
-        polygon_n = xp.array(polygon.shape[0], dtype=np.int16)
-        clipped_area = calculate_area(polygon)
-        self.polygon_mask_kernel(
-            polygon,
-            self.center[0],
-            self.center[1],
-            polygon_n,
-            polygon_bbox,
-            self.mask,
-            size=(self.cell_n * self.cell_n),
-        )
-        tmp_map = self.get_layer(self.param.checker_layer)
-        masked, masked_isvalid = get_masked_traversability(self.elevation_map, self.mask, tmp_map)
-        if masked_isvalid.sum() > 0:
-            t = masked.sum() / masked_isvalid.sum()
-        else:
-            t = cp.asarray(0.0, dtype=self.data_type)
-        is_safe, un_polygon = is_traversable(
-            masked,
-            self.param.safe_thresh,
-            self.param.safe_min_thresh,
-            self.param.max_unsafe_n,
-        )
-        untraversable_polygon_num = 0
-        if un_polygon is not None:
-            un_polygon = transform_to_map_position(un_polygon, self.center[:2], self.cell_n, self.resolution)
-            untraversable_polygon_num = un_polygon.shape[0]
-        if clipped_area < 0.001:
-            is_safe = False
-            print("requested polygon is outside of the map")
-        result[...] = np.array([is_safe, t.get(), area.get()])
-        self.untraversable_polygon = un_polygon
-        return untraversable_polygon_num
-
-    def get_untraversable_polygon(self, untraversable_polygon):
-        """Copy the untraversable polygons to input untraversable_polygons.
-
-        Args:
-            untraversable_polygon (numpy.ndarray):
-        """
-        untraversable_polygon[...] = xp.asnumpy(self.untraversable_polygon)
-
-    def initialize_map(self, points, method="cubic"):
-        """Initializes the map according to some points and using an approximation according to method.
-
-        Args:
-            points (numpy.ndarray):
-            method (str): Interpolation method ['linear', 'cubic', 'nearest']
-        """
-        self.clear()
-        with self.map_lock:
-            points = cp.asarray(points, dtype=self.data_type)
-            indices = transform_to_map_index(points[:, :2], self.center[:2], self.cell_n, self.resolution)
-            points[:, :2] = indices.astype(points.dtype)
-            points[:, 2] -= self.center[2]
-            self.map_initializer(self.elevation_map, points, method)
-            if self.param.dilation_size_initialize > 0:
-                for i in range(2):
-                    self.dilation_filter_kernel_initializer(
-                        self.elevation_map[0],
-                        self.elevation_map[2],
-                        self.elevation_map[0],
-                        self.elevation_map[2],
-                        size=(self.cell_n * self.cell_n),
-                    )
-            self.update_upper_bound_with_valid_elevation()
-            self.plugin_manager.reset_layers()
-
-    def list_layers(self) -> List[str]:
-        ordered: List[str] = []
-        for container in (
-            self.layer_names,
-            getattr(self.plugin_manager, "layer_names", []),
-        ):
-            for name in container:
-                if name and name not in ordered:
-                    ordered.append(name)
-        return ordered
-
-    def export_layers(self, layer_names: List[str]) -> Dict[str, np.ndarray]:
-        exported: Dict[str, np.ndarray] = {}
-        buffer = np.zeros((self.cell_n - 2, self.cell_n - 2), dtype=np.float32)
-        for name in layer_names:
-            if not self.exists_layer(name):
-                continue
-            self.get_map_with_name_ref(name, buffer)
-            exported[name] = buffer.copy()
-        return exported
-
-    def apply_masked_replace(
-        self,
-        layer_data: Dict[str, np.ndarray],
-        mask: Optional[np.ndarray],
-        geometry: GridGeometry,
-    ) -> None:
-        if not layer_data:
-            raise ValueError("No layer data provided for masked replace.")
-
-        # Transform the layer data from grid_map coordinate convention to the elevation_mapping_cupy coordinate convention
-        for name, array in layer_data.items():
-            layer_data[name] = self._transform_to_elevation_mapping_coordinate_convention(array)
-        if mask is not None:
-            mask = self._transform_to_elevation_mapping_coordinate_convention(mask)
-
-        sample_shape: Optional[Tuple[int, int]] = None
-        for array in layer_data.values():
-            if sample_shape is None:
-                sample_shape = array.shape
-            elif sample_shape != array.shape:
-                raise ValueError("All incoming layers must share the same shape.")
-
-        if sample_shape is None:
-            raise ValueError("Unable to infer incoming layer shape.")
-
-        if mask is None:
-            mask = np.ones(sample_shape, dtype=np.float32)
-        if mask.shape != sample_shape:
-            raise ValueError("Mask shape does not match provided layers.")
-
-        self._validate_geometry_against_shape(sample_shape, geometry)
-        overlap = self._compute_overlap_indices(sample_shape, geometry)
-        if overlap is None:
-            raise ValueError("Incoming grid does not overlap with the active map.")
-
-        map_rows = overlap["map"][0]
-        map_cols = overlap["map"][1]
-        patch_rows = overlap["patch"][0]
-        patch_cols = overlap["patch"][1]
-
-        mask_slice = mask[patch_rows, patch_cols]
-        valid_mask = np.isfinite(mask_slice)
-        if not np.any(valid_mask):
-            return
-
-        cp_mask = cp.asarray(valid_mask)
-        center_z = float(cp.asnumpy(self.center)[2])
-
-        with self.map_lock:
-            for name, array in layer_data.items():
-                target = self._resolve_layer_target(name)
-                if target is None:
-                    raise ValueError(f"Layer '{name}' does not exist in the map.")
-                incoming_slice = array[patch_rows, patch_cols]
-                if incoming_slice.shape != mask_slice.shape:
-                    raise ValueError("Mismatch between mask and incoming slice dimensions.")
-                if name in ("elevation", "upper_bound"):
-                    incoming_slice = incoming_slice - center_z
-                incoming_cp = cp.asarray(incoming_slice, dtype=self.data_type)
-                target_region = target[map_rows, map_cols]
-                before = target_region[cp_mask].copy()
-                target_region[cp_mask] = incoming_cp[cp_mask]
-                written = int(cp_mask.sum())
-                # Debug diagnostics for field coverage
-                min_max = None
-                if np.any(valid_mask):
-                    vals = incoming_slice[valid_mask]
-                    min_max = (float(np.nanmin(vals)), float(np.nanmax(vals)))
-                map_extent = self._map_extent_from_mask(map_rows, map_cols, valid_mask) or self._map_extent_from_slices(map_rows, map_cols)
-                print(
-                    f"[ElevationMap] masked_replace layer '{name}': wrote {written} cells, "
-                    f"X∈[{map_extent['x_min']:.2f},{map_extent['x_max']:.2f}], "
-                    f"Y∈[{map_extent['y_min']:.2f},{map_extent['y_max']:.2f}], "
-                    f"values {min_max if min_max else 'n/a'}",
-                    flush=True
-                )
-
-        self._invalidate_caches()
-
-    def set_full_map(
-        self,
-        fused_layers: Dict[str, np.ndarray],
-        raw_layers: Dict[str, np.ndarray],
-        geometry: GridGeometry,
-    ) -> None:
-        if not raw_layers:
-            raise ValueError("Raw layer data required to restore the map.")
-
-        # Transform the raw layer data from grid_map coordinate convention to the elevation_mapping_cupy coordinate convention
-        for name, array in raw_layers.items():
-            raw_layers[name] = self._transform_to_elevation_mapping_coordinate_convention(array)
-
-        sample_shape = next(iter(raw_layers.values())).shape
-        self._validate_geometry_against_shape(sample_shape, geometry)
-
-        center_np = np.asarray(geometry.center, dtype=np.float32)
-        provided_plugin_layers = set()
-        total_plugin_layers = len(getattr(self.plugin_manager, "layer_names", []))
-
-        with self.map_lock:
-            self.center[:] = cp.asarray(center_np, dtype=self.data_type)
-            for name, data in raw_layers.items():
-                target = self._resolve_layer_target(name, allow_semantic_creation=False)
-                if target is None:
-                    continue
-                incoming = data
-                if name in ("elevation", "upper_bound"):
-                    incoming = incoming - center_np[2]
-                incoming_cp = cp.asarray(incoming, dtype=self.data_type)
-                target[...] = incoming_cp
-                if name in getattr(self.plugin_manager, "layer_names", []):
-                    provided_plugin_layers.add(name)
-
-            if total_plugin_layers > 0:
-                if len(provided_plugin_layers) != total_plugin_layers:
-                    self.plugin_manager.reset_layers()
-
-        self._invalidate_caches(reset_plugins=True)
-
-    def _resolve_layer_target(self, name: str, allow_semantic_creation: bool = False):
-        if name in BASE_LAYER_TO_INDEX:
-            idx = BASE_LAYER_TO_INDEX[name]
-            return self.elevation_map[idx, 1:-1, 1:-1]
-        if name in NORMAL_LAYER_TO_INDEX:
-            idx = NORMAL_LAYER_TO_INDEX[name]
-            return self.normal_map[idx, 1:-1, 1:-1]
-        if name in getattr(self.plugin_manager, "layer_names", []):
-            idx = self.plugin_manager.layer_names.index(name)
-            return self.plugin_manager.layers[idx, 1:-1, 1:-1]
-        return None
-
-    def _validate_geometry_against_shape(self, shape: Tuple[int, int], geometry: GridGeometry) -> None:
-        expected_shape = geometry.shape
-        if shape != expected_shape:
-            raise ValueError(
-                f"Grid shape mismatch: expected {expected_shape}, received {shape}."
-            )
-        if not math.isclose(float(geometry.resolution), float(self.resolution), rel_tol=1e-6, abs_tol=1e-6):
-            raise ValueError(
-                f"Resolution mismatch: map uses {self.resolution}, incoming grid uses {geometry.resolution}."
-            )
-
-    def _compute_overlap_indices(
-        self, incoming_shape: Tuple[int, int], geometry: GridGeometry
-    ) -> Optional[Dict[str, Tuple[slice, slice]]]:
-        map_length = (self.cell_n - 2) * self.resolution
-        center_cpu = np.asarray(cp.asnumpy(self.center))
-        map_min_x = center_cpu[0] - map_length / 2.0
-        map_max_x = center_cpu[0] + map_length / 2.0
-        map_min_y = center_cpu[1] - map_length / 2.0
-        map_max_y = center_cpu[1] + map_length / 2.0
-
-        patch_min_x, patch_max_x = geometry.bounds_x
-        patch_min_y, patch_max_y = geometry.bounds_y
-
-        overlap_min_x = max(map_min_x, patch_min_x)
-        overlap_max_x = min(map_max_x, patch_max_x)
-        overlap_min_y = max(map_min_y, patch_min_y)
-        overlap_max_y = min(map_max_y, patch_max_y)
-
-        if overlap_max_x <= overlap_min_x or overlap_max_y <= overlap_min_y:
-            return None
-
-        map_width = self.cell_n - 2
-        patch_rows, patch_cols = incoming_shape
-
-        map_origin_x = map_min_x
-        map_origin_y = map_min_y
-        patch_origin_x = patch_min_x
-        patch_origin_y = patch_min_y
-
-        map_start_x = int(np.clip(np.floor((overlap_min_x - map_origin_x) / self.resolution), 0, map_width))
-        map_end_x = int(
-            np.clip(np.ceil((overlap_max_x - map_origin_x) / self.resolution), 0, map_width)
-        )
-        map_start_y = int(np.clip(np.floor((overlap_min_y - map_origin_y) / self.resolution), 0, map_width))
-        map_end_y = int(
-            np.clip(np.ceil((overlap_max_y - map_origin_y) / self.resolution), 0, map_width)
-        )
-
-        patch_start_x = int(
-            np.clip(np.floor((overlap_min_x - patch_origin_x) / geometry.resolution), 0, patch_cols)
-        )
-        patch_end_x = int(
-            np.clip(np.ceil((overlap_max_x - patch_origin_x) / geometry.resolution), 0, patch_cols)
-        )
-        patch_start_y = int(
-            np.clip(np.floor((overlap_min_y - patch_origin_y) / geometry.resolution), 0, patch_rows)
-        )
-        patch_end_y = int(
-            np.clip(np.ceil((overlap_max_y - patch_origin_y) / geometry.resolution), 0, patch_rows)
-        )
-
-        width = min(map_end_x - map_start_x, patch_end_x - patch_start_x)
-        height = min(map_end_y - map_start_y, patch_end_y - patch_start_y)
-
-        if width <= 0 or height <= 0:
-            return None
-
-        return {
-            "map": (slice(map_start_y, map_start_y + height), slice(map_start_x, map_start_x + width)),
-            "patch": (
-                slice(patch_start_y, patch_start_y + height),
-                slice(patch_start_x, patch_start_x + width),
-            ),
-        }
-
-    def _map_extent_from_slices(self, rows: slice, cols: slice) -> Dict[str, float]:
-        map_length = (self.cell_n - 2) * self.resolution
-        center_cpu = np.asarray(cp.asnumpy(self.center))
-        map_min_x = center_cpu[0] - map_length / 2.0
-        map_min_y = center_cpu[1] - map_length / 2.0
-        x_min = map_min_x + (cols.start + 0.5) * self.resolution
-        x_max = map_min_x + (cols.stop - 0.5) * self.resolution
-        y_min = map_min_y + (rows.start + 0.5) * self.resolution
-        y_max = map_min_y + (rows.stop - 0.5) * self.resolution
-        return {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
-
-    def _map_extent_from_mask(self, rows: slice, cols: slice, valid_mask: np.ndarray) -> Optional[Dict[str, float]]:
-        """Compute extent based on the actual mask footprint; returns None if mask is empty."""
-        if valid_mask is None or not np.any(valid_mask):
-            return None
-        row_idx, col_idx = np.nonzero(valid_mask)
-        row_min = rows.start + int(row_idx.min())
-        row_max = rows.start + int(row_idx.max())
-        col_min = cols.start + int(col_idx.min())
-        col_max = cols.start + int(col_idx.max())
-
-        map_length = (self.cell_n - 2) * self.resolution
-        center_cpu = np.asarray(cp.asnumpy(self.center))
-        map_min_x = center_cpu[0] - map_length / 2.0
-        map_min_y = center_cpu[1] - map_length / 2.0
-
-        x_min = map_min_x + (col_min + 0.5) * self.resolution
-        x_max = map_min_x + (col_max + 0.5) * self.resolution
-        y_min = map_min_y + (row_min + 0.5) * self.resolution
-        y_max = map_min_y + (row_max + 0.5) * self.resolution
-        return {"x_min": x_min, "x_max": x_max, "y_min": y_min, "y_max": y_max}
-
-    def _invalidate_caches(self, reset_plugins: bool = True):
-        self.traversability_buffer[...] = cp.nan
-        if reset_plugins:
-            self.plugin_manager.reset_layers()
-
-
-if __name__ == "__main__":
-    #  Test script for profiling.
-    #  $ python -m cProfile -o profile.stats elevation_mapping.py
-    #  $ snakeviz profile.stats
-    xp.random.seed(123)
-    R = xp.random.rand(3, 3)
-    t = xp.random.rand(3)
-    print(R, t)
-    param = Parameter(
-        use_chainer=False,
-        weight_file="../config/weights.dat",
-        plugin_config_file="../config/plugin_config.yaml",
-    )
-    param.additional_layers = ["rgb", "grass", "tree", "people"]
-    param.fusion_algorithms = ["color", "class_bayesian", "class_bayesian", "class_bayesian"]
-    param.update()
-    elevation = ElevationMap(param)
-    layers = [
-        "elevation",
-        "variance",
-        "traversability",
-        "min_filter",
-        "smooth",
-        "inpaint",
-        "rgb",
-    ]
-    points = xp.random.rand(100000, len(layers))
-
-    channels = ["x", "y", "z"] + param.additional_layers
-    print(channels)
-    data = np.zeros((elevation.cell_n - 2, elevation.cell_n - 2), dtype=np.float32)
-    for i in range(50):
-        elevation.input_pointcloud(points, channels, R, t, 0, 0)
-        elevation.update_normal(elevation.elevation_map[0])
-        pos = np.array([i * 0.01, i * 0.02, i * 0.01])
-        elevation.move_to(pos, R)
-        for layer in layers:
-            elevation.get_map_with_name_ref(layer, data)
-        print(i)
-        polygon = cp.array([[0, 0], [2, 0], [0, 2]], dtype=param.data_type)
-        result = np.array([0, 0, 0])
-        elevation.get_polygon_traversability(polygon, result)
-        print(result)

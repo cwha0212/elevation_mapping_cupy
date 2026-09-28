@@ -35,19 +35,8 @@
     # on top of it means two estimators fighting over the same z.
     enable_drift_compensation: false
 
-    #### Initializer ########
-    # Fills the blind zone under the body, which no LiDAR sees (the merged cloud
-    # keeps close returns, but the belly is still occluded).
-    initialize_method: 'linear'
-    initialize_frame_id: ['lidar_frame']
-    initialize_tf_offset: [0.0]
-    use_initializer_at_start: true
-
     #### Fusion ########
-    # Only "color" and "exponential" are registered for image channels (see
-    # Parameter.fusion_algorithms); the bayesian variants are pointcloud-only.
-    pointcloud_channel_fusions:
-      rgb: 'color'
+    # Image channels only; the lidar path takes xyz and nothing else.
       default: 'class_average'
     image_channel_fusions:
       rgb: 'color'
@@ -83,7 +72,10 @@
       # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
       # launch selects it over the digging chain via plugin_config_file).
       elevation_map_terrain:
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety', 'stairs', 'ramp', 'drop']
+        # The navigation chain's layers. stairs / ramp / drop belong to the
+        # gait chain (plugin_config_gait.yaml) and are added by haechi.launch.py
+        # gait:=true; listing a layer no plugin produces would abort a publish.
+        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
         basic_layers: ['elevation']
         fps: 3.0
       elevation_map_semantic:

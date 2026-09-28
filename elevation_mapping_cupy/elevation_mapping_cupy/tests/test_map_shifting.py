@@ -23,7 +23,6 @@ _CONFIG_DIR = _TEST_DIR.parent.parent / "config" / "core"
 def elmap_shift():
     """Create a minimal elevation map for shift testing."""
     p = parameter.Parameter(
-        use_chainer=False,
         weight_file=str(_CONFIG_DIR / "weights.dat"),
         plugin_config_file=str(_CONFIG_DIR / "plugin_config.yaml"),
     )

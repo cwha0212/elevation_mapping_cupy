@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>elevation_mapping_gz_demo</name>
+  <version>0.1.0</version>
+  <description>Gazebo Fortress bench for elevation_mapping_cupy (worlds, sim configs, gait-channel nodes, Nav2 sim params)</description>
+  <maintainer email="changwan.ha@maum.ai">Changwan Ha</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>elevation_mapping_cupy</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>grid_map_rviz_plugin</exec_depend>
+  <exec_depend>octomap_server2</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>rqt_image_view</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

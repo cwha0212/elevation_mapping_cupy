@@ -1,9 +1,9 @@
-# haechi navigation terrain-analysis chain.
+# haechi navigation terrain-analysis chain: what the local costmap needs.
 #
-# Same plugins as the gz_demo chain, which is where the numbers were verified
-# against ground truth (slope 11.9 measured vs 12.0 true, curb 0.119 vs 0.12,
-# risers ~0.15). Selected by haechi.launch.py through plugin_config_file; the
-# digging chain in config/core stays the default for everyone else.
+# slope / step / roughness -> drivability -> safety (camera veto folded in).
+# The gait channel (stairs, ramp, drop) lives in plugin_config_gait.yaml and is
+# merged on top by haechi.launch.py gait:=true; it is the most expensive part
+# of the chain and nothing on the navigation path reads it.
 #
 # TODO(measure): limits below are the quadruped envelope pending real trials --
 # especially max step, which depends on gait, not just leg reach.
@@ -84,74 +84,3 @@ semantic_safety_filter:
     rescue_logit: -2.0
     rescue_min_base: 0.2
     rescue_value: 0.5
-stairs_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: False
-  layer_name: "stairs"          # +confirmed climb .. -confirmed descent, 0 not stairs
-  extra_params:
-    # A staircase quantises height: the window's elevation histogram piles
-    # up on riser-spaced levels, and the verdict is asked of those piles --
-    # how many, whether they chain at riser spacing, how much of the mass
-    # sits on them. Viewpoint-invariant, which the old riser-line counting
-    # was not: the lane-side view now confirms where it used to flicker.
-    struct_window: 29           # 1.45 m: four levels of a 0.40 m tread fit
-    bin_w: 0.025                # half a minimum riser per height bin
-    min_riser: 0.08             # levels chain when spaced like a riser...
-    max_riser: 0.33             # ...so a wall top or a lone ledge drops out
-    peak_frac: 0.10             # a level's share of the window's samples.
-                                # The bank/stairs discriminator: lower it
-                                # and lidar ring piles impersonate treads.
-    peak_prominence: 2.0        # a tread stands over near-empty bins
-    cover_cand: 0.55
-    cover_conf: 0.65
-    levels_cand: 3              # two risers reads as a candidate
-    levels_conf: 4              # three risers confirms
-    max_levels: 7
-    max_range: 6.0              # the 128ch front lidar and the true ride
-                                # height keep lane-distance evidence real;
-                                # validated on the canonical bag with the
-                                # banks staying silent
-    min_component_cells: 40
-ramp_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: False
-  layer_name: "ramp"            # +confirmed climb .. -confirmed descent
-  extra_params:
-    # A ramp is continuous where a flight is broken: tilted everywhere,
-    # smooth, and with no riser-sized break in it. That last clause is what
-    # keeps a staircase out of this layer, and the stairs filter's tread
-    # requirement is what keeps a ramp out of that one.
-    min_slope: 8.0              # below this it is ground with a lean on it
-    max_slope: 45.0             # the platform's rated gradient
-    max_roughness: 0.05
-    max_riser_step: 0.12        # over the fine window, so a 40 deg plane still qualifies
-    struct_window: 21
-    # 0.35, not 0.50. The test asks that this fraction of a 1.05 m window be
-    # sloped, which cannot hold within half a window of the edge, so the
-    # threshold sets how much of a bank's border is thrown away before
-    # anything else is considered. Measured head-on: 25 deg went 73% -> 85%
-    # of what was observed, 35 deg 34% -> 44%, the 11 deg ramp 53% -> 56%,
-    # and flat pavement stayed at 0.00% flagged at every setting tried, so
-    # the margin was not buying anything.
-    min_ramp_ratio: 0.35
-    min_total_gain: 0.20
-    max_slope_std: 8.0          # a ramp is planar; rubble is not
-    max_range: 4.5
-    min_component_cells: 60
-drop_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: False
-  layer_name: "drop"            # meters the ground falls away by, 0 = nowhere to fall
-  extra_params:
-    # A kerb is invisible to step and plain in elevation: the lip goes
-    # unmeasured, so a 0.25 m span centred on the last measured pavement cell
-    # never reaches the road and reports 0.007 for a 0.12 m boundary. Asked
-    # asymmetrically -- how far below this cell does the ground get -- the
-    # same edge reads 0.128. Measured on the bench at this radius: 91% of the
-    # kerb flagged, pavement 0.09%, the strip along the facade 0.07%.
-    radius: 0.50                # also the standoff a walking robot wants from an edge
-    min_drop: 0.08              # below this it is ground texture
-    exempt_confidence: 0.2      # a flight or a ramp, and its landing, are exempt
