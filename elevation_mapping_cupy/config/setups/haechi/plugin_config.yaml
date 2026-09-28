@@ -42,10 +42,12 @@ drivability_filter:
     # grass-and-stone straight (arc 30-50 m of 183 m) the map condemned 78% of
     # cells the robot had just walked across, and it did so at 1-2 m as well as
     # far out, so it was not a range artefact. Median step on that ground was
-    # 0.145 at 1-2 m, which needs a limit above 0.242 to clear 0.4. Roughness
-    # stays at 0.05 deliberately: with step relaxed it becomes the term that
-    # still catches rubble, and raising both would leave nothing watching.
-    limits: [25.0, 0.25, 0.05]
+    # 0.145 at 1-2 m, which needs a limit above 0.242 to clear 0.4.
+    # Roughness 0.065 is what the three 2026-09-28 replays (A/B/C) actually
+    # ran with on the board; the audit's own flip count puts its effect at
+    # about 3.4k of 36k condemned driven cells, so it is kept as measured
+    # rather than re-measured. It is still the term that catches rubble.
+    limits: [25.0, 0.25, 0.065]
 semantic_safety_filter:
   enable: True
   fill_nan: False
