@@ -676,6 +676,22 @@ class ElevationMappingNode(Node):
         rows_d, cols_d = cp.asarray(row), cp.asarray(col)
         elev = cp.asnumpy(m.elevation_map[0][rows_d, cols_d])
         valid = cp.asnumpy(m.elevation_map[2][rows_d, cols_d]) > 0.5
+        # A cell the leg reaches first has no height of its own yet -- the
+        # stride and the first sight of that ground are a close race -- so
+        # fall back to the ground the map already holds around it: the
+        # median of the valid cells within two cells (0.1 m), if there are
+        # enough of them. Slopes and risers seen on approach are in there.
+        if not valid.all():
+            r0 = max(int(row.min()) - 2, 0); r1 = min(int(row.max()) + 3, n)
+            c0 = max(int(col.min()) - 2, 0); c1 = min(int(col.max()) + 3, n)
+            e_blk = cp.asnumpy(m.elevation_map[0, r0:r1, c0:c1])
+            v_blk = cp.asnumpy(m.elevation_map[2, r0:r1, c0:c1]) > 0.5
+            for k in np.flatnonzero(~valid):
+                rr, cc = row[k] - r0, col[k] - c0
+                ws = slice(max(rr - 2, 0), rr + 3); cs = slice(max(cc - 2, 0), cc + 3)
+                vv = v_blk[ws, cs]
+                if vv.sum() >= 5:
+                    elev[k] = np.median(e_blk[ws, cs][vv]); valid[k] = True
         leg = valid & (rel[:, 2] - elev > self._leg_rise)
         if not leg.any():
             return pts

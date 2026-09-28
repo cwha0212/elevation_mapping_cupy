@@ -35,7 +35,7 @@ def generate_launch_description():
                               description="8 m map and SAM-TP at 2 Hz for a loaded board."),
         DeclareLaunchArgument("use_semantics", default_value="true"),
         DeclareLaunchArgument("body_filter", default_value="false"),
-        DeclareLaunchArgument("leg_ring", default_value="[0.25, 0.10, 0.0]"),
+        DeclareLaunchArgument("leg_ring", default_value="[0.50, 0.15, 0.0]"),
         DeclareLaunchArgument("samtp_engine",
                               default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine")),
         DeclareLaunchArgument("grid_threshold", default_value="0.4"),

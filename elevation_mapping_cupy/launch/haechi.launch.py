@@ -240,7 +240,7 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "leg_ring",
-                default_value="[0.25, 0.10, 0.0]",
+                default_value="[0.50, 0.15, 0.0]",
                 description="[front, side, back] metres outside the box where a return "
                 "standing leg_rise above the cell height the map already holds is dropped "
                 "as a leg. Ground, slopes and stair risers measured on approach pass. "
