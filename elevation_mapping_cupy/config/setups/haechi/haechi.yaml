@@ -8,14 +8,20 @@
 /elevation_mapping_node:
   ros__parameters:
     #### Frames ########
-    # navi publishes two odometry frames: `odom` carries the full 3D body pose,
-    # `odom_2d` drops roll/pitch/z. `base_link` hangs off `odom_2d`, so using it
-    # here would tilt the map every time the robot leans. `lidar_frame` is the
-    # merged-cloud frame (origin = left MID360 IMU, axes = robot FLU) and sits
-    # on the 3D chain, so the map center follows the real body pose.
-    map_frame: 'odom'
+    # Measured on the real bag (2026-09-28, tf2 during replay): navi's LIO
+    # publishes map->odom as the BODY pose -- odom moves with the robot and
+    # odom->lidar_frame is a static identity. With map_frame set to odom the
+    # map centre sat at (0,0) forever, never translated, and turned with the
+    # body: every cell mixed measurements of different ground as the robot
+    # moved, which is where the inflated step and roughness on flat grass
+    # came from. The fixed world frame is `map`; it is also what navi's Nav2
+    # costmaps use as global_frame, so the local grid lands there directly.
+    # `base_link` hangs off `odom_2d` (z=0, yaw only) and would tilt the map
+    # whenever the robot leans; `lidar_frame` (merged-cloud frame, origin =
+    # left MID360 IMU, axes = robot FLU) sits on the 3D chain.
+    map_frame: 'map'
     base_frame: 'lidar_frame'
-    corrected_map_frame: 'odom'
+    corrected_map_frame: 'map'
 
     #### Map geometry ########
     # 0.05 m resolves the 10-20 cm curbs that separate roadway from sidewalk;

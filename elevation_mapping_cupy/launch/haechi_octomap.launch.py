@@ -31,7 +31,7 @@ def generate_launch_description():
             "layer": "safety",
             "threshold": threshold,
             # haechi maps in odom, per config/setups/haechi/haechi.yaml.
-            "map_frame": "odom",
+            "map_frame": "map",
         }],
     )
 
@@ -41,7 +41,7 @@ def generate_launch_description():
         name="octomap_server",
         output="screen",
         parameters=[{
-            "frame_id": "odom",
+            "frame_id": "map",
             "base_frame_id": "base_link",
             # Matches the elevation map, so a grid cell is a map cell.
             "resolution": 0.05,
