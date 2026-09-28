@@ -40,6 +40,7 @@ class SemanticSafetyFilter(PluginBase):
         hazard_low: float = 0.25,
         hazard_high: float = 0.60,
         hazard_range: float = 0.0,
+        persist_frames: int = 1,
         **kwargs,
     ):
         self.base_layer = base_layer
@@ -52,6 +53,17 @@ class SemanticSafetyFilter(PluginBase):
         # behind it; the geometry keeps working out there either way.
         # 0 means no limit.
         self.hazard_range = float(hazard_range)
+        # A cell's veto only counts once the camera has said so on
+        # persist_frames consecutive observations of that cell. One frame's
+        # verdict on a cell the camera saw once, at a grazing angle, at the
+        # edge of its field, is the false veto that ends up on ground the
+        # robot then walks over. Consecutive observations, not consecutive
+        # evaluations: the filter runs on every lidar update while the
+        # camera is slower, so the count moves only where the hazard value
+        # changed. State lives in the semantic map's elements_to_shift so it
+        # travels with the map. 1 keeps the old behaviour.
+        self.persist_frames = int(persist_frames)
+        self._state_key = "semantic_safety_persist"
         self._cell_n = cell_n
         self._resolution = resolution
         if self.hazard_high <= self.hazard_low:
@@ -71,6 +83,8 @@ class SemanticSafetyFilter(PluginBase):
         plugin_layer_names,
         semantic_map: cp.ndarray,
         semantic_layer_names,
+        rotation=None,
+        elements_to_shift=None,
         *args,
         **kwargs,
     ) -> cp.ndarray:
@@ -99,6 +113,19 @@ class SemanticSafetyFilter(PluginBase):
             idx = cp.arange(n, dtype=cp.float32) - n / 2.0 + 0.5
             dist = cp.sqrt(idx[None, :] ** 2 + idx[:, None] ** 2) * self._resolution
             hazard = cp.where(dist <= self.hazard_range, hazard, 0.0)
+
+        if self.persist_frames > 1 and elements_to_shift is not None:
+            st = elements_to_shift.get(self._state_key)
+            if st is None or st.shape[1:] != hazard.shape:
+                # [0] = last hazard seen, [1] = consecutive hits
+                st = cp.zeros((2,) + hazard.shape, dtype=cp.float32)
+                elements_to_shift[self._state_key] = st
+            changed = hazard != st[0]
+            hit = hazard > self.hazard_low
+            st[1] = cp.where(changed & hit, st[1] + 1.0,
+                             cp.where(changed & ~hit, 0.0, st[1]))
+            st[0] = hazard
+            hazard = cp.where(st[1] >= self.persist_frames, hazard, 0.0)
 
         span = self.hazard_high - self.hazard_low
         semantic_term = 1.0 - cp.clip((hazard - self.hazard_low) / span, 0.0, 1.0)

@@ -65,6 +65,11 @@ semantic_safety_filter:
     hazard_low: 1.0
     hazard_high: 3.0
     hazard_range: 4.0
+    # Consecutive camera observations a cell needs before its veto counts.
+    # Run D (2026-09-28, one frame): 8.3% of the cells the robot then walked
+    # over had been vetoed at least once, veto per frame median 433 / p95
+    # 3,046. Three observations is the first value tried against that.
+    persist_frames: 3
 stairs_filter:
   enable: True
   fill_nan: False

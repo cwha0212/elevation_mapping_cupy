@@ -134,8 +134,11 @@ class SemanticMap:
         self.pad_value(self.semantic_map, shift_value, value=0.0)
         self.new_map = cp.roll(self.new_map, shift_value, axis=(1, 2))
         self.pad_value(self.new_map, shift_value, value=0.0)
+        # In place: cp.roll returns a new array, and rebinding the loop
+        # variable left the dict holding the unshifted one, so nothing
+        # registered here ever actually moved with the map.
         for el in self.elements_to_shift.values():
-            el = cp.roll(el, shift_value, axis=(1, 2))
+            el[...] = cp.roll(el, shift_value, axis=(1, 2))
             self.pad_value(el, shift_value, value=0.0)
 
     def get_fusion(
