@@ -38,7 +38,14 @@ drivability_filter:
   layer_name: "drivability"                 # 1 flat .. 0 at any limit
   extra_params:
     layers: ["slope", "step", "roughness"]
-    limits: [25.0, 0.20, 0.05]
+    # step 0.20 -> 0.25, from the driven-ground audit on the real bag: over the
+    # grass-and-stone straight (arc 30-50 m of 183 m) the map condemned 78% of
+    # cells the robot had just walked across, and it did so at 1-2 m as well as
+    # far out, so it was not a range artefact. Median step on that ground was
+    # 0.145 at 1-2 m, which needs a limit above 0.242 to clear 0.4. Roughness
+    # stays at 0.05 deliberately: with step relaxed it becomes the term that
+    # still catches rubble, and raising both would leave nothing watching.
+    limits: [25.0, 0.25, 0.05]
 semantic_safety_filter:
   enable: True
   fill_nan: False
