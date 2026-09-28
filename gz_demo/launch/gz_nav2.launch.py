@@ -18,18 +18,21 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 
 def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_gz_demo")
     core_share = get_package_share_directory("elevation_mapping_cupy")
-    params = os.path.join(share_dir, "config", "nav2", "gz_nav2_params.yaml")
+    params = PathJoinSubstitution([share_dir, "config", "nav2", LaunchConfiguration("params")])
     nav2_launch = os.path.join(
         get_package_share_directory("nav2_bringup"), "launch", "navigation_launch.py"
     )
     return LaunchDescription([
+        DeclareLaunchArgument("params", default_value="gz_nav2_params.yaml",
+                              description="File under config/nav2: gz_nav2_params.yaml (small sim robot) or gz_nav2_params_haechi.yaml (haechi profile values)."),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(nav2_launch),
             launch_arguments={

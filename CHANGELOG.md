@@ -12,6 +12,25 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ### Removed
 ### Fixed
 
+## [v0.2.2] - 2026-09-28
+
+`Dev v0.2.2` — **다리 링: 박스 여유 대신 "이미 잰 지면보다 8 cm 위" 규칙.**
+
+### Changed
+- mapper 파라미터 `leg_ring` [front, side, back](기본 [0.50, 0.15, 0.0]), `leg_rise`(0.08),
+  `body_filter`(박스 컷 스위치, 박스 자체는 항상 전달). 링 안의 점은 그 셀(또는 미측정이면
+  주변 0.1 m 유효 셀 중앙값)의 높이보다 leg_rise 위에 있을 때만 버린다. 지면·경사·riser는
+  접근 중 이미 셀에 있어 남는다. `body_margin` 기본 0으로 복귀(실험용).
+- 실측(같은 bag, 발밑 프로브): 로봇 셀 lethal 2.2%→1.6%, footprint 안 lethal 3.95%→2.61%,
+  걸어간 지면 0–1 m 오판정 4.9%→3.3%, 발밑 unknown 11.9%→11.5%(박스 +0.15 m 방식은 14.3%로
+  늘었음). 링만으로는(L1, 앞 0.25 m·유효 셀 전제) 효과가 없었고, 미측정 셀 주변 지면 대체와
+  앞 0.5 m가 필요했다(보폭과 첫 관측이 경합).
+- 보폭 실측: 박스 밖 다리 높이 점의 폭발은 앞 0~0.25 m에 몰리고 옆은 절반, 뒤는 없음. 0.3 m
+  밖은 식생.
+- 실기 프리셋(haechi_nav): 박스 컷 off(navi_lidar가 병합 시 컷), 링 on.
+- gz_demo: Nav2 파라미터 변형 `gz_nav2_params_haechi.yaml`(프로파일 값 그대로),
+  `gz_nav2_params_haechi_tuned.yaml`(cost_scaling 10); `gz_nav2.launch.py params:=`.
+
 ## [v0.2.1] - 2026-09-28
 
 `Dev v0.2.1` — **발밑 lethal 귀속 실험 결과 반영: 자기몸 컷에 0.15 m 여유.**
