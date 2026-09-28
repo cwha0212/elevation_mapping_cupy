@@ -2,8 +2,6 @@
   ros__parameters:
     #### Basic parameters ########
     drift_compensation_variance_inlier: 0.1
-    checker_layer: 'elevation'                # layer name for checking the validity of the cell.
-    initialized_variance: 10.0                     # initial variance for each cell.    
     resolution: 0.1                                # resolution in m.  
     map_length: 20.0                                 # map's size in m.
     sensor_noise_factor: 0.05                       # point noise ~ sensor_noise_factor * range^2 in the sensor frame (range^2 = x^2+y^2+z^2).
@@ -20,8 +18,6 @@
     min_height_drift_cnt: 100                       # drift compensation only happens if the valid cells are more than this number.
     position_noise_thresh: 0.01                     # if the position change is bigger than this value, the drift compensation happens.
     orientation_noise_thresh: 0.01                  # if the orientation change is bigger than this value, the drift compensation happens.
-    position_lowpass_alpha: 0.2                     # lowpass filter alpha used for detecting movements.
-    orientation_lowpass_alpha: 0.2                  # lowpass filter alpha used for detecting movements.
     min_valid_distance: 0.1                         # points with shorter distance will be filtered out.
     max_height_range: 10.5                          # points higher than this value from sensor will be filtered out to disable ceiling.
     ramped_height_range_a: 0.3                      # if z > max(d - ramped_height_range_b, 0) * ramped_height_range_a + ramped_height_range_c, reject.
@@ -30,23 +26,13 @@
     update_variance_fps: 5.0                        # fps for updating variance.
     update_pose_fps: 10.0                           # fps for updating pose and shift the center of map.
     time_interval: 0.1                              # Time layer is updated with this interval.
-    map_acquire_fps: 5.0                            # Raw map is fetched from GPU memory in this fps.
-    publish_statistics_fps: 1.0                     # Publish statistics topic in this fps.
-    recordable_fps: 3.0                           # Recordable fps for pointcloud.
-    enable_normal_arrow_publishing: false
 
-    masked_replace_service_mask_layer_name: 'mask'
-    save_map_default_topic: 'elevation_map'
-    save_map_storage_id: 'mcap'
     service_namespace: '/elevation_mapping_cupy'
 
     max_ray_length: 10.0                            # maximum length for ray tracing.
     cleanup_step: 0.1                               # subtitute this value from validity layer at visibiltiy cleanup.
     cleanup_cos_thresh: 0.1                         # subtitute this value from validity layer at visibiltiy cleanup.
 
-    safe_thresh: 0.7                                # if traversability is smaller, it is counted as unsafe cell.
-    safe_min_thresh: 0.4                            # polygon is unsafe if there exists lower traversability than this.
-    max_unsafe_n: 10                                # if the number of cells under safe_thresh exceeds this value, polygon is unsafe.
 
     overlap_clear_range_xy: 4.0                     # xy range [m] for clearing overlapped area. this defines the valid area for overlap clearance. (used for multi floor setting)
     overlap_clear_range_z: 2.0                      # z range [m] for clearing overlapped area. cells outside this range will be cleared. (used for multi floor setting)
@@ -61,21 +47,8 @@
     enable_visibility_cleanup: true
     enable_drift_compensation: true
     enable_overlap_clearance: true
-    enable_pointcloud_publishing: false
-    enable_drift_corrected_TF_publishing: false
-    #### Traversability filter ########
-    use_chainer: false                              # If false, uses the PyTorch backend (GPU).
-
     #### Upper bound ########
     use_only_above_for_upper_bound: false
-
-    #### Initializer ########
-    initialize_method: 'linear'                                         # Choose one from 'nearest', 'linear', 'cubic'
-    initialize_frame_id: ['base_link']   # One tf (like ['footprint'] ) initializes a square around it.
-    initialize_tf_offset: [0.0]                                         # Optional z-offset(s) for initializer (same length as initialize_frame_id).
-    dilation_size_initialize: 2                                         # dilation size after the init.
-    initialize_tf_grid_size: 1.0                                        # This is not used if number of tf is more than 3.
-    use_initializer_at_start: true                                      # Use initializer when the node starts.
 
     #### Default Plugins ########
     # plugin_config_file is resolved internally (package share) by the node.

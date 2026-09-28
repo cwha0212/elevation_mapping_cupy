@@ -2,7 +2,7 @@
 <package format="3">
     <name>elevation_mapping_cupy</name>
     <version>2.2.0</version>
-    <description>Elevation mapping on GPU</description>
+    <description>GPU elevation mapping and terrain judgement for the haechi quadruped (local-costmap feed for Nav2)</description>
     <maintainer email="takahiro.miki1992@gmail.com">Takahiro Miki</maintainer>
     <maintainer email="lorenzoterenzi96@gmail.com">Lorenzo Terenzi</maintainer>
     <license>MIT</license>
@@ -16,7 +16,6 @@
     <depend>std_srvs</depend>
     <depend>message_filters</depend>
     <depend>sensor_msgs</depend>
-    <depend>sensor_msgs_py</depend>
     <depend>geometry_msgs</depend>
     <depend>elevation_map_msgs</depend>
     <depend>grid_map_msgs</depend>
@@ -28,27 +27,11 @@
     <depend>python3-numpy</depend>
     <depend>tf2_ros</depend>
     <depend>cv_bridge</depend>
-    <depend>ros2_numpy</depend>
     <depend>ament_index_python</depend>
     <depend>tf_transformations</depend>
-    <exec_depend>semantic_sensor</exec_depend>
-
-
-    <!-- Additional dependencies -->
-    <depend>rviz2</depend>
-    <depend>grid_map_rviz_plugin</depend>
-    <!-- <depend>gazebo_ros</depend> -->
+    <!-- Runtime extras -->
     <depend>python3-opencv</depend>
-    <depend>rosbag2_py</depend>
-    <depend>python3-shapely</depend>
     <depend>python3-ruamel.yaml</depend>
-
-    <!-- Only used for semantic sensors I think -->
-    <!-- <depend>python3-sklearn</depend> -->
-    
-    <!-- Export dependencies -->
-    <!-- <build_export_depend>ament_cmake_python</build_export_depend> -->
-    <!-- <exec_depend>ament_cmake_python</exec_depend> -->
 
     <test_depend>ament_cmake_pytest</test_depend>
     <test_depend>ament_lint_auto</test_depend>

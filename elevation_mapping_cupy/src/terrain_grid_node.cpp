@@ -19,6 +19,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <grid_map_msgs/msg/grid_map.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
@@ -49,6 +50,17 @@ public:
     // costmap receives three values: free, lethal, and unknown. A negative
     // threshold restores the linear scaling.
     threshold_ = declare_parameter<double>("threshold", 0.4);
+    // The camera's veto as a cost, not a wall. Where the geometry passes a
+    // cell and only the semantic layer fails it, the cell is published at
+    // veto_cost (0..99) instead of 100: the planner and MPPI then prefer the
+    // path the camera likes but can still cross low grass beside it, which
+    // the quadruped walks over without trouble. Measured 2026-09-28 on the
+    // real bag: with the veto lethal, a 1 m stepping-stone path narrowed to
+    // under the robot's width and the robot's own route was unreachable in
+    // most frames. -1 keeps the veto lethal. Needs base_layer to exist and
+    // trinary_costmap off downstream, or the value collapses to free.
+    base_layer_ = declare_parameter<std::string>("base_layer", "drivability");
+    veto_cost_ = declare_parameter<int>("veto_cost", 70);
 
     publisher_ = create_publisher<nav_msgs::msg::OccupancyGrid>(output_topic_, 1);
     subscription_ = create_subscription<grid_map_msgs::msg::GridMap>(
@@ -57,8 +69,10 @@ public:
 
     if (threshold_ >= 0.0) {
       RCLCPP_INFO(
-        get_logger(), "'%s' layer '%s' -> '%s' (below %.2f = lethal, else free, NaN = unknown)",
-        input_topic_.c_str(), layer_.c_str(), output_topic_.c_str(), threshold_);
+        get_logger(), "'%s' layer '%s' -> '%s' (below %.2f = lethal, else free, NaN = unknown; "
+        "camera-only fail -> cost %d over '%s')",
+        input_topic_.c_str(), layer_.c_str(), output_topic_.c_str(), threshold_, veto_cost_,
+        base_layer_.c_str());
     } else {
       RCLCPP_INFO(
         get_logger(), "'%s' layer '%s' -> '%s' (%.2f = free, %.2f = lethal)",
@@ -69,8 +83,17 @@ public:
 private:
   void onGridMap(const grid_map_msgs::msg::GridMap::SharedPtr msg)
   {
+    // Only the layers this node reads are converted. The terrain message can
+    // carry half a dozen layers and the full conversion copied every one of
+    // them into Eigen matrices to look at two.
+    const bool soft = threshold_ >= 0.0 && veto_cost_ >= 0 && veto_cost_ < 100 &&
+      base_layer_ != layer_;
+    std::vector<std::string> wanted{layer_};
+    if (soft) {
+      wanted.push_back(base_layer_);
+    }
     grid_map::GridMap map;
-    if (!grid_map::GridMapRosConverter::fromMessage(*msg, map)) {
+    if (!grid_map::GridMapRosConverter::fromMessage(*msg, map, wanted, false, false)) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 5000, "could not read the incoming grid map");
       return;
@@ -84,18 +107,29 @@ private:
     // Cells the chain never judged come out as -1, which is the one thing a
     // costmap must not confuse with open ground.
     if (threshold_ >= 0.0) {
-      // 1 where the cell passes, 0 where it fails, NaN where nothing was
-      // judged; the converter then maps 1 -> 0 (free) and 0 -> 100 (lethal).
-      const grid_map::Matrix & src = map[layer_];
-      grid_map::Matrix cut = src;
+      // Cut in place: 1 where the cell passes, 0 where it fails, NaN where
+      // nothing was judged; the converter then maps 1 -> 0 (free) and
+      // 0 -> 100 (lethal). A cell the geometry passes and only the camera
+      // fails sits in between. The base layer is looked up once, not per cell.
+      grid_map::Matrix & cut = map.get(layer_);
+      const grid_map::Matrix * base =
+        (soft && map.exists(base_layer_)) ? &map.get(base_layer_) : nullptr;
+      const float veto_value = 1.0f - static_cast<float>(veto_cost_) / 100.0f;
+      const float thr = static_cast<float>(threshold_);
       for (int i = 0; i < cut.size(); ++i) {
-        const float v = src(i);
-        if (std::isfinite(v)) {
-          cut(i) = v < static_cast<float>(threshold_) ? 0.0f : 1.0f;
+        const float v = cut(i);
+        if (!std::isfinite(v)) {
+          continue;
+        }
+        if (v >= thr) {
+          cut(i) = 1.0f;
+        } else if (base != nullptr && std::isfinite((*base)(i)) && (*base)(i) >= thr) {
+          cut(i) = veto_value;
+        } else {
+          cut(i) = 0.0f;
         }
       }
-      map.add("cut", cut);
-      grid_map::GridMapRosConverter::toOccupancyGrid(map, "cut", 1.0, 0.0, grid);
+      grid_map::GridMapRosConverter::toOccupancyGrid(map, layer_, 1.0, 0.0, grid);
     } else {
       grid_map::GridMapRosConverter::toOccupancyGrid(map, layer_, data_min_, data_max_, grid);
     }
@@ -107,8 +141,9 @@ private:
     }
   }
 
-  std::string input_topic_, output_topic_, layer_;
+  std::string input_topic_, output_topic_, layer_, base_layer_;
   double data_min_{1.0}, data_max_{0.0}, threshold_{0.4};
+  int veto_cost_{70};
   size_t published_{0};
   rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr subscription_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr publisher_;

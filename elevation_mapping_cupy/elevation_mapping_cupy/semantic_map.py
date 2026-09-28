@@ -49,33 +49,9 @@ class SemanticMap:
         self.semantic_map *= 0.0
 
     def initialize_fusion(self):
-        """Initialize the fusion algorithms."""
+        """Register the image fusion algorithms (the only ones this map uses)."""
         for fusion in self.unique_fusion:
-            if "pointcloud_class_bayesian" == fusion:
-                pcl_ids = self.get_layer_indices("class_bayesian", self.layer_specs_points)
-                self.delete_new_layers[pcl_ids] = 0
-            if "pointcloud_class_max" == fusion:
-                pcl_ids = self.get_layer_indices("class_max", self.layer_specs_points)
-                self.delete_new_layers[pcl_ids] = 0
-                layer_cnt = self.param.fusion_algorithms.count("class_max")
-                id_max = cp.zeros((layer_cnt, self.param.cell_n, self.param.cell_n), dtype=cp.uint32,)
-                self.elements_to_shift["id_max"] = id_max
             self.fusion_manager.register_plugin(fusion)
-
-    def update_fusion_setting(self):
-        """
-        Update the fusion settings.
-        """
-        for fusion in self.unique_fusion:
-            if "pointcloud_class_bayesian" == fusion:
-                pcl_ids = self.get_layer_indices("class_bayesian", self.layer_specs_points)
-                self.delete_new_layers[pcl_ids] = 0
-            if "pointcloud_class_max" == fusion:
-                pcl_ids = self.get_layer_indices("class_max", self.layer_specs_points)
-                self.delete_new_layers[pcl_ids] = 0
-                layer_cnt = self.param.fusion_algorithms.count("class_max")
-                id_max = cp.zeros((layer_cnt, self.param.cell_n, self.param.cell_n), dtype=cp.uint32,)
-                self.elements_to_shift["id_max"] = id_max
 
     def add_layer(self, name):
         """
@@ -134,8 +110,11 @@ class SemanticMap:
         self.pad_value(self.semantic_map, shift_value, value=0.0)
         self.new_map = cp.roll(self.new_map, shift_value, axis=(1, 2))
         self.pad_value(self.new_map, shift_value, value=0.0)
+        # In place: cp.roll returns a new array, and rebinding the loop
+        # variable left the dict holding the unshifted one, so nothing
+        # registered here ever actually moved with the map.
         for el in self.elements_to_shift.values():
-            el = cp.roll(el, shift_value, axis=(1, 2))
+            el[...] = cp.roll(el, shift_value, axis=(1, 2))
             self.pad_value(el, shift_value, value=0.0)
 
     def get_fusion(
@@ -159,7 +138,6 @@ class SemanticMap:
                             f"[WARNING] Layer {channel} not found in layer_specs. Using {default_fusion} algorithm as default."
                         )
                         layer_specs[channel] = default_fusion
-                        self.update_fusion_setting()
                     # If there's no default fusion algorithm, we skip this channel
                     else:
                         print(
@@ -168,7 +146,6 @@ class SemanticMap:
                         continue
                 else:
                     layer_specs[channel] = matched_fusion
-                    self.update_fusion_setting()
             x = layer_specs[channel]
             fusion_list.append(x)
             process_channels.append(channel)
@@ -180,83 +157,6 @@ class SemanticMap:
             if re.match(f"^{fusion_alg}$", channel):
                 return alg_value
         return None
-
-    def get_layer_indices(self, fusion_alg, layer_specs):
-        """Get the indices of the layers that are used for a specific fusion algorithm.
-
-        Args:
-            fusion_alg(str): fusion algorithm name
-
-        Returns:
-            cp.array: indices of the layers
-        """
-        layer_indices = cp.array([], dtype=cp.int32)
-        for it, (key, val) in enumerate(layer_specs.items()):
-            if key in val == fusion_alg:
-                layer_indices = cp.append(layer_indices, it).astype(cp.int32)
-        return layer_indices
-
-    def get_indices_fusion(self, pcl_channels: List[str], fusion_alg: str, layer_specs: Dict[str, str]):
-        """Computes the indices of the channels of the pointcloud and the layers of the semantic map of type fusion_alg.
-
-        Args:
-            pcl_channels (List[str]): list of all channel names
-            fusion_alg (str): fusion algorithm type we want to use for channel selection
-
-        Returns:
-            Union[Tuple[List[int], List[int]], Tuple[cupy._core.core.ndarray, cupy._core.core.ndarray]]:
-
-
-        """
-        # this contains exactly the fusion alg type for each channel of the pcl
-        pcl_val_list = [layer_specs[x] for x in pcl_channels]
-        # this contains the indices of the point cloud where we have to perform a certain fusion
-        pcl_indices = cp.array([idp + 3 for idp, x in enumerate(pcl_val_list) if x == fusion_alg], dtype=cp.int32,)
-        # create a list of indices of the layers that will be updated by the point cloud with specific fusion alg
-        layer_indices = cp.array([], dtype=cp.int32)
-        for it, (key, val) in enumerate(layer_specs.items()):
-            if key in pcl_channels and val == fusion_alg:
-                layer_idx = self.layer_names.index(key)
-                layer_indices = cp.append(layer_indices, layer_idx).astype(cp.int32)
-        return pcl_indices, layer_indices
-
-    def update_layers_pointcloud(self, points_all, channels, R, t, elevation_map):
-        """Update the semantic map with the pointcloud.
-
-        Args:
-            points_all: semantic point cloud
-            channels: list of channel names
-            R: rotation matrix
-            t: translation vector
-            elevation_map: elevation map object
-        """
-        process_channels, additional_fusion = self.get_fusion(
-            channels, self.param.pointcloud_channel_fusions, self.layer_specs_points
-        )
-        # If channels has a new layer that is not in the semantic map, add it
-        for channel in process_channels:
-            if channel not in self.layer_names:
-                print(f"Layer {channel} not found, adding it to the semantic map")
-                self.add_layer(channel)
-
-        # Resetting new_map for the layers that are to be deleted
-        self.new_map[self.delete_new_layers] = 0.0
-        for fusion in list(set(additional_fusion)):
-            # which layers need to be updated with this fusion algorithm
-            pcl_ids, layer_ids = self.get_indices_fusion(process_channels, fusion, self.layer_specs_points)
-            # update the layers with the fusion algorithm
-            self.fusion_manager.execute_plugin(
-                fusion,
-                points_all,
-                R,
-                t,
-                pcl_ids,
-                layer_ids,
-                elevation_map,
-                self.semantic_map,
-                self.new_map,
-                self.elements_to_shift,
-            )
 
     def update_layers_image(
         self,
@@ -308,24 +208,6 @@ class SemanticMap:
                 self.new_map,
             )
 
-    def decode_max(self, mer):
-        """Decode the float32 value into two 16 bit value containing the class probability and the class id.
-
-        Args:
-            mer:
-
-        Returns:
-            cp.array: probability
-            cp.array: class id
-        """
-        mer = mer.astype(cp.float32)
-        mer = mer.view(dtype=cp.uint32)
-        ma = cp.bitwise_and(mer, 0xFFFF, dtype=np.uint16)
-        ma = ma.view(np.float16)
-        ma = ma.astype(np.float32)
-        ind = cp.right_shift(mer, 16)
-        return ma, ind
-
     def get_map_with_name(self, name):
         """Return the map with the given name.
 
@@ -357,8 +239,7 @@ class SemanticMap:
         """
         idx = self.layer_names.index(name)
         c = self.process_map_for_publish(self.semantic_map[idx])
-        c = c.astype(np.float32)
-        return c
+        return c.astype(np.float32, copy=False)
 
     def get_semantic(self, name):
         """Return the semantic map layer with the given name.
@@ -382,8 +263,7 @@ class SemanticMap:
         Returns:
             cp.array: map layer without padding
         """
-        m = input_map.copy()
-        return m[1:-1, 1:-1]
+        return input_map[1:-1, 1:-1]
 
     def get_index(self, name):
         """Return the index of the layer with the given name.

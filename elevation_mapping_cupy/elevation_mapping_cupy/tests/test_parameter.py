@@ -8,7 +8,6 @@ def test_parameter():
     # parents[2] = ROS package root (contains config/).
     root = Path(__file__).resolve().parents[2]
     param = Parameter(
-        use_chainer=False,
         weight_file=str(root / "config" / "core" / "weights.dat"),
         plugin_config_file=str(root / "config" / "core" / "plugin_config.yaml"),
     )

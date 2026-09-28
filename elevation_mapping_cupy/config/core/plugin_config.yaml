@@ -1,84 +1,86 @@
-# min_filter fills in minimum value around the invalid cell.
-min_filter:                                   
-  enable: True                                # weather to load this plugin
-  fill_nan: False                             # Fill nans to invalid cells of elevation layer.
-  is_height_layer: True                       # If this is a height layer (such as elevation) or not (such as traversability)
-  layer_name: "min_filter"                    # The layer name.
-  extra_params:                               # This params are passed to the plugin class on initialization.
-    dilation_size: 1                         # The patch size to apply
-    iteration_n: 30                           # The number of iterations
-# Apply smoothing.
-smooth_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: True
-  layer_name: "smooth"
-  extra_params:
-    input_layer_name: "min_filter"
-# Reject close-range above-base returns before despiking. This is meant for
-# BASE-centered digging maps where weather/dust can create floating points that
-# block later ground observations.
-near_base_height_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: True
-  layer_name: "near_base_filtered"
-  extra_params:
-    input_layer_name: "elevation"
-    radius_m: 4.0
-    max_allowed_height_m: 0.5
-# Remove isolated positive spikes before inpainting. This is intentionally
-# asymmetric: upward one/few-cell towers are clipped, trench drops are kept.
-positive_spike_filter:
-  enable: True
-  fill_nan: False
-  is_height_layer: True
-  layer_name: "despiked_coarse"
-  extra_params:
-    input_layer_name: "near_base_filtered"
-    median_filter_size: 5
-    spike_height_diff_m: 0.35
-    support_height_tolerance_m: 0.12
-    max_support_neighbor_count: 1
-    max_component_cells: 4
-# A second narrower cleanup pass catches the smaller shovel-local residual bumps
-# that survive the coarse tower filter while still preserving supported walls.
-positive_spike_filter_cleanup:
-  type: "positive_spike_filter"
-  enable: True
-  fill_nan: False
-  is_height_layer: True
-  layer_name: "despiked"
-  extra_params:
-    input_layer_name: "despiked_coarse"
-    median_filter_size: 3
-    spike_height_diff_m: 0.08
-    support_height_tolerance_m: 0.02
-    max_support_neighbor_count: 1
-    max_component_cells: 2
-    edge_invalid_neighbor_count_min: 3
-    edge_peak_diff_m: 0.12
-    edge_similarity_tolerance_m: 0.05
-    edge_max_similar_neighbor_count: 1
-# Inpaint the cleaned surface so downstream digging keeps hole filling without
-# reintroducing the rejected spikes.
-inpainting:
-  enable: True
-  fill_nan: False
-  is_height_layer: True
-  layer_name: "inpaint"
-  extra_params:
-    method: "telea"                           # telea or ns
-    input_layer_name: "despiked"
-    max_hole_area: 25                         # 5x5 cells at 0.1m resolution
-    fill_border_holes: False                  # boundary-connected invalid regions stay unknown
-erosion:
+# Default terrain-analysis chain (also the haechi navigation chain).
+#
+# slope / step / roughness -> drivability -> safety (camera veto folded in).
+# The gait channel (stairs, ramp, drop) lives in plugin_config_gait.yaml and is
+# merged on top by haechi.launch.py gait:=true; it is the most expensive part
+# of the chain and nothing on the navigation path reads it.
+#
+# TODO(measure): limits below are the quadruped envelope pending real trials --
+# especially max step, which depends on gait, not just leg reach.
+slope_filter:
   enable: True
   fill_nan: False
   is_height_layer: False
-  layer_name: "erosion"
+  layer_name: "slope"                       # degrees
   extra_params:
-    input_layer_name: "traversability"
-    dilation_size: 3
-    iteration_n: 20
-    reverse: True
+    window_size: 3
+    min_valid_ratio: 0.5
+step_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "step"                        # meters
+  extra_params:
+    window_size: 5                          # 0.25 m reach at 0.05 m cells
+    min_valid_count: 4
+roughness_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "roughness"                   # meters, RMS off the local plane
+  extra_params:
+    window_size: 5
+    min_valid_count: 6
+drivability_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "drivability"                 # 1 flat .. 0 at any limit
+  extra_params:
+    layers: ["slope", "step", "roughness"]
+    # step 0.20 -> 0.25, from the driven-ground audit on the real bag: over the
+    # grass-and-stone straight (arc 30-50 m of 183 m) the map condemned 78% of
+    # cells the robot had just walked across, and it did so at 1-2 m as well as
+    # far out, so it was not a range artefact. Median step on that ground was
+    # 0.145 at 1-2 m, which needs a limit above 0.242 to clear 0.4.
+    # Roughness 0.065 is what the three 2026-09-28 replays (A/B/C) actually
+    # ran with on the board; the audit's own flip count puts its effect at
+    # about 3.4k of 36k condemned driven cells, so it is kept as measured
+    # rather than re-measured. It is still the term that catches rubble.
+    # Platform envelope (AgiBot D1 MaxPro: 45 deg, 30 cm stairs). The
+    # 2026-09-28 sweep on the real bag, ground the robot then walked over:
+    # at [25, 0.25, 0.065] the grass stretch was 55% condemned and step
+    # alone barely moved it (0.40 -> 50%); slope was the term holding grass
+    # down. [45, 0.30, 0.08] gives grass 28%, near 12%, opening 13% of
+    # off-route cells (step p95 0.18 m, roughness p95 0.043). A 0.12 m curb
+    # passes this geometry; the roadway stays the semantic layer's job.
+    limits: [45.0, 0.30, 0.08]
+semantic_safety_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "safety"                      # 1 safe .. 0 forbidden
+  extra_params:
+    base_layer: "drivability"
+    # The camera's veto, when there is a camera: SAM-TP's traversability
+    # logit arrives as `untrav`. Run without semantics and the filter finds
+    # no hazard layer and hands the geometry straight back, which is the
+    # documented behaviour and the reason this can be enabled now -- the fan
+    # downstream reads `safety`, and without this filter haechi never had
+    # that layer, so the whole terrain-obstacle path was silently inert.
+    hazard_layers: ["untrav"]
+    hazard_low: 1.0
+    hazard_high: 3.0
+    hazard_range: 4.0
+    # Consecutive camera observations a cell needs before its veto counts.
+    # Run D (2026-09-28, one frame): 8.3% of the cells the robot then walked
+    # over had been vetoed at least once, veto per frame median 433 / p95
+    # 3,046. Three observations is the first value tried against that.
+    persist_frames: 3
+    # The other direction: a cell the camera calls path with logit <= -2
+    # (untrav channel is -logit; confident path sits at -2..-5) and the
+    # geometry calls marginal (0.2 <= drivability < 0.5) is lifted to 0.5.
+    # Walls and drops (below 0.2) are never lifted.
+    rescue_logit: -2.0
+    rescue_min_base: 0.2
+    rescue_value: 0.5

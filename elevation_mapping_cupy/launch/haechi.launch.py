@@ -21,7 +21,8 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -47,16 +48,34 @@ def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
     core_param_path = os.path.join(share_dir, "config", "core", "core_param.yaml")
     robot_param_path = os.path.join(share_dir, "config", "setups", "haechi", "haechi.yaml")
-    # Navigation terrain chain (slope/step/roughness/drivability), not the
-    # digging chain the core config would load by default.
+    # Navigation terrain chain (slope/step/roughness/drivability/safety).
+    # gait:=true merges the stairs/ramp/drop chain on top and brings the
+    # octomap path up with it; audit:=true adds the layers the board's
+    # driven-ground audit reads. Whatever the mode, there is exactly one
+    # terrain publisher at terrain_fps: the safety filter's persistence
+    # counter advances once per chain evaluation, so a second publisher
+    # naming a plugin layer would change the map, not just the traffic.
     plugin_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config.yaml")
-    for path in (core_param_path, robot_param_path, plugin_config_path):
+    gait_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config_gait.yaml")
+    for path in (core_param_path, robot_param_path, plugin_config_path, gait_config_path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Config file {path} does not exist")
 
-
     use_semantics = LaunchConfiguration("use_semantics")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    gait = LaunchConfiguration("gait")
+    audit = LaunchConfiguration("audit")
+    gait_on = PythonExpression(["'", gait, "'.lower() in ('true', '1')"])
+    audit_on = PythonExpression(["'", audit, "'.lower() in ('true', '1')"])
+    plugin_files = PythonExpression([
+        "['", plugin_config_path, "', '", gait_config_path, "'] if ", gait_on,
+        " else ['", plugin_config_path, "']"])
+    terrain_layers = PythonExpression([
+        "['elevation', 'variance', 'slope', 'step', 'roughness', 'drivability', 'safety']"
+        " + (['stairs', 'ramp', 'drop'] if ", gait_on, " else []) if ", audit_on,
+        " else (['slope', 'drivability', 'safety', 'stairs', 'drop'] if ", gait_on,
+        " else ['drivability', 'safety'])"])
+    terrain_basic = PythonExpression(["['elevation'] if ", audit_on, " else ['safety']"])
 
     x, y, z = CAMERA_TRANSLATION
     roll, pitch, yaw = (math.radians(v) for v in CAMERA_RPY_DEG)
@@ -106,39 +125,24 @@ def generate_launch_description():
                 "camera_k": CAMERA_K,
                 "camera_size": CAMERA_SIZE,
                 "time_offset_s": CAMERA_TIME_OFFSET_S,
+                "max_rate": LaunchConfiguration("samtp_max_rate"),
                 "use_sim_time": use_sim_time,
             }
         ],
     )
 
-    # Self-body cut, the same one navi_lidar v0.6.4 applies at merge time
-    # (footprint polygon, horizontal, z-independent), for bags recorded
-    # before that version existed. The polygon is navi's haechi footprint in
-    # lidar_frame: nav2.footprint (base_link) shifted by odom_2d_to_base_link
-    # (+0.23, -0.105), i.e. x -0.53..0.77, y -0.38..0.18 -- 1.30 x 0.56 m,
-    # measured 2026-09-16. Nothing else is filtered: voxel is set below the
-    # map cell so it only de-duplicates, and range stays open.
+    # Self-body cut, the same polygon navi_lidar v0.6.4 applies at merge time
+    # (footprint, horizontal, z-independent), for bags recorded before that
+    # version existed; on the robot it is redundant and off. The box is
+    # navi's haechi footprint in lidar_frame: nav2.footprint (base_link)
+    # shifted by odom_2d_to_base_link (+0.23, -0.105), i.e. x -0.53..0.77,
+    # y -0.38..0.18 -- 1.30 x 0.56 m, measured 2026-09-16. It runs inside
+    # the mapper's cloud callback; nothing else is filtered.
     body_filter = LaunchConfiguration("body_filter")
-    body_cut = Node(
-        package="elevation_mapping_cupy",
-        executable="voxel_downsample_node.py",
-        name="body_cut",
-        output="screen",
-        condition=IfCondition(body_filter),
-        parameters=[{
-            "input_topic": "/points/merged_deskewed",
-            "output_topic": "/points/merged_deskewed_cut",
-            "voxel_size": 0.02,
-            "max_range": 0.0,
-            "self_filter_min": [-0.53, -0.38, -10.0],
-            "self_filter_max": [0.77, 0.18, 10.0],
-            "use_sim_time": use_sim_time,
-        }],
-    )
-    lidar_topic = PythonExpression([
-        "'/points/merged_deskewed_cut' if '", body_filter,
-        "'.lower() in ('true', '1') else '/points/merged_deskewed'",
-    ])
+    body_margin = LaunchConfiguration("body_margin")
+    body_on = PythonExpression(["'", body_filter, "'.lower() in ('true', '1')"])
+    body_min = PythonExpression(["[-0.53 - ", body_margin, ", -0.38 - ", body_margin, ", -10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
+    body_max = PythonExpression(["[0.77 + ", body_margin, ", 0.18 + ", body_margin, ", 10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
 
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy",
@@ -150,8 +154,16 @@ def generate_launch_description():
             robot_param_path,
             {
                 "use_sim_time": use_sim_time,
-                "plugin_config_file": plugin_config_path,
-                "subscribers.merged_lidar.topic_name": lidar_topic,
+                "plugin_config_file": plugin_files,
+                "map_length": LaunchConfiguration("map_length"),
+                "publishers.elevation_map_terrain.layers": terrain_layers,
+                "publishers.elevation_map_terrain.basic_layers": terrain_basic,
+                "publishers.elevation_map_terrain.fps": LaunchConfiguration("terrain_fps"),
+                "body_filter_min": body_min,
+                "body_filter_max": body_max,
+                # Below the map cell; only de-duplicates coincident returns of
+                # the three lidars, exactly as the old body-cut node did.
+                "dedup_voxel": 0.02,
             },
         ],
     )
@@ -168,9 +180,38 @@ def generate_launch_description():
             {
                 "use_sim_time": use_sim_time,
                 "layer": "safety",
+                "base_layer": "drivability",
                 "threshold": LaunchConfiguration("grid_threshold"),
+                "veto_cost": LaunchConfiguration("veto_cost"),
             }
         ],
+    )
+
+    # The geometry-only grid beside it, for the board's diff and reach probes
+    # (what the camera changed is the difference between the two).
+    terrain_grid_geom = Node(
+        package="elevation_mapping_cupy",
+        executable="terrain_grid_node",
+        name="terrain_grid_geom",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("geom_grid")),
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "layer": "drivability",
+                "base_layer": "drivability",
+                "output_topic": "/terrain/local_grid_geom",
+                "threshold": LaunchConfiguration("grid_threshold"),
+                "veto_cost": LaunchConfiguration("veto_cost"),
+            }
+        ],
+    )
+
+    # The bearing fan and octomap: the gait channel's global memory. Only
+    # with gait:=true; the navigation split leaves the global map to NAVI.
+    octomap = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi_octomap.launch.py")),
+        condition=IfCondition(gait),
     )
 
     return LaunchDescription(
@@ -190,6 +231,12 @@ def generate_launch_description():
                 "harmless after, since the polygon is the same.",
             ),
             DeclareLaunchArgument(
+                "body_margin",
+                default_value="0.0",
+                description="Metres added around the footprint box on every side in x and y. "
+                "An experiment knob: legs in mid-stride reach past the resting polygon.",
+            ),
+            DeclareLaunchArgument(
                 "samtp_engine",
                 default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine"),
                 description="TensorRT engine for SAM-TP. Machine specific, so "
@@ -202,10 +249,26 @@ def generate_launch_description():
                 description="safety below this is lethal in /terrain/local_grid; "
                 "matches the octomap's threshold so local and global agree.",
             ),
+            DeclareLaunchArgument(
+                "veto_cost",
+                default_value="70",
+                description="Grid value for a cell the geometry passes and only the "
+                "camera fails: a cost the planner may pay, not a wall. -1 = lethal.",
+            ),
+            DeclareLaunchArgument("gait", default_value="false",
+                                  description="Add the stairs/ramp/drop chain and the octomap path."),
+            DeclareLaunchArgument("audit", default_value="false",
+                                  description="Publish the extra terrain layers the driven-ground audit reads."),
+            DeclareLaunchArgument("geom_grid", default_value="true",
+                                  description="Also publish the geometry-only grid on /terrain/local_grid_geom."),
+            DeclareLaunchArgument("map_length", default_value="10.0", description="Map side in metres."),
+            DeclareLaunchArgument("terrain_fps", default_value="3.0", description="Terrain publisher rate."),
+            DeclareLaunchArgument("samtp_max_rate", default_value="4.0", description="SAM-TP inference rate cap."),
             camera_tf,
             semantic_node,
-            body_cut,
             elevation_mapping_node,
             terrain_grid,
+            terrain_grid_geom,
+            octomap,
         ]
     )

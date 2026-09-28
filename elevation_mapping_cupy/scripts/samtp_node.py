@@ -38,7 +38,6 @@ from elevation_map_msgs.msg import ChannelInfo
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
-from std_msgs.msg import Bool
 
 
 class SamTPNode(Node):
@@ -71,13 +70,6 @@ class SamTPNode(Node):
         # hard, and the erosion shrinks hazard regions inward so only the
         # object's own footprint keeps its verdict.
         self.hazard_erosion_px = int(self.declare_parameter("hazard_erosion_px", 2).value)
-        # One-shot forward gate: instead of writing verdicts into the map,
-        # the camera answers a single question per frame -- "is the strip of
-        # ground right ahead drivable NOW". Consumers act on the current
-        # answer and keep no history of it.
-        self.gate_logit = float(self.declare_parameter("gate_logit", 0.5).value)
-        self.gate_fraction = float(self.declare_parameter("gate_fraction", 0.2).value)
-
         self._load_engine()
 
         self.bridge = CvBridge()
@@ -89,12 +81,16 @@ class SamTPNode(Node):
             self.info = info
         self._last_stamp_ns = 0
         self._frames = 0
+        # Everything in the CameraInfo and ChannelInfo but the header is a
+        # function of the output size, so both are built once per size.
+        self._info_cache = {}
+        self._channels = ChannelInfo()
+        self._channels.channels = ["untrav"]
 
         self.score_pub = self.create_publisher(Image, "samtp_score", 2)
         self.heatmap_pub = self.create_publisher(Image, "samtp_heatmap", 2)
         self.info_pub = self.create_publisher(CameraInfo, "samtp_camera_info", 2)
         self.channel_pub = self.create_publisher(ChannelInfo, "samtp_channel_info", 2)
-        self.gate_pub = self.create_publisher(Bool, "forward_blocked", 2)
 
         if len(self.static_k) != 9:
             self.create_subscription(
@@ -192,11 +188,16 @@ class SamTPNode(Node):
         # intrinsics apply again (scaled below).
         logit = torch.nn.functional.interpolate(
             self.out_t, size=(out_h, out_w), mode="nearest"
-        )[0, 0]
-        score = (-logit).cpu().numpy().astype(np.float32)
+        )
         if self.hazard_erosion_px > 0:
-            k = 2 * self.hazard_erosion_px + 1
-            score = cv2.erode(score, np.ones((k, k), np.uint8))
+            # Erosion of the score (= -logit) is a min filter, i.e. minus the
+            # max filter of the logit: a max-pool with -inf padding, which is
+            # what cv2.erode's default border amounts to. A pure selection,
+            # so the values are those of the CPU erode, and the frame stays
+            # on the GPU until the single copy below.
+            r = self.hazard_erosion_px
+            logit = torch.nn.functional.max_pool2d(logit, 2 * r + 1, stride=1, padding=r)
+        score = (-logit[0, 0]).cpu().numpy().astype(np.float32)
 
         header = msg.header
         if self.time_offset_s:
@@ -204,29 +205,41 @@ class SamTPNode(Node):
                   + int(round(self.time_offset_s * 1e9)))
             header.stamp.sec, header.stamp.nanosec = divmod(ns, 10**9)
 
-        # forward ROI: lower half, central half of the frame -- the ground
-        # the robot enters within the next metre or two
-        roi = score[out_h // 2:, out_w // 4: 3 * out_w // 4]
-        blocked = float((roi > self.gate_logit).mean()) > self.gate_fraction
-        gate = Bool(); gate.data = bool(blocked)
-        self.gate_pub.publish(gate)
-
         out = self.bridge.cv2_to_imgmsg(score, encoding="32FC1")
         out.header = header
         self.score_pub.publish(out)
 
         # The human-facing view, rendered the way the module's own tooling
         # does: per-frame normalized so the contrast is visible regardless of
-        # the absolute logit range. jet maps low (traversable) to red.
-        lo, hi = float(score.min()), float(score.max())
-        norm = ((score - lo) / (hi - lo + 1e-8) * 255).astype(np.uint8)
-        hm = cv2.applyColorMap(255 - norm, cv2.COLORMAP_JET)
-        hm_msg = self.bridge.cv2_to_imgmsg(hm, encoding="bgr8")
-        hm_msg.header = header
-        self.heatmap_pub.publish(hm_msg)
+        # the absolute logit range. jet maps low (traversable) to red. Only
+        # when someone is looking: four full-image passes and 0.7 MB a frame
+        # otherwise.
+        if self.heatmap_pub.get_subscription_count() > 0:
+            lo, hi = float(score.min()), float(score.max())
+            norm = ((score - lo) / (hi - lo + 1e-8) * 255).astype(np.uint8)
+            hm = cv2.applyColorMap(255 - norm, cv2.COLORMAP_JET)
+            hm_msg = self.bridge.cv2_to_imgmsg(hm, encoding="bgr8")
+            hm_msg.header = header
+            self.heatmap_pub.publish(hm_msg)
 
-        info = CameraInfo()
+        info = self._scaled_info(out_w, out_h)
         info.header = header
+        self.info_pub.publish(info)
+
+        self._channels.header = header
+        self.channel_pub.publish(self._channels)
+
+        self._frames += 1
+        self.get_logger().info(
+            f"SAM-TP frames: {self._frames}", throttle_duration_sec=10.0
+        )
+
+    def _scaled_info(self, out_w: int, out_h: int) -> CameraInfo:
+        """The source CameraInfo rescaled to the score image, built once per size."""
+        cached = self._info_cache.get((out_w, out_h))
+        if cached is not None:
+            return cached
+        info = CameraInfo()
         info.width, info.height = out_w, out_h
         sx = out_w / float(self.info.width)
         sy = out_h / float(self.info.height)
@@ -246,17 +259,8 @@ class SamTPNode(Node):
         info.d = list(self.info.d)
         info.distortion_model = self.info.distortion_model or "radtan"
         info.r = list(self.info.r) if any(self.info.r) else [1.,0.,0.,0.,1.,0.,0.,0.,1.]
-        self.info_pub.publish(info)
-
-        channels = ChannelInfo()
-        channels.header = header
-        channels.channels = ["untrav"]
-        self.channel_pub.publish(channels)
-
-        self._frames += 1
-        self.get_logger().info(
-            f"SAM-TP frames: {self._frames}", throttle_duration_sec=10.0
-        )
+        self._info_cache[(out_w, out_h)] = info
+        return info
 
 
 def main(args=None) -> None:

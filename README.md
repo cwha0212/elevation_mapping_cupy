@@ -1,144 +1,46 @@
-# Elevation Mapping CuPy
+# elevation_mapping_cupy (haechi fork)
 
-**Real-time, GPU-accelerated elevation mapping for ROS 2.**
+GPU elevation mapping and terrain judgement for the haechi quadruped. The map
+feeds Nav2's local costmap as an occupancy grid; the global map stays NAVI's.
 
-[![ROS 2 Jazzy](https://img.shields.io/badge/ROS_2-Jazzy-22314E?logo=ros&logoColor=white)](https://docs.ros.org/en/jazzy/)
-[![Latest release](https://img.shields.io/github/v/release/leggedrobotics/elevation_mapping_cupy?display_name=tag&sort=semver)](https://github.com/leggedrobotics/elevation_mapping_cupy/releases/latest)
-[![Documentation](https://github.com/leggedrobotics/elevation_mapping_cupy/actions/workflows/documentation.yml/badge.svg?branch=ros2)](https://leggedrobotics.github.io/elevation_mapping_cupy/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f)](LICENSE)
+Packages
 
-[Documentation](https://leggedrobotics.github.io/elevation_mapping_cupy/) ·
-[Latest release](https://github.com/leggedrobotics/elevation_mapping_cupy/releases/latest) ·
-[IROS 2022 paper](https://arxiv.org/abs/2204.12876)
+- `elevation_mapping_cupy` — the mapper (`elevation_mapping_node.py`), the
+  SAM-TP camera node (`samtp_node.py`), the terrain plugin chain and
+  `terrain_grid_node` (C++), which cuts the `safety` layer into
+  `/terrain/local_grid` (free / camera-cost / lethal / unknown).
+- `elevation_map_msgs` — `ChannelInfo`, the channel list a semantic image carries.
+- `samtp/` — SAM-TP model assets: fetch script, checksums, engine build and ONNX export (the files themselves are a GitHub Release).
+- `gz_demo` (`elevation_mapping_gz_demo`) — the Gazebo Fortress bench: worlds,
+  sim configs, the stairs/gait channel nodes and the Nav2 sim parameters.
+  Not needed on the robot.
 
-![Multi-modal elevation mapping overview](docs/media/overview.png)
+Model assets (once per board)
 
-Elevation Mapping CuPy turns point clouds and image features into layered
-terrain maps for navigation and locomotion. The actively maintained `ros2`
-branch targets ROS 2 Jazzy and NVIDIA GPUs with CUDA 12.
+    bash samtp/fetch_assets.sh
 
-## Highlights
+Build on the robot
 
-- Deterministic CuPy point fusion with visibility cleanup and exact grid-ray traversal.
-- Geometry, RGB, semantic, and learned-feature map layers.
-- Traversability estimation, inpainting, despiking, smoothing, and custom plugins.
-- ROS 2 launch files, GridMap publication, map services, and semantic sensor nodes.
-- Reproducible GPU benchmarks and integration tests.
+    colcon build --packages-select elevation_map_msgs elevation_mapping_cupy \
+      --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-Release `v2.2.0` improves core callback p95 by 55–64% and filtered GridMap
-preparation p95 by 26–66% on the maintained RTX 4090 benchmark. See the
-[GPU optimization report](docs/development/elevation_mapping_gpu_optimization.md)
-for the full methodology.
+Run on the robot (NAVI lidar + localization already up)
 
-## Supported branches
+    ros2 launch elevation_mapping_cupy haechi_nav.launch.py
+    ros2 launch navi_lidar nav2.launch.py robot:=haechi map:=<map.yaml> \
+      params_file:=$(ros2 pkg prefix nav2_bringup)/share/nav2_bringup/params/nav2_params_elevation.yaml
 
-| Branch | Status | Purpose |
-|---|---|---|
-| [`ros2`](https://github.com/leggedrobotics/elevation_mapping_cupy/tree/ros2) | Active | ROS 2 Jazzy and Python/CuPy |
-| `main` | Legacy | ROS 1 |
-| `ros2_cpp` | Experimental | Community C++ port |
+Bag replay and modes
 
-Latest ROS 2 release: [`v2.2.0`](https://github.com/leggedrobotics/elevation_mapping_cupy/releases/tag/v2.2.0).
+    ros2 launch elevation_mapping_cupy haechi.launch.py            # navigation chain
+    ros2 launch elevation_mapping_cupy haechi.launch.py gait:=true # + stairs/ramp/drop + octomap
+    ros2 launch elevation_mapping_cupy haechi.launch.py audit:=true # extra layers for driven_audit
 
-## Quick start
+Board install and run procedure: `HAECHI_BOARD.md`. Changes: `CHANGELOG.md`.
 
-Requirements: Ubuntu 24.04, ROS 2 Jazzy, Python 3, and an NVIDIA GPU with
-CUDA 12 support.
+Branches follow the NAVI repos: work on `chang_feature`, integrate into `dev`
+(`Dev vX.Y.Z — … 반영` merge commits), release from `main`. The board runs `chang_feature`.
 
-```bash
-mkdir -p ~/ros2_ws/src
-cd ~/ros2_ws/src
-git clone -b ros2 https://github.com/leggedrobotics/elevation_mapping_cupy.git
-
-cd ~/ros2_ws
-rosdep install --from-paths src --ignore-src -r -y
-colcon build --packages-up-to semantic_sensor elevation_mapping_cupy --symlink-install
-source install/setup.bash
-```
-
-Run the self-contained synthetic demo:
-
-```bash
-ros2 launch elevation_mapping_cupy synthetic_depth_demo.launch.py
-```
-
-Run with a robot configuration from `elevation_mapping_cupy/config/setups/`:
-
-```bash
-ros2 launch elevation_mapping_cupy elevation_mapping.launch.py \
-  robot_config:=menzi/base.yaml
-```
-
-For a pinned CUDA/ROS environment, use the included Docker workflow:
-
-```bash
-cd ~/ros2_ws/src/elevation_mapping_cupy/docker
-./run.sh
-```
-
-## Configuration
-
-| Area | Location |
-|---|---|
-| Map geometry, fusion, and variance | `elevation_mapping_cupy/config/core/core_param.yaml` |
-| Post-processing plugins | `elevation_mapping_cupy/config/core/plugin_config.yaml` |
-| Robot-specific topics and layers | `elevation_mapping_cupy/config/setups/<robot>/` |
-
-A minimal point-cloud input and map publisher look like this:
-
-```yaml
-subscribers:
-  lidar:
-    topic_name: /points
-    data_type: pointcloud
-
-publishers:
-  elevation_map:
-    layers: [elevation, traversability, variance]
-    basic_layers: [elevation]
-    fps: 5.0
-```
-
-## Services
-
-| Service | Type | Purpose |
-|---|---|---|
-| `/elevation_mapping_cupy/clear_map` | `std_srvs/srv/Trigger` | Clear all map layers |
-| `/elevation_mapping_cupy/save_map` | `grid_map_msgs/srv/ProcessFile` | Save the current map |
-| `/elevation_mapping_cupy/load_map` | `grid_map_msgs/srv/ProcessFile` | Restore a saved map |
-| `/elevation_mapping_cupy/masked_replace` | `grid_map_msgs/srv/SetGridMap` | Replace a masked region |
-
-## Testing
-
-```bash
-cd ~/ros2_ws
-colcon test --packages-select elevation_mapping_cupy --event-handlers console_direct+
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest \
-  src/elevation_mapping_cupy/sensor_processing/semantic_sensor/test -q
-```
-
-The maintained performance harnesses are in [`benchmarks/`](benchmarks/).
-Curated results are versioned; raw profiler traces and local logs are ignored.
-
-## Citation
-
-If you use this project, please cite:
-
-```bibtex
-@inproceedings{miki2022elevation,
-  title={Elevation mapping for locomotion and navigation using GPU},
-  author={Miki, Takahiro and Wellhausen, Lorenz and Grandia, Ruben and
-          Jenelten, Fabian and Homberger, Timon and Hutter, Marco},
-  booktitle={2022 IEEE/RSJ International Conference on Intelligent Robots and Systems},
-  pages={2273--2280},
-  year={2022}
-}
-```
-
-For color or semantic layers, also cite
-[MEM: Multi-Modal Elevation Mapping for Robotics and Learning](https://arxiv.org/abs/2309.16818).
-
-## Contributing and license
-
-Focused bug fixes, robot configurations, and research plugins are welcome.
-The project is distributed under the [MIT License](LICENSE).
+Configuration lives in `elevation_mapping_cupy/config/setups/haechi/`:
+`haechi.yaml` (frames, topics, publishers), `plugin_config.yaml` (slope, step,
+roughness, drivability, semantic safety) and `plugin_config_gait.yaml`.
