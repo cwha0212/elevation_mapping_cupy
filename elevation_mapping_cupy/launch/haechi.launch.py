@@ -161,9 +161,7 @@ def generate_launch_description():
                 "publishers.elevation_map_terrain.fps": LaunchConfiguration("terrain_fps"),
                 "body_filter_min": body_min,
                 "body_filter_max": body_max,
-                # Below the map cell; only de-duplicates coincident returns of
-                # the three lidars, exactly as the old body-cut node did.
-                "dedup_voxel": 0.02,
+                "dedup_voxel": LaunchConfiguration("dedup_voxel"),
             },
         ],
     )
@@ -232,9 +230,18 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "body_margin",
-                default_value="0.0",
+                default_value="0.15",
                 description="Metres added around the footprint box on every side in x and y. "
-                "An experiment knob: legs in mid-stride reach past the resting polygon.",
+                "Measured 2026-09-28: with the bare polygon the cell under the robot was "
+                "lethal in 2.2% of frames, almost all while walking, with ten times the "
+                "usual number of leg-height returns just outside the box; 0.15 m halves it.",
+            ),
+            DeclareLaunchArgument(
+                "dedup_voxel",
+                default_value="0.02",
+                description="One point per voxel of this size after the body cut (0 = off). "
+                "Below the map cell it only merges coincident returns of the three lidars; "
+                "navi_lidar already voxelises at 0.15 m, so the robot preset turns it off.",
             ),
             DeclareLaunchArgument(
                 "samtp_engine",

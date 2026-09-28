@@ -12,6 +12,19 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ### Removed
 ### Fixed
 
+## [v0.2.1] - 2026-09-28
+
+`Dev v0.2.1` — **발밑 lethal 귀속 실험 결과 반영: 자기몸 컷에 0.15 m 여유.**
+
+### Changed
+- `haechi.launch.py` `body_margin` 기본 0.15(신설 `dedup_voxel` 인자, 기본 0.02).
+  실측(같은 bag): 여유 0일 때 로봇 셀 lethal 2.2%(17/776프레임, 15가 보행 중, 항 귀속
+  step 10 / slope 6 / rough 1, 그 셀의 step 중앙값 0.20 m)이고 그 순간 박스 바로 바깥
+  다리 높이 점이 중앙값 44개(평소 4개). 여유 0.15에서 1.5%, footprint 안 lethal 3.95%→2.0%,
+  걸어간 지면 0–1 m 오판정 4.9%→3.3%. 남은 원인은 잔디가 아니라 보폭 중 다리다.
+- `haechi_nav.launch.py`: navi_lidar 병합 컷이 있어도 mapper 컷을 여유 0.15로 켬,
+  dedup은 끔(navi_lidar가 0.15 m voxel).
+
 ## [v0.2.0] - 2026-09-28
 
 `Dev v0.2.0` — **실기 경로만 남긴 리팩토링(haechi-lean)과 SAM-TP 자산 통합.**
