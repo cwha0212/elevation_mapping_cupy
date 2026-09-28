@@ -139,9 +139,10 @@ def generate_launch_description():
     # y -0.38..0.18 -- 1.30 x 0.56 m, measured 2026-09-16. It runs inside
     # the mapper's cloud callback; nothing else is filtered.
     body_filter = LaunchConfiguration("body_filter")
+    body_margin = LaunchConfiguration("body_margin")
     body_on = PythonExpression(["'", body_filter, "'.lower() in ('true', '1')"])
-    body_min = PythonExpression(["[-0.53, -0.38, -10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
-    body_max = PythonExpression(["[0.77, 0.18, 10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
+    body_min = PythonExpression(["[-0.53 - ", body_margin, ", -0.38 - ", body_margin, ", -10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
+    body_max = PythonExpression(["[0.77 + ", body_margin, ", 0.18 + ", body_margin, ", 10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
 
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy",
@@ -228,6 +229,12 @@ def generate_launch_description():
                 description="Drop returns inside the robot's own footprint before "
                 "mapping. Needed for bags recorded before navi_lidar v0.6.4; "
                 "harmless after, since the polygon is the same.",
+            ),
+            DeclareLaunchArgument(
+                "body_margin",
+                default_value="0.0",
+                description="Metres added around the footprint box on every side in x and y. "
+                "An experiment knob: legs in mid-stride reach past the resting polygon.",
             ),
             DeclareLaunchArgument(
                 "samtp_engine",
