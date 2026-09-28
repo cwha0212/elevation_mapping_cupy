@@ -46,6 +46,19 @@ def generate_launch_description():
                      "layer": "safety"}],
     )
 
+    # The same layer, handed to Nav2's LOCAL costmap whole (see
+    # src/terrain_grid_node.cpp). Cut at the fan's threshold so the costmap
+    # receives free / lethal / unknown and nothing in between.
+    terrain_grid = Node(
+        package="elevation_mapping_cupy",
+        executable="terrain_grid_node",
+        name="terrain_grid_node",
+        output="screen",
+        condition=UnlessCondition(is_lidar),
+        parameters=[{"use_sim_time": True, "threshold": threshold,
+                     "layer": "safety"}],
+    )
+
     # The cloud is already flat and robot-centred, so the band only has to
     # cover z=0. Nothing is excluded by height because nothing carries height.
     trav_octomap = Node(
@@ -189,6 +202,7 @@ def generate_launch_description():
             description="drivability below this becomes an obstacle (traversability source).",
         ),
         trav_cloud,
+        terrain_grid,
         trav_octomap,
         stairs_cloud,
         stairs_octomap,

@@ -123,6 +123,23 @@ def generate_launch_description():
         ],
     )
 
+    # Local costmap feed: the safety layer as an OccupancyGrid, cut at the
+    # same threshold the bearing fan and the octomap use, so Nav2's local
+    # window gets free / lethal / unknown straight from the judged map.
+    terrain_grid = Node(
+        package="elevation_mapping_cupy",
+        executable="terrain_grid_node",
+        name="terrain_grid_node",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": use_sim_time,
+                "layer": "safety",
+                "threshold": LaunchConfiguration("grid_threshold"),
+            }
+        ],
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -139,8 +156,15 @@ def generate_launch_description():
                 "it lives outside the repo and is rebuilt per device with "
                 "trtexec --onnx=... --fp16.",
             ),
+            DeclareLaunchArgument(
+                "grid_threshold",
+                default_value="0.4",
+                description="safety below this is lethal in /terrain/local_grid; "
+                "matches the octomap's threshold so local and global agree.",
+            ),
             camera_tf,
             semantic_node,
             elevation_mapping_node,
+            terrain_grid,
         ]
     )

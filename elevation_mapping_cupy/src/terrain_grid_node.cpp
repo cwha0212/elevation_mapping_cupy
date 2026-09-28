@@ -16,6 +16,7 @@
 //
 // So this hands the layer over whole. grid_map_ros does the conversion, which
 // is a solved problem in a library we already depend on for the message type.
+#include <cmath>
 #include <memory>
 #include <string>
 
@@ -39,15 +40,30 @@ public:
     // way round and comes out inverted, which is what a costmap wants.
     data_min_ = declare_parameter<double>("data_min", 1.0);
     data_max_ = declare_parameter<double>("data_max", 0.0);
+    // Measured on the real bag: the safety layer is bimodal, with 68% of
+    // judged cells sitting at exactly 0 (walls, vegetation) and the rest
+    // spread thinly. Scaled linearly into 0..100 that hands Nav2 a map that
+    // is two thirds lethal with a smear of intermediate cost in between, and
+    // StaticLayer's trinary reading then keeps only the cells at exactly 100.
+    // So the layer is cut at the same threshold the bearing fan uses, and the
+    // costmap receives three values: free, lethal, and unknown. A negative
+    // threshold restores the linear scaling.
+    threshold_ = declare_parameter<double>("threshold", 0.4);
 
     publisher_ = create_publisher<nav_msgs::msg::OccupancyGrid>(output_topic_, 1);
     subscription_ = create_subscription<grid_map_msgs::msg::GridMap>(
       input_topic_, 1,
       std::bind(&TerrainGridNode::onGridMap, this, std::placeholders::_1));
 
-    RCLCPP_INFO(
-      get_logger(), "'%s' layer '%s' -> '%s' (%.2f = free, %.2f = lethal)",
-      input_topic_.c_str(), layer_.c_str(), output_topic_.c_str(), data_min_, data_max_);
+    if (threshold_ >= 0.0) {
+      RCLCPP_INFO(
+        get_logger(), "'%s' layer '%s' -> '%s' (below %.2f = lethal, else free, NaN = unknown)",
+        input_topic_.c_str(), layer_.c_str(), output_topic_.c_str(), threshold_);
+    } else {
+      RCLCPP_INFO(
+        get_logger(), "'%s' layer '%s' -> '%s' (%.2f = free, %.2f = lethal)",
+        input_topic_.c_str(), layer_.c_str(), output_topic_.c_str(), data_min_, data_max_);
+    }
   }
 
 private:
@@ -67,7 +83,22 @@ private:
     nav_msgs::msg::OccupancyGrid grid;
     // Cells the chain never judged come out as -1, which is the one thing a
     // costmap must not confuse with open ground.
-    grid_map::GridMapRosConverter::toOccupancyGrid(map, layer_, data_min_, data_max_, grid);
+    if (threshold_ >= 0.0) {
+      // 1 where the cell passes, 0 where it fails, NaN where nothing was
+      // judged; the converter then maps 1 -> 0 (free) and 0 -> 100 (lethal).
+      const grid_map::Matrix & src = map[layer_];
+      grid_map::Matrix cut = src;
+      for (int i = 0; i < cut.size(); ++i) {
+        const float v = src(i);
+        if (std::isfinite(v)) {
+          cut(i) = v < static_cast<float>(threshold_) ? 0.0f : 1.0f;
+        }
+      }
+      map.add("cut", cut);
+      grid_map::GridMapRosConverter::toOccupancyGrid(map, "cut", 1.0, 0.0, grid);
+    } else {
+      grid_map::GridMapRosConverter::toOccupancyGrid(map, layer_, data_min_, data_max_, grid);
+    }
     publisher_->publish(grid);
     if (++published_ % 30 == 1) {
       RCLCPP_INFO(
@@ -77,7 +108,7 @@ private:
   }
 
   std::string input_topic_, output_topic_, layer_;
-  double data_min_{1.0}, data_max_{0.0};
+  double data_min_{1.0}, data_max_{0.0}, threshold_{0.4};
   size_t published_{0};
   rclcpp::Subscription<grid_map_msgs::msg::GridMap>::SharedPtr subscription_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr publisher_;

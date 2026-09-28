@@ -242,60 +242,42 @@ local_costmap:
       robot_base_frame: base_link
       use_sim_time: True
       transform_tolerance: 0.5
+      # A window that travels with the robot; without this the static layer
+      # would resize the master grid to the terrain grid and pin it there.
+      rolling_window: true
       width: 5
       height: 5
       resolution: 0.04
       # MPPI ObstaclesCritic(consider_footprint: true) 및 global_costmap과 동일 footprint 필요
       footprint: "[[-0.30, -0.25], [-0.30, 0.25], [0.30, 0.25], [0.30, -0.25]]"
       footprint_padding: 0.03
-      # The traversability cloud goes straight in here. It is already laser
-      # semantics -- an endpoint where the terrain says stop, a beyond-range
-      # point where a bearing stayed clear -- so marking and clearing behave
-      # the way the costmap expects, and the stairs lift has been applied to
-      # it before it is published.
-      plugins: ["obstacle_layer", "inflation_layer"]
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: True
-        observation_sources: trav
-        trav:
-          topic: /traversability/obstacles
-          min_obstacle_height: -0.1
-          max_obstacle_height: 0.5
-          clearing: True
-          marking: True
-          data_type: "PointCloud2"
-          raytrace_max_range: 5.5
-          raytrace_min_range: 0.0
-          obstacle_max_range: 4.5
+      # The elevation map's own judgement, whole. terrain_grid_node cuts the
+      # safety layer at 0.4 and publishes free / lethal / unknown as an
+      # OccupancyGrid in the map's frame; a static layer in a rolling window
+      # copies the part under the robot each cycle. No bearing fan in the
+      # local window: every cell there was measured, and a window rebuilt
+      # every cycle has nothing stale for ray-clearing to remove.
+      #
+      # Unknown stays free here (track_unknown_space is off), because the
+      # ring under the robot is a lidar blind spot and MPPI must be allowed
+      # to stand in it. The global map is the one that prices unknown.
+      plugins: ["terrain_layer", "inflation_layer"]
+      terrain_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_topic: /terrain/local_grid
+        # The publisher is volatile; a transient_local subscription would
+        # never connect and the layer would sit empty without a word.
+        map_subscribe_transient_local: False
+        subscribe_to_updates: False
+        # The grid is already three-valued, so trinary reading is exact.
+        trinary_costmap: True
+        lethal_cost_threshold: 100
+        unknown_cost_value: -1
+        transform_tolerance: 0.5
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # ★ 회피 폭 축소: scaling 가파르게(3->5), inflation 거리 축소(0.55->0.40)
         cost_scaling_factor: 3.0
         inflation_radius: 0.30
-      obstacle_layer:
-        plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: True
-        # trav only -- the caution boundary is deliberately NOT wired in.
-        # Unverified ground is already expensive in the global map (soft-cost
-        # unknown), so plans avoid it; walling it locally as well painted the
-        # local costmap with speckle wherever the camera had not looked,
-        # directly contradicting a lidar that sees flat ground, and left
-        # stale boundary marks behind (board 2.png). Geometry hazards and
-        # strong semantic hazards still mark through /traversability/obstacles.
-        observation_sources: trav
-        trav:
-          topic: /traversability/obstacles
-          min_obstacle_height: -0.1
-          max_obstacle_height: 0.5
-          clearing: True
-          marking: True
-          data_type: "PointCloud2"
-          raytrace_max_range: 5.5
-          raytrace_min_range: 0.0
-          obstacle_max_range: 4.5
-          obstacle_max_range: 4.5
-          obstacle_min_range: 0.0
       always_send_full_costmap: True
 
 
