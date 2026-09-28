@@ -140,9 +140,10 @@ def generate_launch_description():
     # the mapper's cloud callback; nothing else is filtered.
     body_filter = LaunchConfiguration("body_filter")
     body_margin = LaunchConfiguration("body_margin")
-    body_on = PythonExpression(["'", body_filter, "'.lower() in ('true', '1')"])
-    body_min = PythonExpression(["[-0.53 - ", body_margin, ", -0.38 - ", body_margin, ", -10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
-    body_max = PythonExpression(["[0.77 + ", body_margin, ", 0.18 + ", body_margin, ", 10.0] if ", body_on, " else [0.0, 0.0, 0.0]"])
+    # The box is always handed over: the leg ring is defined around it even
+    # when the merge-time cut upstream has already emptied it.
+    body_min = PythonExpression(["[-0.53 - ", body_margin, ", -0.38 - ", body_margin, ", -10.0]"])
+    body_max = PythonExpression(["[0.77 + ", body_margin, ", 0.18 + ", body_margin, ", 10.0]"])
 
     elevation_mapping_node = Node(
         package="elevation_mapping_cupy",
@@ -159,8 +160,11 @@ def generate_launch_description():
                 "publishers.elevation_map_terrain.layers": terrain_layers,
                 "publishers.elevation_map_terrain.basic_layers": terrain_basic,
                 "publishers.elevation_map_terrain.fps": LaunchConfiguration("terrain_fps"),
+                "body_filter": body_filter,
                 "body_filter_min": body_min,
                 "body_filter_max": body_max,
+                "leg_ring": LaunchConfiguration("leg_ring"),
+                "leg_rise": LaunchConfiguration("leg_rise"),
                 "dedup_voxel": LaunchConfiguration("dedup_voxel"),
             },
         ],
@@ -230,12 +234,20 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "body_margin",
-                default_value="0.15",
-                description="Metres added around the footprint box on every side in x and y. "
-                "Measured 2026-09-28: with the bare polygon the cell under the robot was "
-                "lethal in 2.2% of frames, almost all while walking, with ten times the "
-                "usual number of leg-height returns just outside the box; 0.15 m halves it.",
+                default_value="0.0",
+                description="Metres added around the footprint box on every side in x and y "
+                "(cuts ground too; superseded by leg_ring, kept as an experiment knob).",
             ),
+            DeclareLaunchArgument(
+                "leg_ring",
+                default_value="[0.25, 0.10, 0.0]",
+                description="[front, side, back] metres outside the box where a return "
+                "standing leg_rise above the cell height the map already holds is dropped "
+                "as a leg. Ground, slopes and stair risers measured on approach pass. "
+                "Measured 2026-09-28: leg bursts reach 0.25 m ahead, half that sideways, none behind.",
+            ),
+            DeclareLaunchArgument("leg_rise", default_value="0.08",
+                                  description="Height above the known cell that marks a ring point as a leg."),
             DeclareLaunchArgument(
                 "dedup_voxel",
                 default_value="0.02",

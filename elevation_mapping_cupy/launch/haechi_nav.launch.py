@@ -5,11 +5,12 @@
 
 No octomap: under the navigation split the global map is NAVI's map_server.
 navi_lidar >= v0.6.4 cuts the exact footprint polygon out of the merged cloud
-at merge time, but legs in mid-stride reach past it: measured on the real
-bag, the cell under the robot went lethal in 2.2% of frames with the bare
-polygon and 1.5% with a 0.15 m margin. So the mapper's own cut stays on
-here with that margin (a box test on an array it already holds; the dedup
-is off because navi_lidar already voxelises at 0.15 m).
+at merge time, so the box cut here is off. Legs in mid-stride reach past the
+polygon (measured: the cell under the robot went lethal in 2.2% of frames,
+almost all while walking); the mapper's leg ring handles that by dropping
+ring points that stand above the cell height it already holds, which keeps
+ground, slopes and stair risers. The dedup is off because navi_lidar
+already voxelises at 0.15 m.
 
 The measured configuration (10 m map at 0.05, terrain at 3 Hz, SAM-TP at
 4 Hz) is the default. lite:=true is the fallback for a loaded board: an 8 m
@@ -33,8 +34,8 @@ def generate_launch_description():
         DeclareLaunchArgument("lite", default_value="false",
                               description="8 m map and SAM-TP at 2 Hz for a loaded board."),
         DeclareLaunchArgument("use_semantics", default_value="true"),
-        DeclareLaunchArgument("body_filter", default_value="true"),
-        DeclareLaunchArgument("body_margin", default_value="0.15"),
+        DeclareLaunchArgument("body_filter", default_value="false"),
+        DeclareLaunchArgument("leg_ring", default_value="[0.25, 0.10, 0.0]"),
         DeclareLaunchArgument("samtp_engine",
                               default_value=os.path.expanduser("~/samtp/samtp_512_fp16.engine")),
         DeclareLaunchArgument("grid_threshold", default_value="0.4"),
@@ -46,7 +47,7 @@ def generate_launch_description():
                 "use_sim_time": "false",
                 "use_semantics": LaunchConfiguration("use_semantics"),
                 "body_filter": LaunchConfiguration("body_filter"),
-                "body_margin": LaunchConfiguration("body_margin"),
+                "leg_ring": LaunchConfiguration("leg_ring"),
                 "dedup_voxel": "0.0",
                 "samtp_engine": LaunchConfiguration("samtp_engine"),
                 "grid_threshold": LaunchConfiguration("grid_threshold"),

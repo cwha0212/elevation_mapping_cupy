@@ -163,13 +163,28 @@ class ElevationMappingNode(Node):
         # body-cut node: one parse of the cloud instead of parse, filter,
         # serialize, parse.
         for name, default in (("body_filter_min", [0.0, 0.0, 0.0]), ("body_filter_max", [0.0, 0.0, 0.0]),
-                              ("dedup_voxel", 0.0)):
+                              ("dedup_voxel", 0.0), ("leg_ring", [0.0, 0.0, 0.0]), ("leg_rise", 0.08)):
             if not self.has_parameter(name):
                 self.declare_parameter(name, default)
         lo = np.array([float(v) for v in self.get_parameter('body_filter_min').value], dtype=np.float32)
         hi = np.array([float(v) for v in self.get_parameter('body_filter_max').value], dtype=np.float32)
         self._body_box = (lo, hi) if lo.shape == (3,) and hi.shape == (3,) and np.any(hi > lo) else None
+        if not self.has_parameter('body_filter'):
+            self.declare_parameter('body_filter', True)
+        self._body_filter = bool(self.get_parameter('body_filter').value)
         self._dedup_voxel = float(self.get_parameter('dedup_voxel').value)
+        # Legs in mid-stride reach past the resting footprint. Inside a ring
+        # around the box ([front, side, back] metres, in the cloud's frame),
+        # a point that sits leg_rise above the height this map ALREADY holds
+        # for its cell is a leg, not ground: the ground there was measured on
+        # approach, and so were a slope or a stair riser, which therefore
+        # pass. Cells never measured are left alone. Measured 2026-09-28: leg
+        # bursts sit within 0.25 m ahead of the box, half that to the sides,
+        # none behind; beyond 0.3 m the leg-height returns are vegetation.
+        ring = [float(v) for v in self.get_parameter('leg_ring').value]
+        self._leg_ring = ring if len(ring) == 3 and max(ring) > 0.0 and self._body_box is not None else None
+        self._leg_rise = float(self.get_parameter('leg_rise').value)
+        self._legs_cut = 0
         if not self.has_parameter('cupy_memory_pool_trim_interval_s'):
             self.declare_parameter('cupy_memory_pool_trim_interval_s', 0.0)
         self.cupy_memory_pool_trim_interval_s = float(
@@ -637,9 +652,43 @@ class ElevationMappingNode(Node):
             pts = np.ascontiguousarray(pts[np.sort(keep)], dtype=np.float32)
         return pts
 
+    def _cut_legs(self, pts: np.ndarray, R: np.ndarray, t_np: np.ndarray) -> np.ndarray:
+        """Drop ring points that stand leg_rise above the cell height the map already has."""
+        lo, hi = self._body_box
+        front, side, back = self._leg_ring
+        x, y = pts[:, 0], pts[:, 1]
+        in_ring = (x >= lo[0] - back) & (x <= hi[0] + front) & (y >= lo[1] - side) & (y <= hi[1] + side)
+        in_ring &= ~((x >= lo[0]) & (x <= hi[0]) & (y >= lo[1]) & (y <= hi[1]))
+        if not in_ring.any():
+            return pts
+        ring_idx = np.flatnonzero(in_ring)
+        m = self._map
+        centre = self._get_map_center()
+        rel = pts[ring_idx] @ R.T + (t_np - centre)          # map frame, relative to the map centre
+        n = m.cell_n
+        col = np.floor(rel[:, 0] / m.resolution + 0.5 * (n - 1) + 0.5).astype(np.int64)
+        row = np.floor(rel[:, 1] / m.resolution + 0.5 * (n - 1) + 0.5).astype(np.int64)
+        inside = (col > 0) & (col < n - 1) & (row > 0) & (row < n - 1)
+        if not inside.any():
+            return pts
+        col, row, rel, ring_idx = col[inside], row[inside], rel[inside], ring_idx[inside]
+        import cupy as cp
+        rows_d, cols_d = cp.asarray(row), cp.asarray(col)
+        elev = cp.asnumpy(m.elevation_map[0][rows_d, cols_d])
+        valid = cp.asnumpy(m.elevation_map[2][rows_d, cols_d]) > 0.5
+        leg = valid & (rel[:, 2] - elev > self._leg_rise)
+        if not leg.any():
+            return pts
+        self._legs_cut += int(leg.sum())
+        self.get_logger().info(f"Leg ring dropped {int(leg.sum())} returns (total {self._legs_cut}).",
+                               throttle_duration_sec=10.0)
+        keep = np.ones(pts.shape[0], dtype=bool)
+        keep[ring_idx[leg]] = False
+        return pts[keep]
+
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
         pts = _pointcloud2_xyz_f32(msg)
-        if self._body_box is not None:
+        if self._body_box is not None and self._body_filter:
             pts = self._cut_body(pts)
         if pts.size == 0:
             return
@@ -666,6 +715,10 @@ class ElevationMappingNode(Node):
             t_np = np.array([t.x, t.y, t.z], dtype=np.float32)
             R = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
 
+        if self._leg_ring is not None:
+            pts = self._cut_legs(pts, R, t_np)
+            if pts.size == 0:
+                return
         self._map.input_pointcloud(pts, ["x", "y", "z"], R, t_np, 0, 0)
         self._pointcloud_process_counter += 1
         self.get_logger().info(
