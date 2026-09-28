@@ -27,7 +27,7 @@ python3 -c "import cupy, torch; print(cupy.__version__, torch.__version__, torch
 ~/dependencies/
   ws_livox/ ws_rslidar/  # 라이다 드라이버 워크스페이스
   octomap_ws/            # octomap_server2 (gait 모드에서만 필요)
-~/samtp/samtp_512_fp16.engine   # SAM-TP TensorRT 엔진 (보드 전용, 레포 밖)
+~/samtp/samtp_512_fp16.engine   # SAM-TP 엔진 (samtp/fetch_assets.sh 가 받음)
 ~/map_folder/<map>/<submap>/map.yaml   # NAVI 저장 맵 (localization 모드용)
 ```
 
@@ -44,15 +44,23 @@ source ~/navi_ws/install/setup.bash
 
 `~/.bashrc`에 `ROBOT_TYPE=haechi`가 있어야 한다(없으면 모든 NAVI 런치에 `robot:=haechi`를 명시).
 
-### 1.3 SAM-TP 엔진
+### 1.3 SAM-TP 모델 자산
 
-TensorRT 엔진은 GPU·버전에 묶이므로 보드에서 직접 만든다. ONNX(`samtp_512.onnx`)는
-Mac의 `workspace/GENIE-SAMTP` 산출물(`export_samtp_onnx.py`)이다.
+ONNX(130 MB)와 이 Orin용 fp16 엔진(68 MB)은 레포의 GitHub Release `samtp-assets-v1`에
+있다(단일 파일 100 MB 한도 때문에 git 밖). 레포를 받은 뒤 한 번:
 
 ```bash
-mkdir -p ~/samtp
-/usr/src/tensorrt/bin/trtexec --onnx=samtp_512.onnx --fp16 --saveEngine=$HOME/samtp/samtp_512_fp16.engine
+cd ~/navi_ws/src/elevation_mapping_cupy
+bash samtp/fetch_assets.sh          # ~/samtp/ 에 받고 SHA256 검증
 ```
+
+보드가 바뀌었거나(JetPack, GPU) 엔진 로드가 실패하면 ONNX에서 다시 만든다:
+
+```bash
+bash samtp/fetch_assets.sh onnx && bash samtp/build_engine.sh
+```
+
+자세한 것은 `samtp/README.md`.
 
 ## 2. 레포 받기·브랜치 맞추기
 

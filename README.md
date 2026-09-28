@@ -10,9 +10,14 @@ Packages
   `terrain_grid_node` (C++), which cuts the `safety` layer into
   `/terrain/local_grid` (free / camera-cost / lethal / unknown).
 - `elevation_map_msgs` — `ChannelInfo`, the channel list a semantic image carries.
+- `samtp/` — SAM-TP model assets: fetch script, checksums, engine build and ONNX export (the files themselves are a GitHub Release).
 - `gz_demo` (`elevation_mapping_gz_demo`) — the Gazebo Fortress bench: worlds,
   sim configs, the stairs/gait channel nodes and the Nav2 sim parameters.
   Not needed on the robot.
+
+Model assets (once per board)
+
+    bash samtp/fetch_assets.sh
 
 Build on the robot
 
