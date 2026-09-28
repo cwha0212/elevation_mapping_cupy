@@ -33,7 +33,7 @@ def _load_detector():
         for parent in ("elevation_mapping_cupy", "elevation_mapping_cupy.plugins"):
             sys.modules.setdefault(parent, types.ModuleType(parent))
         sys.modules[pkg] = stub
-    path = Path(__file__).resolve().parents[1] / (
+    path = Path(__file__).resolve().parents[2] / (
         "elevation_mapping_cupy/plugins/stairs_filter.py"
     )
     spec = importlib.util.spec_from_file_location("stairs_filter_under_test", path)
@@ -242,7 +242,7 @@ def test_a_flight_between_walls_survives():
 
 
 def _load_ramp():
-    path = Path(__file__).resolve().parents[1] / (
+    path = Path(__file__).resolve().parents[2] / (
         "elevation_mapping_cupy/plugins/ramp_filter.py"
     )
     src = path.read_text().replace(
