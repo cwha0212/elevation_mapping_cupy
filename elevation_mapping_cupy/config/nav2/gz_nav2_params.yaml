@@ -269,8 +269,10 @@ local_costmap:
         # never connect and the layer would sit empty without a word.
         map_subscribe_transient_local: False
         subscribe_to_updates: False
-        # The grid is already three-valued, so trinary reading is exact.
-        trinary_costmap: True
+        # free / lethal / unknown, plus one intermediate value where only
+        # the camera objects (terrain_grid_node veto_cost). Non-trinary so
+        # that value reaches the costmap as cost instead of collapsing.
+        trinary_costmap: False
         lethal_cost_threshold: 100
         unknown_cost_value: -1
         transform_tolerance: 0.5
