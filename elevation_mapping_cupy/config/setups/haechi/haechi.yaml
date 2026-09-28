@@ -37,7 +37,6 @@
 
     #### Fusion ########
     # Image channels only; the lidar path takes xyz and nothing else.
-      default: 'class_average'
     image_channel_fusions:
       rgb: 'color'
       default: 'exponential'
