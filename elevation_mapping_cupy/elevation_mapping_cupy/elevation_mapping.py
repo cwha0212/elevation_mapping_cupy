@@ -67,7 +67,10 @@ class ElevationMap:
         ]
 
         # buffers
-        self.traversability_buffer = xp.full((self.cell_n, self.cell_n), xp.nan)
+        self.traversability_buffer = xp.full((self.cell_n, self.cell_n), xp.nan, dtype=self.data_type)
+        # One device buffer the publish path rotates each layer into, so the
+        # host copy is a single contiguous transfer (see copy_layer_rot180).
+        self._publish_buf = cp.empty((self.cell_n - 2, self.cell_n - 2), dtype=cp.float32)
         self.normal_map = xp.zeros((3, self.cell_n, self.cell_n), dtype=self.data_type)
         # Initial variance
         self.initial_variance = param.initial_variance
@@ -575,7 +578,9 @@ class ElevationMap:
         Returns:
             cupy._core.core.ndarray:
         """
-        m = input_map.copy()
+        # Nothing here writes into the input, so no copy: fill_nan and add_z
+        # both allocate their own result, and the plain case is a view.
+        m = input_map
         if fill_nan:
             m = xp.where(self.elevation_map[2] > 0.5, m, xp.nan)
         if add_z:
@@ -607,7 +612,7 @@ class ElevationMap:
         """
         traversability = cp.where(
             (self.elevation_map[2] + self.elevation_map[6]) > 0.5,
-            self.elevation_map[3].copy(),
+            self.elevation_map[3],
             cp.nan,
         )
         self.traversability_buffer[3:-3, 3:-3] = traversability[3:-3, 3:-3]
@@ -656,37 +661,6 @@ class ElevationMap:
         is_upper_bound = is_upper_bound[1:-1, 1:-1]
         return is_upper_bound
 
-    def xp_of_array(self, array):
-        """Indicate which library is used for xp.
-
-        Args:
-            array (cupy._core.core.ndarray):
-
-        Returns:
-            module: either np or cp
-        """
-        if type(array) == cp.ndarray:
-            return cp
-        elif type(array) == np.ndarray:
-            return np
-
-    def copy_to_cpu(self, array, data, stream=None):
-        """Transforms the data to float32 and if on gpu loads it to cpu.
-
-        Args:
-            array (cupy._core.core.ndarray):
-            data (numpy.ndarray):
-            stream (Union[None, cupy.cuda.stream.Stream, None, None, None, None, None, None, None]):
-        """
-        if type(array) == np.ndarray:
-            data[...] = array.astype(np.float32, copy=False)
-        elif type(array) == cp.ndarray:
-            source = array.astype(np.float32, copy=False)
-            if stream is not None:
-                cp.asnumpy(source, stream=stream, out=data)
-            else:
-                cp.asnumpy(source, out=data)
-
     def trim_memory_pool(self):
         """Release cached CuPy allocator blocks that are not currently in use."""
         pool.free_all_blocks()
@@ -713,78 +687,77 @@ class ElevationMap:
         else:
             return False
 
-    def get_map_with_name_ref(self, name, data):
-        """Load a layer according to the name input to the data input.
+    def _layer_for_publish(self, name):
+        """Resolve a layer to a (cell_n-2, cell_n-2) device view or array.
+
+        Called with map_lock held. Plugin layers are computed on demand
+        through the manager's generation cache.
+        """
+        if name == "elevation":
+            return self.get_elevation()
+        if name == "variance":
+            return self.get_variance()
+        if name == "is_valid":
+            return self.elevation_map[2, 1:-1, 1:-1]
+        if name == "traversability":
+            return self.get_traversability()
+        if name == "time":
+            return self.get_time()
+        if name == "upper_bound":
+            return self.get_upper_bound()
+        if name == "is_upper_bound":
+            return self.get_is_upper_bound()
+        if name == "normal_x":
+            return self.normal_map[0, 1:-1, 1:-1]
+        if name == "normal_y":
+            return self.normal_map[1, 1:-1, 1:-1]
+        if name == "normal_z":
+            return self.normal_map[2, 1:-1, 1:-1]
+        if name in self.semantic_map.layer_names:
+            return self.semantic_map.get_map_with_name(name)
+        if name in self.plugin_manager.layer_names:
+            self.plugin_manager.update_with_name(
+                name,
+                self.elevation_map,
+                self.layer_names,
+                semantic_map=self.semantic_map.semantic_map,
+                semantic_params=self.semantic_map.layer_names,
+                rotation=self.base_rotation,
+                elements_to_shift=self.semantic_map.elements_to_shift,
+            )
+            m = self.plugin_manager.get_map_with_name(name)
+            p = self.plugin_manager.get_param_with_name(name)
+            return self.process_map_for_publish(m, fill_nan=p.fill_nan, add_z=p.is_height_layer, xp=cp)
+        raise KeyError(f"Layer '{name}' is not in the map.")
+
+    def copy_layer_rot180(self, name, host_out):
+        """Copy a layer to the host as the bytes a GridMap column layout wants.
+
+        The wire format (see gridmap_utils.encode_rot180_as_gridmap_column) is
+        the C order of the layer rotated by 180 degrees: grid_map's buffer runs
+        Row -> -X, Col -> -Y while this map keeps Row = Y, Col = X, and the
+        transpose that converts between them cancels against the column-major
+        packing of the message. One strided read into a contiguous device
+        buffer, then one synchronous transfer into host_out (pinned or not).
 
         Args:
-            name (str): Name of the layer.
-            data (numpy.ndarray): Data structure that contains layer.
-
+            name (str): layer name.
+            host_out (numpy.ndarray): (cell_n-2, cell_n-2) float32, C order.
         """
-        use_stream = True
-        xp = cp
         with self.map_lock:
-            if name == "elevation":
-                m = self.get_elevation()
-                use_stream = False
-            elif name == "variance":
-                m = self.get_variance()
-            elif name == "is_valid":
-                m = self.elevation_map[2].copy()[1:-1, 1:-1]
-            elif name == "traversability":
-                m = self.get_traversability()
-            elif name == "time":
-                m = self.get_time()
-            elif name == "upper_bound":
-                m = self.get_upper_bound()
-            elif name == "is_upper_bound":
-                m = self.get_is_upper_bound()
-            elif name == "normal_x":
-                m = self.normal_map.copy()[0, 1:-1, 1:-1]
-            elif name == "normal_y":
-                m = self.normal_map.copy()[1, 1:-1, 1:-1]
-            elif name == "normal_z":
-                m = self.normal_map.copy()[2, 1:-1, 1:-1]
-            elif name in self.semantic_map.layer_names:
-                m = self.semantic_map.get_map_with_name(name)
-            elif name in self.plugin_manager.layer_names:
-                self.plugin_manager.update_with_name(
-                    name,
-                    self.elevation_map,
-                    self.layer_names,
-                    semantic_map=self.semantic_map.semantic_map,
-                    semantic_params=self.semantic_map.layer_names,
-                    rotation=self.base_rotation,
-                    elements_to_shift=self.semantic_map.elements_to_shift,
-                )
-                m = self.plugin_manager.get_map_with_name(name)
-                p = self.plugin_manager.get_param_with_name(name)
-                xp = self.xp_of_array(m)
-                m = self.process_map_for_publish(m, fill_nan=p.fill_nan, add_z=p.is_height_layer, xp=xp)
-            else:
-                raise KeyError(f"Layer '{name}' is not in the map.")
-        # Transform to align elevation_mapping_cupy with grid_map coordinate convention.
-        #
-        # elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
-        # grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
-        #   transformBufferOrderToMapFrame returns {-index[0], -index[1]})
-        #
-        # Required transformation:
-        #   1. Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
-        #   2. Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
-        #   3. Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
-        #
-        # This is equivalent to: rot90(m.T, k=2) or flip(flip(m.T, 0), 1)
-        #
-        # Old 180° rotation (incorrect - missing transpose, caused 90° CCW error in RViz):
-        # m = xp.flip(m, 0)
-        # m = xp.flip(m, 1)
-        m = self._transform_to_grid_map_coordinate_convention(m)
-        if use_stream:
-            stream = cp.cuda.Stream(non_blocking=False)
-        else:
-            stream = None
-        self.copy_to_cpu(m, data, stream=stream)
+            m = self._layer_for_publish(name)
+            cp.copyto(self._publish_buf, m[::-1, ::-1])
+            self._publish_buf.get(out=host_out)
+
+    def get_map_with_name_ref(self, name, data):
+        """Load a layer in grid_map buffer order (rows -> -X, cols -> -Y) into data.
+
+        Kept for tests and external callers; the node publishes through
+        copy_layer_rot180, which produces the same bytes without the transpose.
+        """
+        tmp = np.empty_like(data)
+        self.copy_layer_rot180(name, tmp)
+        data[...] = tmp.T
 
     def _transform_to_grid_map_coordinate_convention(self, m):
         """Transform the map to the grid_map coordinate convention.

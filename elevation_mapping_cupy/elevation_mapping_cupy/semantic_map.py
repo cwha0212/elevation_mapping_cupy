@@ -239,8 +239,7 @@ class SemanticMap:
         """
         idx = self.layer_names.index(name)
         c = self.process_map_for_publish(self.semantic_map[idx])
-        c = c.astype(np.float32)
-        return c
+        return c.astype(np.float32, copy=False)
 
     def get_semantic(self, name):
         """Return the semantic map layer with the given name.
@@ -264,8 +263,7 @@ class SemanticMap:
         Returns:
             cp.array: map layer without padding
         """
-        m = input_map.copy()
-        return m[1:-1, 1:-1]
+        return input_map[1:-1, 1:-1]
 
     def get_index(self, name):
         """Return the index of the layer with the given name.

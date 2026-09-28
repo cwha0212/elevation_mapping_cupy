@@ -24,7 +24,7 @@ from std_msgs.msg import MultiArrayLayout as MAL
 from std_msgs.msg import MultiArrayDimension as MAD
 from std_srvs.srv import Trigger
 from elevation_mapping_cupy import ElevationMap, Parameter
-from elevation_mapping_cupy.gridmap_utils import encode_layer_to_multiarray
+from elevation_mapping_cupy.gridmap_utils import encode_layer_to_multiarray, encode_rot180_as_gridmap_column
 
 PDC_DATATYPE = {
     "1": np.int8,
@@ -134,7 +134,9 @@ class ElevationMappingNode(Node):
         self._pointcloud_process_counter = 0
         self._image_process_counter = 0
         self._map = ElevationMap(self.param)
-        self._map_data = np.zeros(
+        # Pinned so the per-layer device-to-host copy is a straight DMA.
+        import cupyx
+        self._map_data = cupyx.zeros_pinned(
             (self._map.cell_n - 2, self._map.cell_n - 2), dtype=np.float32
         )
         self.get_logger().info(f"Initialized map with length: {self._map.map_length}, resolution: {self._map.resolution}, cells: {self._map.cell_n}")
@@ -402,7 +404,6 @@ class ElevationMappingNode(Node):
         publisher = self._publishers_dict[key]
         if publisher.get_subscription_count() == 0:
             return
-        center = self._get_map_center()
         gm = GridMap()
         gm.header.frame_id = self.map_frame
         gm.header.stamp = self._last_t if self._last_t is not None else self.get_clock().now().to_msg()
@@ -419,6 +420,9 @@ class ElevationMappingNode(Node):
             # but publish a neutral pose for visualization sanity.
             gm.info.pose.position.z = 0.0
         else:
+            # Only before the first pose update; afterwards _map_t is the truth
+            # and this device-to-host sync is not paid.
+            center = self._get_map_center()
             gm.info.pose.position.x = float(center[0])
             gm.info.pose.position.y = float(center[1])
             gm.info.pose.position.z = 0.0
@@ -443,10 +447,8 @@ class ElevationMappingNode(Node):
                 )
                 continue
             gm.layers.append(layer)
-            self._map.get_map_with_name_ref(layer, self._map_data)
-            # After fixing CUDA kernels and removing flips in elevation_mapping.py, no flip needed here
-            map_data_for_gridmap = self._map_data
-            gm.data.append(self._numpy_to_multiarray(map_data_for_gridmap, layout="gridmap_column"))
+            self._map.copy_layer_rot180(layer, self._map_data)
+            gm.data.append(encode_rot180_as_gridmap_column(self._map_data))
 
         gm.outer_start_index = 0
         gm.inner_start_index = 0
@@ -467,9 +469,6 @@ class ElevationMappingNode(Node):
             response.message = str(exc)
             self.get_logger().error(f"clear_map failed: {exc}")
         return response
-
-    def _numpy_to_multiarray(self, data: np.ndarray, layout: str = "gridmap_column") -> Float32MultiArray:
-        return encode_layer_to_multiarray(data, layout=layout)
 
     def _resolve_service_name(self, suffix: str) -> str:
         base = self.service_namespace
