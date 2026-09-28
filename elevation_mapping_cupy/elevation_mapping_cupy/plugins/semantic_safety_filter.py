@@ -56,6 +56,13 @@ class SemanticSafetyFilter(PluginBase):
         # behind it; the geometry keeps working out there either way.
         # 0 means no limit.
         self.hazard_range = float(hazard_range)
+        self._range_mask = None
+        if self.hazard_range > 0.0:
+            # The map is robot-centred, so this radial mask is fixed; it was
+            # being rebuilt on every evaluation.
+            idx = cp.arange(cell_n, dtype=cp.float32) - cell_n / 2.0 + 0.5
+            dist = cp.sqrt(idx[None, :] ** 2 + idx[:, None] ** 2) * float(resolution)
+            self._range_mask = dist <= self.hazard_range
         # A cell's veto only counts once the camera has said so on
         # persist_frames consecutive observations of that cell. One frame's
         # verdict on a cell the camera saw once, at a grazing angle, at the
@@ -124,11 +131,8 @@ class SemanticSafetyFilter(PluginBase):
         if hazard is None:
             return base.astype(cp.float32)
 
-        if self.hazard_range > 0.0:
-            n = self._cell_n
-            idx = cp.arange(n, dtype=cp.float32) - n / 2.0 + 0.5
-            dist = cp.sqrt(idx[None, :] ** 2 + idx[:, None] ** 2) * self._resolution
-            hazard = cp.where(dist <= self.hazard_range, hazard, 0.0)
+        if self._range_mask is not None:
+            hazard = cp.where(self._range_mask, hazard, 0.0)
 
         if self.persist_frames > 1 and elements_to_shift is not None:
             st = elements_to_shift.get(self._state_key)

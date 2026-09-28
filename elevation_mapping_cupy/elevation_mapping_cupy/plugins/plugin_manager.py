@@ -91,17 +91,20 @@ class PluginBase(ABC):
             name (str): The name of the layer to retrieve.
 
         Returns:
-            Optional[cp.ndarray]: A copy of the requested layer as a cupy ndarray if found, otherwise None.
+            Optional[cp.ndarray]: A read-only view of the requested layer if found, otherwise None.
         """
+        # Views, not copies. A plugin reads its inputs and returns a new
+        # array; the chain copied every input for nothing, twelve full maps
+        # per evaluation. A plugin must never write into what this returns.
         if name in layer_names:
             idx = layer_names.index(name)
-            layer = elevation_map[idx].copy()
+            layer = elevation_map[idx]
         elif name in plugin_layer_names:
             idx = plugin_layer_names.index(name)
-            layer = plugin_layers[idx].copy()
+            layer = plugin_layers[idx]
         elif name in semantic_layer_names:
             idx = semantic_layer_names.index(name)
-            layer = semantic_map[idx].copy()
+            layer = semantic_map[idx]
         else:
             print(f"Could not find layer {name}!")
             layer = None
@@ -136,9 +139,35 @@ class PluginManager(object):
         self._generation = 0
         self._layer_generations = [-1] * len(self.plugins)
         self._empty_semantic_map = cp.zeros((0, self.cell_n, self.cell_n), dtype=cp.float32)
+        self._index_plugins()
 
-    def load_plugin_settings(self, file_path: str):
-        cfg = YAML().load(open(file_path, "r"))
+    def _index_plugins(self):
+        """Cache each plugin's arity and declared inputs.
+
+        Both are fixed for the life of a plugin; resolving them on every
+        evaluation cost an inspect.signature call each.
+        """
+        self._n_params = [len(signature(p).parameters) for p in self.plugins]
+        self._deps = []
+        for p in self.plugins:
+            deps = list(getattr(p, "input_layer_names", []) or [])
+            single = getattr(p, "input_layer_name", None)
+            if single:
+                deps.append(single)
+            self._deps.append(deps)
+
+    def load_plugin_settings(self, file_path):
+        """Load one plugin config file, or several merged in order.
+
+        With a list, later files add plugins after earlier ones (and a
+        repeated key replaces the earlier entry), so an optional chain such
+        as the gait channel can sit in its own file.
+        """
+        paths = [file_path] if isinstance(file_path, str) else list(file_path)
+        cfg = {}
+        for path in paths:
+            loaded = YAML().load(open(path, "r")) or {}
+            cfg.update(loaded)
         plugin_params = []
         extra_params = []
         for k, v in cfg.items():
@@ -221,11 +250,9 @@ class PluginManager(object):
                 # A plugin declares what it reads either as a single
                 # input_layer_name or, for combiners, as an input_layer_names
                 # list. Both recurse through the same lazy update.
-                dependencies = list(getattr(self.plugins[idx], "input_layer_names", []) or [])
-                single = getattr(self.plugins[idx], "input_layer_name", None)
-                if single:
-                    dependencies.append(single)
-                for dependency in dependencies:
+                if not hasattr(self, "_n_params") or len(self._n_params) != len(self.plugins):
+                    self._index_plugins()
+                for dependency in self._deps[idx]:
                     if dependency not in self.layer_names:
                         continue
                     dependency_idx = self.get_layer_index_with_name(dependency)
@@ -243,7 +270,7 @@ class PluginManager(object):
                             elements_to_shift=elements_to_shift,
                             _active_stack=_active_stack,
                         )
-                n_param = len(signature(self.plugins[idx]).parameters)
+                n_param = self._n_params[idx]
                 if n_param == 5:
                     self.layers[idx] = self.plugins[idx](elevation_map, layer_names, self.layers, self.layer_names)
                 elif n_param == 7:
