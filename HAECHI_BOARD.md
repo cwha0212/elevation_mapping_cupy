@@ -23,7 +23,7 @@ python3 -c "import cupy, torch; print(cupy.__version__, torch.__version__, torch
   NAVI/                  # 모노레포: navi_lidar, navi_indoor, navi_hybrid, navi_interface (브랜치 chang_feature)
   navi_nav2/             # Nav2 포크 (브랜치 chang_feature)  ← 반드시 git clone 이어야 한다
   grid_map/              # grid_map humble 소스 (apt 위에 오버레이)
-  elevation_mapping_cupy/ # 이 레포 (브랜치 haechi-lean)
+  elevation_mapping_cupy/ # 이 레포 (브랜치 chang_feature; dev 는 통합, main 은 릴리스)
 ~/dependencies/
   ws_livox/ ws_rslidar/  # 라이다 드라이버 워크스페이스
   octomap_ws/            # octomap_server2 (gait 모드에서만 필요)
@@ -68,7 +68,7 @@ bash samtp/fetch_assets.sh onnx && bash samtp/build_engine.sh
 # elevation (이 레포)
 cd ~/navi_ws/src
 git clone https://github.com/cwha0212/elevation_mapping_cupy.git   # 이미 있으면 생략
-cd elevation_mapping_cupy && git fetch origin && git checkout haechi-lean && git pull --ff-only
+cd elevation_mapping_cupy && git fetch origin && git checkout chang_feature && git pull --ff-only
 
 # NAVI: dev로 올리지 않는다. chang_feature 로 맞춘다 (보드에 예전 로컬 편집이 있으면 stash)
 cd ~/navi_ws/src/NAVI && git stash push -m "board-local edits" ; git fetch origin && git checkout -B chang_feature origin/chang_feature

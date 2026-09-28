@@ -36,7 +36,10 @@ Bag replay and modes
     ros2 launch elevation_mapping_cupy haechi.launch.py gait:=true # + stairs/ramp/drop + octomap
     ros2 launch elevation_mapping_cupy haechi.launch.py audit:=true # extra layers for driven_audit
 
-Board install and run procedure: `HAECHI_BOARD.md`.
+Board install and run procedure: `HAECHI_BOARD.md`. Changes: `CHANGELOG.md`.
+
+Branches follow the NAVI repos: work on `chang_feature`, integrate into `dev`
+(`Dev vX.Y.Z — … 반영` merge commits), release from `main`. The board runs `chang_feature`.
 
 Configuration lives in `elevation_mapping_cupy/config/setups/haechi/`:
 `haechi.yaml` (frames, topics, publishers), `plugin_config.yaml` (slope, step,
