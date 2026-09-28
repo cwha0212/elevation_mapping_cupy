@@ -47,7 +47,14 @@ drivability_filter:
     # ran with on the board; the audit's own flip count puts its effect at
     # about 3.4k of 36k condemned driven cells, so it is kept as measured
     # rather than re-measured. It is still the term that catches rubble.
-    limits: [25.0, 0.25, 0.065]
+    # Platform envelope (AgiBot D1 MaxPro: 45 deg, 30 cm stairs). The
+    # 2026-09-28 sweep on the real bag, ground the robot then walked over:
+    # at [25, 0.25, 0.065] the grass stretch was 55% condemned and step
+    # alone barely moved it (0.40 -> 50%); slope was the term holding grass
+    # down. [45, 0.30, 0.08] gives grass 28%, near 12%, opening 13% of
+    # off-route cells (step p95 0.18 m, roughness p95 0.043). A 0.12 m curb
+    # passes this geometry; the roadway stays the semantic layer's job.
+    limits: [45.0, 0.30, 0.08]
 semantic_safety_filter:
   enable: True
   fill_nan: False
@@ -70,6 +77,13 @@ semantic_safety_filter:
     # over had been vetoed at least once, veto per frame median 433 / p95
     # 3,046. Three observations is the first value tried against that.
     persist_frames: 3
+    # The other direction: a cell the camera calls path with logit <= -2
+    # (untrav channel is -logit; confident path sits at -2..-5) and the
+    # geometry calls marginal (0.2 <= drivability < 0.5) is lifted to 0.5.
+    # Walls and drops (below 0.2) are never lifted.
+    rescue_logit: -2.0
+    rescue_min_base: 0.2
+    rescue_value: 0.5
 stairs_filter:
   enable: True
   fill_nan: False
