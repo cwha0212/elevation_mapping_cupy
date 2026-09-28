@@ -31,6 +31,8 @@ Bag replay and modes
     ros2 launch elevation_mapping_cupy haechi.launch.py gait:=true # + stairs/ramp/drop + octomap
     ros2 launch elevation_mapping_cupy haechi.launch.py audit:=true # extra layers for driven_audit
 
+Board install and run procedure: `HAECHI_BOARD.md`.
+
 Configuration lives in `elevation_mapping_cupy/config/setups/haechi/`:
 `haechi.yaml` (frames, topics, publishers), `plugin_config.yaml` (slope, step,
 roughness, drivability, semantic safety) and `plugin_config_gait.yaml`.
