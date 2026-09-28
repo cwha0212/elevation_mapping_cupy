@@ -156,6 +156,20 @@ class ElevationMappingNode(Node):
         self.update_variance_fps = self.get_parameter('update_variance_fps').get_parameter_value().double_value
         self.time_interval = self.get_parameter('time_interval').get_parameter_value().double_value
         self.update_pose_fps = self.get_parameter('update_pose_fps').get_parameter_value().double_value
+        # Self-body cut on the incoming cloud, in the cloud's own frame: points
+        # inside the box [min, max] are the robot and are dropped before
+        # fusion; dedup_voxel keeps one point per voxel of that size (0 = off).
+        # Empty (or min == max) disables the box. This replaces the separate
+        # body-cut node: one parse of the cloud instead of parse, filter,
+        # serialize, parse.
+        for name, default in (("body_filter_min", [0.0, 0.0, 0.0]), ("body_filter_max", [0.0, 0.0, 0.0]),
+                              ("dedup_voxel", 0.0)):
+            if not self.has_parameter(name):
+                self.declare_parameter(name, default)
+        lo = np.array([float(v) for v in self.get_parameter('body_filter_min').value], dtype=np.float32)
+        hi = np.array([float(v) for v in self.get_parameter('body_filter_max').value], dtype=np.float32)
+        self._body_box = (lo, hi) if lo.shape == (3,) and hi.shape == (3,) and np.any(hi > lo) else None
+        self._dedup_voxel = float(self.get_parameter('dedup_voxel').value)
         if not self.has_parameter('cupy_memory_pool_trim_interval_s'):
             self.declare_parameter('cupy_memory_pool_trim_interval_s', 0.0)
         self.cupy_memory_pool_trim_interval_s = float(
@@ -599,11 +613,33 @@ class ElevationMappingNode(Node):
             throttle_duration_sec=5.0,
         )
 
+    def _cut_body(self, pts: np.ndarray) -> np.ndarray:
+        """Drop the robot's own returns, then thin to one point per voxel.
+
+        The same sequence the body-cut node ran: finite points only, box
+        test, then a first-of-each-voxel dedup with the same key and order.
+        """
+        pts = pts[np.isfinite(pts).all(axis=1)]
+        lo, hi = self._body_box
+        inside = np.all((pts >= lo) & (pts <= hi), axis=1)
+        dropped = int(inside.sum())
+        pts = pts[~inside]
+        if dropped:
+            self.get_logger().info(
+                f"Body filter dropped {dropped} self returns.", throttle_duration_sec=10.0)
+        if pts.shape[0] and self._dedup_voxel > 0.0:
+            keys = np.floor(pts / self._dedup_voxel).astype(np.int64)
+            _, keep = np.unique(keys.view([("", keys.dtype)] * 3).ravel(), return_index=True)
+            pts = np.ascontiguousarray(pts[np.sort(keep)], dtype=np.float32)
+        return pts
+
     def pointcloud_callback(self, msg: PointCloud2, sub_key: str) -> None:
-        self._last_t = msg.header.stamp
         pts = _pointcloud2_xyz_f32(msg)
+        if self._body_box is not None:
+            pts = self._cut_body(pts)
         if pts.size == 0:
             return
+        self._last_t = msg.header.stamp
 
         frame_sensor_id = msg.header.frame_id
         if not frame_sensor_id:
