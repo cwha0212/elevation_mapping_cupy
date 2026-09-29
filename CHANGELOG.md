@@ -9,6 +9,12 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ## [Unreleased]
 ### Added
 ### Changed
+- `gz_demo/package.xml`: 시뮬 전용 의존성(ros_gz_*, rviz2, grid_map_rviz_plugin, octomap_server2,
+  nav2_bringup, rqt_image_view)에 `condition="$ELEVATION_GZ == 1"`. 로봇에서 `rosdep install` 이
+  이들을 건너뛰고, 시뮬 머신은 `ELEVATION_GZ=1` 로 받는다. (ros_gz_sim 은 Humble 바이너리가 없어
+  무조건 목록이면 로봇에서 rosdep 이 실패했다.)
+- `HAECHI_BOARD.md` 1절 "의존성": rosdep, GPU 파이썬 휠, cudss 링커 경로, TensorRT 버전이 다르면
+  엔진 재생성. 새 보드(TensorRT 10.3)에서 실제로 걸린 세 가지.
 - `HAECHI_BOARD.md`: 로컬 코스트맵 플러그인 기대값을 `[terrain_layer, inflation_layer]`로. navi_nav2
   `nav2_params_elevation.yaml`(chang_feature f793cdc)이 로컬 창에서 `obstacle_layer`(/scan)를 뺐다.
   근거는 실기 bag 실측: /scan의 원천이 로봇이 밟고 간 셀의 75 %를 찍고(z 바닥 40 cm 올려도 69 %),

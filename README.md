@@ -19,6 +19,11 @@ Model assets (once per board)
 
     bash samtp/fetch_assets.sh
 
+Dependencies on the robot (the sim package's deps are conditional and skipped;
+set `ELEVATION_GZ=1` in front of rosdep on a sim machine)
+
+    rosdep install --from-paths src/elevation_mapping_cupy --ignore-src -r -y
+
 Build on the robot
 
     colcon build --packages-select elevation_map_msgs elevation_mapping_cupy \

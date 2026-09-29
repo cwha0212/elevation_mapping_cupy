@@ -25,8 +25,9 @@ source ~/navi_ws/install/setup.bash
 ## 1. 의존성 (새 보드 한 번만)
 
 ```bash
-# ROS 쪽 — package.xml 의 depend 를 rosdep 이 전부 깐다 (tf_transformations, cv_bridge, message_filters, grid_map …)
-sudo apt install -y ros-humble-grid-map* ros-humble-tf-transformations python3-rosdep
+# ROS 쪽 — package.xml 의 depend 를 rosdep 이 깐다 (tf_transformations, cv_bridge, message_filters, grid_map …).
+# 시뮬(gz_demo) 의존성은 조건부라 로봇에서는 건너뛴다. 시뮬 머신에서만 ELEVATION_GZ=1 을 앞에 붙인다.
+sudo apt install -y python3-rosdep
 sudo rosdep init 2>/dev/null; rosdep update
 cd ~/navi_ws && rosdep install --from-paths src/elevation_mapping_cupy --ignore-src -r -y
 
@@ -34,9 +35,13 @@ cd ~/navi_ws && rosdep install --from-paths src/elevation_mapping_cupy --ignore-
 pip install --user "numpy>=1.23,<2" "cupy-cuda12x<14" ruamel.yaml simple-parsing scipy transforms3d
 pip install --user torch-2.11.0-cp310-cp310-linux_aarch64.whl torchvision-0.26.0-cp310-cp310-linux_aarch64.whl
 
-# torch 2.11 휠은 libcudss.so.0 을 링크한다. apt 의 cudss 는 링커 경로 밖에 깔리므로 등록한다.
+# torch 2.11 휠은 libcudss.so.0 을 링크한다 (cuda 저장소의 cudss, 위 keyring 등록 후).
 sudo apt-get install -y cudss
-echo /usr/lib/aarch64-linux-gnu/libcudss/12 | sudo tee /etc/ld.so.conf.d/cudss.conf && sudo ldconfig
+ldconfig -p | grep -q libcudss.so.0 || { dirname "$(dpkg -L libcudss0-cuda-12 | grep 'libcudss.so.0$')" | sudo tee /etc/ld.so.conf.d/cudss.conf; sudo ldconfig; }
+
+# SAM-TP 엔진은 TensorRT 버전에 묶인다. 릴리스 엔진은 Orin(TensorRT 10.7)용이라 버전이 다르면 다시 만든다 (몇 분).
+python3 -c "import tensorrt; print(tensorrt.__version__)"          # 10.7 이 아니면 ↓
+bash samtp/fetch_assets.sh onnx && bash samtp/build_engine.sh
 
 # 확인 — 셋 다 오류 없이 찍혀야 한다
 python3 -c "import cupy as cp; print('cupy', cp.__version__, cp.zeros(3).sum())"
@@ -65,6 +70,7 @@ sudo apt install ros-humble-grid-map*
 cd ~/navi_ws
 colcon build --packages-select elevation_map_msgs elevation_mapping_cupy navi_lidar nav2_bringup \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
+# (전체 빌드를 해도 gz_demo 는 파일만 설치하는 패키지라 실패하지 않는다. 뺄 때는 --packages-skip elevation_mapping_gz_demo)
 source ~/navi_ws/install/setup.bash
 ```
 
@@ -115,5 +121,6 @@ tegrastats --interval 1000                                          # GR3D 평�
 - `/terrain/local_grid`는 volatile. StaticLayer `map_subscribe_transient_local`이 True면 조용히 빈 레이어.
 - StaticLayer의 `trinary_costmap`·`lethal_cost_threshold`는 코스트맵 노드 수준 키. 플러그인 아래에 두면 무시.
 - `ros-humble-grid-map*` 만 깔고 rosdep 을 건너뛰면 빌드는 되고 실행에서 `No module named 'tf_transformations'` 로 죽는다.
-- torch `ImportError: libcudss.so.0` 는 cudss 가 없거나 ld 경로 밖. 1절의 ldconfig 두 줄.
+- torch `ImportError: libcudss.so.0` 는 cudss 가 없거나 ld 경로 밖. 1절의 cudss 두 줄.
+- samtp_node 가 엔진 역직렬화에서 죽으면 TensorRT 버전 불일치(엔진 헤더에 빌드 버전이 있다). `build_engine.sh` 로 재생성.
 - NAVI를 패키지 선택 없이 빌드하면 install에서 elevation이 사라진 적 있다. 빌드 후 `ros2 pkg prefix elevation_mapping_cupy` 확인.
