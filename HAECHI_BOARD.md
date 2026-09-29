@@ -22,7 +22,31 @@ source ~/dependencies/ws_rslidar/install/setup.bash
 source ~/navi_ws/install/setup.bash
 ```
 
-## 1. 받기
+## 1. 의존성 (새 보드 한 번만)
+
+```bash
+# ROS 쪽 — package.xml 의 depend 를 rosdep 이 전부 깐다 (tf_transformations, cv_bridge, message_filters, grid_map …)
+sudo apt install -y ros-humble-grid-map* ros-humble-tf-transformations python3-rosdep
+sudo rosdep init 2>/dev/null; rosdep update
+cd ~/navi_ws && rosdep install --from-paths src/elevation_mapping_cupy --ignore-src -r -y
+
+# GPU 파이썬 (JetPack 6.x / CUDA 12.6, 휠은 pypi.jetson-ai-lab.io jp6/cu126)
+pip install --user "numpy>=1.23,<2" "cupy-cuda12x<14" ruamel.yaml simple-parsing scipy transforms3d
+pip install --user torch-2.11.0-cp310-cp310-linux_aarch64.whl torchvision-0.26.0-cp310-cp310-linux_aarch64.whl
+
+# torch 2.11 휠은 libcudss.so.0 을 링크한다. apt 의 cudss 는 링커 경로 밖에 깔리므로 등록한다.
+sudo apt-get install -y cudss
+echo /usr/lib/aarch64-linux-gnu/libcudss/12 | sudo tee /etc/ld.so.conf.d/cudss.conf && sudo ldconfig
+
+# 확인 — 셋 다 오류 없이 찍혀야 한다
+python3 -c "import cupy as cp; print('cupy', cp.__version__, cp.zeros(3).sum())"
+python3 -c "import torch; print('torch', torch.__version__, torch.cuda.is_available())"
+python3 -c "import tensorrt, tf_transformations; print('trt', tensorrt.__version__)"
+```
+
+torch 는 SAM-TP(`samtp_node`)만 쓴다. 안 잡히면 `haechi_nav.launch.py use_semantics:=false` 로 elevation 만 먼저 띄울 수 있다.
+
+## 2. 받기
 
 ```bash
 cd ~/navi_ws/src
@@ -34,7 +58,7 @@ cd ~/navi_ws/src/NAVI && git fetch origin && git checkout -B chang_feature origi
 cd ~/navi_ws/src && [ -d navi_nav2/.git ] || { mv navi_nav2 navi_nav2.stale; git clone -b chang_feature git@github.com-company:MaumAI-Company/navi_nav2.git; }
 ```
 
-## 2. 빌드
+## 3. 빌드
 
 ```bash
 sudo apt install ros-humble-grid-map*
@@ -46,7 +70,7 @@ source ~/navi_ws/install/setup.bash
 
 시뮬 벤치(`elevation_mapping_gz_demo`)는 보드에서 빌드하지 않는다.
 
-## 3. 실행 (터미널 4개)
+## 4. 실행 (터미널 4개)
 
 ```bash
 # 1 라이다
@@ -60,9 +84,9 @@ ros2 launch navi_lidar nav2.launch.py robot:=haechi map:=$HOME/map_folder/test/s
   params_file:=$HOME/navi_ws/install/nav2_bringup/share/nav2_bringup/params/nav2_params_elevation.yaml
 ```
 
-되돌리기: 4번을 `params_file:=` 없이 다시 띄운다.
+되돌리기: 4번 터미널을 `params_file:=` 없이 다시 띄운다.
 
-## 4. 확인
+## 5. 확인
 
 ```bash
 ros2 topic hz /points/merged_deskewed /scan /odom_2d                 # 10 Hz
@@ -74,7 +98,7 @@ python3 ~/local_costmap_probe.py 60                                 # verdict OK
 tegrastats --interval 1000                                          # GR3D 평균 < 92 %
 ```
 
-## 5. 무엇이 어디에
+## 6. 무엇이 어디에
 
 | 것 | 위치 |
 |---|---|
@@ -85,9 +109,11 @@ tegrastats --interval 1000                                          # GR3D 평�
 | 모델 자산 | `samtp/` (fetch·체크섬·엔진 빌드·ONNX 내보내기), Release `samtp-assets-v1` |
 | bag 재생 도구 | 보드 `~/run_samtp.sh`, `~/show_run.sh`, `~/band.py`, `~/kill_runs.sh` |
 
-## 6. 함정 넷
+## 7. 함정
 
 - 카메라는 best-effort. reliable로 구독하면 조용히 0장.
 - `/terrain/local_grid`는 volatile. StaticLayer `map_subscribe_transient_local`이 True면 조용히 빈 레이어.
 - StaticLayer의 `trinary_costmap`·`lethal_cost_threshold`는 코스트맵 노드 수준 키. 플러그인 아래에 두면 무시.
+- `ros-humble-grid-map*` 만 깔고 rosdep 을 건너뛰면 빌드는 되고 실행에서 `No module named 'tf_transformations'` 로 죽는다.
+- torch `ImportError: libcudss.so.0` 는 cudss 가 없거나 ld 경로 밖. 1절의 ldconfig 두 줄.
 - NAVI를 패키지 선택 없이 빌드하면 install에서 elevation이 사라진 적 있다. 빌드 후 `ros2 pkg prefix elevation_mapping_cupy` 확인.
