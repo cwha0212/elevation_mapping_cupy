@@ -37,6 +37,7 @@ cd ~/navi_ws/src && [ -d navi_nav2/.git ] || { mv navi_nav2 navi_nav2.stale; git
 ## 2. 빌드
 
 ```bash
+sudo apt install ros-humble-grid-map*
 cd ~/navi_ws
 colcon build --packages-select elevation_map_msgs elevation_mapping_cupy navi_lidar nav2_bringup \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
@@ -67,7 +68,7 @@ ros2 launch navi_lidar nav2.launch.py robot:=haechi map:=$HOME/map_folder/test/s
 ros2 topic hz /points/merged_deskewed /scan /odom_2d                 # 10 Hz
 ros2 topic hz /front_cam/samtp_score /terrain/local_grid            # ~4 / 3 Hz
 ros2 topic echo --once /terrain/local_grid --field header.frame_id  # map
-ros2 param get /local_costmap/local_costmap plugins                 # [terrain_layer, obstacle_layer, inflation_layer]
+ros2 param get /local_costmap/local_costmap plugins                 # [terrain_layer, inflation_layer]  (/scan 은 전역·collision_monitor 만)
 ros2 param get /local_costmap/local_costmap trinary_costmap         # False
 python3 ~/local_costmap_probe.py 60                                 # verdict OK
 tegrastats --interval 1000                                          # GR3D 평균 < 92 %
@@ -80,7 +81,7 @@ tegrastats --interval 1000                                          # GR3D 평�
 | 실기 런치 | `launch/haechi_nav.launch.py` (→ `haechi.launch.py`) |
 | 설정 | `config/setups/haechi/{haechi, plugin_config, plugin_config_gait}.yaml` |
 | 격자 노드 | `src/terrain_grid_node.cpp` → `/terrain/local_grid` (0 free · 70 카메라 비용 · 100 lethal · −1 unknown) |
-| Nav2 변형 | navi_nav2 `nav2_bringup/params/nav2_params_elevation.yaml` |
+| Nav2 변형 | navi_nav2 `nav2_bringup/params/nav2_params_elevation.yaml` (로컬: terrain + inflation, /scan 제외) |
 | 모델 자산 | `samtp/` (fetch·체크섬·엔진 빌드·ONNX 내보내기), Release `samtp-assets-v1` |
 | bag 재생 도구 | 보드 `~/run_samtp.sh`, `~/show_run.sh`, `~/band.py`, `~/kill_runs.sh` |
 

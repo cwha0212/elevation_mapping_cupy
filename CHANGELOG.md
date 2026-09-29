@@ -9,6 +9,10 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ## [Unreleased]
 ### Added
 ### Changed
+- `HAECHI_BOARD.md`: 로컬 코스트맵 플러그인 기대값을 `[terrain_layer, inflation_layer]`로. navi_nav2
+  `nav2_params_elevation.yaml`(chang_feature f793cdc)이 로컬 창에서 `obstacle_layer`(/scan)를 뺐다.
+  근거는 실기 bag 실측: /scan의 원천이 로봇이 밟고 간 셀의 75 %를 찍고(z 바닥 40 cm 올려도 69 %),
+  elevation 격자는 3.3 %. 전역 코스트맵·collision_monitor의 /scan은 유지.
 ### Removed
 ### Fixed
 
