@@ -23,6 +23,16 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
   elevation 격자는 3.3 %. 전역 코스트맵·collision_monitor의 /scan은 유지.
 ### Removed
 ### Fixed
+- `haechi_nav.launch.py` 의 `terrain_fps:=` 인자가 조용히 무시되던 버그. 하위
+  `haechi.launch.py` 를 include 할 때 `"terrain_fps": "3.0"` 을 고정값으로 넘기고 있어서
+  인자를 줘도 노드의 `publishers.elevation_map_terrain.fps` 는 3.0 이었다(설치된
+  `config/setups/haechi/haechi.yaml` 을 고쳐도 런치 override 에 밀린다). 인자를 선언하고
+  그대로 넘긴다. 기본값은 종전과 같은 3.0.
+  참고(실측 2026-09-30, haechi, localization + SAM-TP 동시): 10 Hz 로 올리면 그리드 지연은
+  232 → 181 ms(costmap 이 읽는 시점 평균 약 400 → 230 ms)로 줄고 elevation 노드 자체는
+  감당하지만(CPU 30~60 %, GPU 20~35 %), 같은 보드의 patchwork 컨테이너(단일 스레드,
+  프레임당 ~70 ms)가 CPU 경합으로 예산을 넘겨 **`/scan` 이 30 초 동안 300 프레임 중
+  214~257 개만 나왔다**(3 Hz 에서는 무손실). 컨테이너 부하를 먼저 줄이기 전엔 올리지 말 것.
 
 ## [v0.2.3] - 2026-09-28
 
