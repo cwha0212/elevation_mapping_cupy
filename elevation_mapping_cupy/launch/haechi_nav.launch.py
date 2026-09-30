@@ -41,6 +41,12 @@ def generate_launch_description():
         DeclareLaunchArgument("grid_threshold", default_value="0.4"),
         DeclareLaunchArgument("veto_cost", default_value="70"),
         DeclareLaunchArgument("geom_grid", default_value="true"),
+        # Passed through to haechi.launch.py. It used to be a fixed "3.0" in the
+        # include below, so terrain_fps:=... on this launch was silently ignored
+        # (measured 2026-09-30: the node still reported 3.0). The measured
+        # default stays 3 Hz; see CHANGELOG v0.2.4 for why 10 Hz is not safe yet.
+        DeclareLaunchArgument("terrain_fps", default_value="3.0",
+                              description="Terrain grid publish rate (Hz)."),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi.launch.py")),
             launch_arguments={
@@ -56,7 +62,7 @@ def generate_launch_description():
                 "gait": "false",
                 "audit": "false",
                 "map_length": PythonExpression(["'8.0' if ", lite_on, " else '10.0'"]),
-                "terrain_fps": "3.0",
+                "terrain_fps": LaunchConfiguration("terrain_fps"),
                 "samtp_max_rate": PythonExpression(["'2.0' if ", lite_on, " else '4.0'"]),
             }.items(),
         ),
