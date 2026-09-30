@@ -117,6 +117,10 @@ tegrastats --interval 1000                                          # GR3D 평�
 
 ## 7. 함정
 
+- **PulseOS 보드(Orin NX, R36.5.0)는 GPU 클럭이 부팅부터 min=max=918 MHz 로 고정돼 있다.** 그 상태에서 SAM-TP(fp16 TensorRT, 4 Hz 간헐 추론)를 돌리면 커널 로그 한 줄 없이 보드가 하드 리셋된다(2026-09-30 실측 6/6, 전원 레일·온도·메모리 정상). GPU 최소 클럭을 풀면 사라진다(SAM-TP 단독 306프레임, 전체 스택 4분 통과).
+  ```bash
+  echo 306000000 | sudo tee /sys/class/devfreq/17000000.gpu/min_freq     # 재부팅마다 필요. 영구 적용은 oneshot 유닛(HAECHI_BOARD 7절 끝)
+  ```
 - 카메라는 best-effort. reliable로 구독하면 조용히 0장.
 - `/terrain/local_grid`는 volatile. StaticLayer `map_subscribe_transient_local`이 True면 조용히 빈 레이어.
 - StaticLayer의 `trinary_costmap`·`lethal_cost_threshold`는 코스트맵 노드 수준 키. 플러그인 아래에 두면 무시.
@@ -124,3 +128,17 @@ tegrastats --interval 1000                                          # GR3D 평�
 - torch `ImportError: libcudss.so.0` 는 cudss 가 없거나 ld 경로 밖. 1절의 cudss 두 줄.
 - samtp_node 가 엔진 역직렬화에서 죽으면 TensorRT 버전 불일치(엔진 헤더에 빌드 버전이 있다). `build_engine.sh` 로 재생성.
 - NAVI를 패키지 선택 없이 빌드하면 install에서 elevation이 사라진 적 있다. 빌드 후 `ros2 pkg prefix elevation_mapping_cupy` 확인.
+
+영구 적용 유닛 (`/etc/systemd/system/gpu-dvfs-unpin.service`, `sudo systemctl enable --now gpu-dvfs-unpin`):
+
+```ini
+[Unit]
+Description=Unpin the GPU clock after boot (PulseOS boots with GPU min=max=918 MHz)
+After=nvpmodel.service nvphs.service
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo 306000000 > /sys/class/devfreq/17000000.gpu/min_freq'
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+```
