@@ -9,6 +9,14 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ## [Unreleased]
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+## [v0.2.4] - 2026-10-01
+
+`Dev v0.2.4` — **로컬 코스트맵 /scan 제외, 조건부 시뮬 의존성, 새 보드 가이드.**
+
+### Changed
 - `gz_demo/package.xml`: 시뮬 전용 의존성(ros_gz_*, rviz2, grid_map_rviz_plugin, octomap_server2,
   nav2_bringup, rqt_image_view)에 `condition="$ELEVATION_GZ == 1"`. 로봇에서 `rosdep install` 이
   이들을 건너뛰고, 시뮬 머신은 `ELEVATION_GZ=1` 로 받는다. (ros_gz_sim 은 Humble 바이너리가 없어
