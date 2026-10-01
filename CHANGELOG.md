@@ -28,11 +28,15 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
   인자를 줘도 노드의 `publishers.elevation_map_terrain.fps` 는 3.0 이었다(설치된
   `config/setups/haechi/haechi.yaml` 을 고쳐도 런치 override 에 밀린다). 인자를 선언하고
   그대로 넘긴다. 기본값은 종전과 같은 3.0.
-  참고(실측 2026-09-30, haechi, localization + SAM-TP 동시): 10 Hz 로 올리면 그리드 지연은
-  232 → 181 ms(costmap 이 읽는 시점 평균 약 400 → 230 ms)로 줄고 elevation 노드 자체는
-  감당하지만(CPU 30~60 %, GPU 20~35 %), 같은 보드의 patchwork 컨테이너(단일 스레드,
-  프레임당 ~70 ms)가 CPU 경합으로 예산을 넘겨 **`/scan` 이 30 초 동안 300 프레임 중
-  214~257 개만 나왔다**(3 Hz 에서는 무손실). 컨테이너 부하를 먼저 줄이기 전엔 올리지 말 것.
+  실측(haechi, localization + SAM-TP 동시, 2026-09-30/10-01): 10 Hz 로 올리면 그리드 지연은
+  232 → 181 ms(costmap 이 읽는 시점 평균 약 400 → 230 ms)로 줄고 elevation 노드는 감당한다
+  (CPU 30~60 %, GPU 20~35 %, load 4 → 5~6). patchwork 컨테이너는 10 Hz 에서도 dense 프레임을
+  한 장도 안 놓쳤다(`/patchworkpp/nonground` 300/300, 네 구성 모두). 다만 accumulator 구간이
+  CPU 경합으로 +14 ms 늘어난다(dense 도착 74 → 88 ms). 처음엔 `/scan` 이 30 % 빠지는 것으로
+  보였는데, 재측정 결과 그것은 elevation 과 무관한 patchwork 의 live 스캔 스킵(바닥 모델 무효 →
+  `PublishLiveObstacles` 조기 반환)이었다 — elevation 을 끈 상태에서도 같은 자리에서 300 중
+  52~126 개만 나오는 창이 있었고, 10 Hz 를 켠 상태에서 300/300 인 창도 있었다. 10 Hz 채택
+  여부는 그 스킵 원인과 별개로 판단하면 된다.
 
 ## [v0.2.3] - 2026-09-28
 
