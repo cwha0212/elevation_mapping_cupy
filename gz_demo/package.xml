@@ -9,14 +9,19 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <exec_depend>elevation_mapping_cupy</exec_depend>
-  <exec_depend>ros_gz_bridge</exec_depend>
-  <exec_depend>ros_gz_sim</exec_depend>
-  <exec_depend>rviz2</exec_depend>
-  <exec_depend>grid_map_rviz_plugin</exec_depend>
-  <exec_depend>octomap_server2</exec_depend>
-  <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>rqt_image_view</exec_depend>
+
+  <!-- Simulation-only. rosdep evaluates these conditions against the environment,
+       so on a robot `rosdep install` skips them; for the bench run it with
+       ELEVATION_GZ=1. (ros_gz_sim has no Humble binary and octomap_server2 is a
+       source build, so an unconditional list breaks `rosdep install` on a robot.) -->
+  <exec_depend condition="$ELEVATION_GZ == 1">ros_gz_bridge</exec_depend>
+  <exec_depend condition="$ELEVATION_GZ == 1">ros_gz_sim</exec_depend>
+  <exec_depend condition="$ELEVATION_GZ == 1">rviz2</exec_depend>
+  <exec_depend condition="$ELEVATION_GZ == 1">grid_map_rviz_plugin</exec_depend>
+  <exec_depend condition="$ELEVATION_GZ == 1">octomap_server2</exec_depend>
+  <exec_depend condition="$ELEVATION_GZ == 1">nav2_bringup</exec_depend>
+  <exec_depend condition="$ELEVATION_GZ == 1">rqt_image_view</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

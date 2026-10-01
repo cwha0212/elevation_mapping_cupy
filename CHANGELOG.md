@@ -12,6 +12,40 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ### Removed
 ### Fixed
 
+## [v0.2.4] - 2026-10-01
+
+`Dev v0.2.4` — **로컬 코스트맵 /scan 제외, 조건부 시뮬 의존성, 새 보드 가이드.**
+
+### Changed
+- `gz_demo/package.xml`: 시뮬 전용 의존성(ros_gz_*, rviz2, grid_map_rviz_plugin, octomap_server2,
+  nav2_bringup, rqt_image_view)에 `condition="$ELEVATION_GZ == 1"`. 로봇에서 `rosdep install` 이
+  이들을 건너뛰고, 시뮬 머신은 `ELEVATION_GZ=1` 로 받는다. (ros_gz_sim 은 Humble 바이너리가 없어
+  무조건 목록이면 로봇에서 rosdep 이 실패했다.)
+- `HAECHI_BOARD.md` 1절 "의존성": rosdep, GPU 파이썬 휠, cudss 링커 경로, TensorRT 버전이 다르면
+  엔진 재생성. 새 보드(TensorRT 10.3)에서 실제로 걸린 세 가지.
+- `HAECHI_BOARD.md` 함정: PulseOS 보드의 GPU 클럭 고정(min=max=918 MHz)이 SAM-TP 추론에서 하드 리셋을
+  일으킨다는 실측과 해제 한 줄, 부팅 oneshot 유닛.
+- `HAECHI_BOARD.md`: 로컬 코스트맵 플러그인 기대값을 `[terrain_layer, inflation_layer]`로. navi_nav2
+  `nav2_params_elevation.yaml`(chang_feature f793cdc)이 로컬 창에서 `obstacle_layer`(/scan)를 뺐다.
+  근거는 실기 bag 실측: /scan의 원천이 로봇이 밟고 간 셀의 75 %를 찍고(z 바닥 40 cm 올려도 69 %),
+  elevation 격자는 3.3 %. 전역 코스트맵·collision_monitor의 /scan은 유지.
+### Removed
+### Fixed
+- `haechi_nav.launch.py` 의 `terrain_fps:=` 인자가 조용히 무시되던 버그. 하위
+  `haechi.launch.py` 를 include 할 때 `"terrain_fps": "3.0"` 을 고정값으로 넘기고 있어서
+  인자를 줘도 노드의 `publishers.elevation_map_terrain.fps` 는 3.0 이었다(설치된
+  `config/setups/haechi/haechi.yaml` 을 고쳐도 런치 override 에 밀린다). 인자를 선언하고
+  그대로 넘긴다. 기본값은 종전과 같은 3.0.
+  실측(haechi, localization + SAM-TP 동시, 2026-09-30/10-01): 10 Hz 로 올리면 그리드 지연은
+  232 → 181 ms(costmap 이 읽는 시점 평균 약 400 → 230 ms)로 줄고 elevation 노드는 감당한다
+  (CPU 30~60 %, GPU 20~35 %, load 4 → 5~6). patchwork 컨테이너는 10 Hz 에서도 dense 프레임을
+  한 장도 안 놓쳤다(`/patchworkpp/nonground` 300/300, 네 구성 모두). 다만 accumulator 구간이
+  CPU 경합으로 +14 ms 늘어난다(dense 도착 74 → 88 ms). 처음엔 `/scan` 이 30 % 빠지는 것으로
+  보였는데, 재측정 결과 그것은 elevation 과 무관한 patchwork 의 live 스캔 스킵(바닥 모델 무효 →
+  `PublishLiveObstacles` 조기 반환)이었다 — elevation 을 끈 상태에서도 같은 자리에서 300 중
+  52~126 개만 나오는 창이 있었고, 10 Hz 를 켠 상태에서 300/300 인 창도 있었다. 10 Hz 채택
+  여부는 그 스킵 원인과 별개로 판단하면 된다.
+
 ## [v0.2.3] - 2026-09-28
 
 `Dev v0.2.3` — **보드 안내서 축약.** `HAECHI_BOARD.md`를 설치·빌드·실행·확인·위치·함정 여섯 절로 줄였다.
