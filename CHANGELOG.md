@@ -12,6 +12,19 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ### Removed
 ### Fixed
 
+## [v0.2.5] - 2026-10-06
+
+`Dev v0.2.5` — **지형 발행 기본 10 Hz.**
+
+### Changed
+- `terrain_fps` 기본값 3.0 → 10.0 (`haechi_nav.launch.py`, `haechi.launch.py`,
+  `haechi.yaml` 의 `elevation_map_terrain.fps`). 실기(haechi, localization + SAM-TP 동시,
+  고아 프로세스 없이 재측정 2026-10-06): 메시지 하나의 지연은 같지만(중앙값 142 → 145 ms)
+  발행 간격이 333 → 100 ms 라 코스트맵이 보는 평균 신선도 ≈310 → ≈195 ms, 최악 ≈475 → ≈245 ms.
+  매퍼 CPU 35 → 44 %(코어 1개 기준).
+- `semantic_safety_filter.persist_frames` 3 → 10. 카운터가 발행마다 하나씩 올라가므로
+  10 Hz 에서 같은 약 1 s 지속성을 유지한다.
+
 ## [v0.2.4] - 2026-10-01
 
 `Dev v0.2.4` — **로컬 코스트맵 /scan 제외, 조건부 시뮬 의존성, 새 보드 가이드.**

@@ -281,7 +281,7 @@ def generate_launch_description():
             DeclareLaunchArgument("geom_grid", default_value="true",
                                   description="Also publish the geometry-only grid on /terrain/local_grid_geom."),
             DeclareLaunchArgument("map_length", default_value="10.0", description="Map side in metres."),
-            DeclareLaunchArgument("terrain_fps", default_value="3.0", description="Terrain publisher rate."),
+            DeclareLaunchArgument("terrain_fps", default_value="10.0", description="Terrain publisher rate."),
             DeclareLaunchArgument("samtp_max_rate", default_value="4.0", description="SAM-TP inference rate cap."),
             camera_tf,
             semantic_node,
