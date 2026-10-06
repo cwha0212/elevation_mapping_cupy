@@ -96,7 +96,7 @@ ros2 launch navi_lidar nav2.launch.py robot:=haechi map:=$HOME/map_folder/test/s
 
 ```bash
 ros2 topic hz /points/merged_deskewed /scan /odom_2d                 # 10 Hz
-ros2 topic hz /front_cam/samtp_score /terrain/local_grid            # ~4 / 3 Hz
+ros2 topic hz /front_cam/samtp_score /terrain/local_grid            # ~4 / 10 Hz
 ros2 topic echo --once /terrain/local_grid --field header.frame_id  # map
 ros2 param get /local_costmap/local_costmap plugins                 # [terrain_layer, inflation_layer]  (/scan 은 전역·collision_monitor 만)
 ros2 param get /local_costmap/local_costmap trinary_costmap         # False

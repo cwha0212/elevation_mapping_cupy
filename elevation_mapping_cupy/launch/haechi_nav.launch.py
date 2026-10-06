@@ -45,7 +45,7 @@ def generate_launch_description():
         # include below, so terrain_fps:=... on this launch was silently ignored
         # (measured 2026-09-30: the node still reported 3.0). The measured
         # default stays 3 Hz; see CHANGELOG v0.2.4 for why 10 Hz is not safe yet.
-        DeclareLaunchArgument("terrain_fps", default_value="3.0",
+        DeclareLaunchArgument("terrain_fps", default_value="10.0",
                               description="Terrain grid publish rate (Hz)."),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi.launch.py")),

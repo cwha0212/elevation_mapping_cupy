@@ -76,7 +76,7 @@
         # gait:=true; listing a layer no plugin produces would abort a publish.
         layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
         basic_layers: ['elevation']
-        fps: 3.0
+        fps: 10.0
       elevation_map_semantic:
         # basic_layers cannot be empty here: an empty sequence arrives as an
         # untyped parameter and the node refuses it at startup, taking the

@@ -76,7 +76,9 @@ semantic_safety_filter:
     # Run D (2026-09-28, one frame): 8.3% of the cells the robot then walked
     # over had been vetoed at least once, veto per frame median 433 / p95
     # 3,046. Three observations is the first value tried against that.
-    persist_frames: 3
+    # Counted per terrain publish. 3 at 3 Hz was ~1 s; the publisher now runs
+    # at 10 Hz (v0.2.5), so 10 keeps the same wall-clock persistence.
+    persist_frames: 10
     # The other direction: a cell the camera calls path with logit <= -2
     # (untrav channel is -logit; confident path sits at -2..-5) and the
     # geometry calls marginal (0.2 <= drivability < 0.5) is lifted to 0.5.
