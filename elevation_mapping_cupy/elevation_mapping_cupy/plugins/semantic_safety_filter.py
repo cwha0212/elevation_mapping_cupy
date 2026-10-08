@@ -6,7 +6,7 @@
 # quadruped will happily step off the curb onto it; only the label separates
 # them. This layer is where that second judgement enters.
 #
-import cupy as cp
+from elevation_mapping_cupy.backend import xp as cp
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 

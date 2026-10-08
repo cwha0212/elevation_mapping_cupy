@@ -3,7 +3,7 @@
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
 from abc import ABC, abstractmethod
-import cupy as cp
+from elevation_mapping_cupy.backend import xp as cp
 from typing import List, Dict, Any
 from dataclasses import dataclass
 import importlib

@@ -6,8 +6,7 @@
 # per window and measuring what is left removes the trend, so the layer only
 # responds to texture: gravel, rubble, grass, sensor noise.
 #
-import cupy as cp
-from cupyx.scipy import ndimage
+from elevation_mapping_cupy.backend import xp as cp, ndimage
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 

@@ -23,8 +23,7 @@
 # where unmeasured. Metres rather than a confidence because the number means
 # something on its own and every consumer wants a different cut from it.
 #
-import cupy as cp
-from cupyx.scipy import ndimage
+from elevation_mapping_cupy.backend import xp as cp, ndimage
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 

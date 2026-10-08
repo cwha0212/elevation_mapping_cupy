@@ -5,8 +5,7 @@
 # navigation we want terms we can verify against ground truth and threshold per
 # robot. This is the first of them: the local surface inclination.
 #
-import cupy as cp
-from cupyx.scipy import ndimage
+from elevation_mapping_cupy.backend import xp as cp, ndimage
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 

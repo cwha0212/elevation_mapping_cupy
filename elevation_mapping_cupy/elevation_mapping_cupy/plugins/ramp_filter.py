@@ -203,7 +203,7 @@ class RampFilter(PluginBase):
         *args,
         **kwargs,
     ):
-        import cupy as cp
+        from elevation_mapping_cupy.backend import xp as cp
 
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5

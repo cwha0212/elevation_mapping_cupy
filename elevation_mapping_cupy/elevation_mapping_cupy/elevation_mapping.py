@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Tuple, Union, Optional
 
 import numpy as np
 
-from elevation_mapping_cupy.traversability_filter import get_filter_torch
+from elevation_mapping_cupy.traversability_filter import get_filter
 from elevation_mapping_cupy.parameter import Parameter
 
 from elevation_mapping_cupy.kernels import (
@@ -27,11 +27,15 @@ from elevation_mapping_cupy.kernels import image_to_map_correspondence_kernel
 from elevation_mapping_cupy.plugins.plugin_manager import PluginManager
 from elevation_mapping_cupy.semantic_map import SemanticMap
 
-import cupy as cp
+from elevation_mapping_cupy import backend
+from elevation_mapping_cupy.backend import xp as cp
 
 xp = cp
-pool = cp.get_default_memory_pool()
-cp.cuda.set_allocator(pool.malloc)
+if backend.USE_CUPY:
+    pool = cp.get_default_memory_pool()
+    cp.cuda.set_allocator(pool.malloc)
+else:
+    pool = None
 
 
 
@@ -70,7 +74,7 @@ class ElevationMap:
         self.traversability_buffer = xp.full((self.cell_n, self.cell_n), xp.nan, dtype=self.data_type)
         # One device buffer the publish path rotates each layer into, so the
         # host copy is a single contiguous transfer (see copy_layer_rot180).
-        self._publish_buf = cp.empty((self.cell_n - 2, self.cell_n - 2), dtype=cp.float32)
+        self._publish_buf = cp.empty((self.cell_n - 2, self.cell_n - 2), dtype=cp.float32) if backend.USE_CUPY else None
         self.normal_map = xp.zeros((3, self.cell_n, self.cell_n), dtype=self.data_type)
         # Initial variance
         self.initial_variance = param.initial_variance
@@ -93,7 +97,7 @@ class ElevationMap:
         # No shell substitutions in research code: param.weight_file is expected to be a real path.
         param.load_weights(param.weight_file)
 
-        self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
+        self.traversability_filter = get_filter(param.w1, param.w2, param.w3, param.w_out)
 
         # Semantic layers fed by image and pointcloud channels.
         self.semantic_map = SemanticMap(param)
@@ -130,7 +134,7 @@ class ElevationMap:
             position (numpy.ndarray):
 
         """
-        position[0][:] = xp.asnumpy(self.center)
+        position[0][:] = backend.asnumpy(self.center)
 
     def move(self, delta_position):
         """Shift the map along all three axes according to the input.
@@ -436,10 +440,10 @@ class ElevationMap:
 
     def input_pointcloud(
         self,
-        raw_points: cp._core.core.ndarray,
+        raw_points: Any,
         channels: List[str],
-        R: cp._core.core.ndarray,
-        t: cp._core.core.ndarray,
+        R: Any,
+        t: Any,
         position_noise: float,
         orientation_noise: float,
     ):
@@ -469,12 +473,12 @@ class ElevationMap:
 
     def input_image(
         self,
-        image: List[cp._core.core.ndarray],
+        image: List[Any],
         channels: List[str],
-        R: cp._core.core.ndarray,
-        t: cp._core.core.ndarray,
-        K: cp._core.core.ndarray,
-        D: cp._core.core.ndarray,
+        R: Any,
+        t: Any,
+        K: Any,
+        D: Any,
         distortion_model: str,
         image_height: int,
         image_width: int,
@@ -494,7 +498,7 @@ class ElevationMap:
         R_h = np.asarray(R, dtype=np.float32).reshape(3, 3)
         t_h = np.asarray(t, dtype=np.float32).reshape(3)
         P_h = K_h @ np.concatenate([R_h, t_h[:, None]], axis=1)
-        t_cam_map = -R_h.T @ t_h - cp.asnumpy(self.center)
+        t_cam_map = -R_h.T @ t_h - backend.asnumpy(self.center)
 
         image = cp.asarray(image, dtype=self.data_type)
         K = cp.asarray(K, dtype=self.data_type)
@@ -663,6 +667,8 @@ class ElevationMap:
 
     def trim_memory_pool(self):
         """Release cached CuPy allocator blocks that are not currently in use."""
+        if not backend.USE_CUPY:
+            return
         pool.free_all_blocks()
         cp.get_default_pinned_memory_pool().free_all_blocks()
         torch = sys.modules.get("torch")
@@ -746,8 +752,7 @@ class ElevationMap:
         """
         with self.map_lock:
             m = self._layer_for_publish(name)
-            cp.copyto(self._publish_buf, m[::-1, ::-1])
-            self._publish_buf.get(out=host_out)
+            backend.copy_to_host(host_out, m[::-1, ::-1])
 
     def get_map_with_name_ref(self, name, data):
         """Load a layer in grid_map buffer order (rows -> -X, cols -> -Y) into data.

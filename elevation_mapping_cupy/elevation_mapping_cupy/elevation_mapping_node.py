@@ -135,10 +135,11 @@ class ElevationMappingNode(Node):
         self._image_process_counter = 0
         self._map = ElevationMap(self.param)
         # Pinned so the per-layer device-to-host copy is a straight DMA.
-        import cupyx
-        self._map_data = cupyx.zeros_pinned(
+        from elevation_mapping_cupy import backend
+        self._map_data = backend.zeros_pinned(
             (self._map.cell_n - 2, self._map.cell_n - 2), dtype=np.float32
         )
+        self.get_logger().info(f"Array backend: {backend.BACKEND}")
         self.get_logger().info(f"Initialized map with length: {self._map.map_length}, resolution: {self._map.resolution}, cells: {self._map.cell_n}")
 
         self._map_q = None
@@ -672,10 +673,11 @@ class ElevationMappingNode(Node):
         if not inside.any():
             return pts
         col, row, rel, ring_idx = col[inside], row[inside], rel[inside], ring_idx[inside]
-        import cupy as cp
+        from elevation_mapping_cupy import backend
+        cp = backend.xp
         rows_d, cols_d = cp.asarray(row), cp.asarray(col)
-        elev = cp.asnumpy(m.elevation_map[0][rows_d, cols_d])
-        valid = cp.asnumpy(m.elevation_map[2][rows_d, cols_d]) > 0.5
+        elev = backend.asnumpy(m.elevation_map[0][rows_d, cols_d])
+        valid = backend.asnumpy(m.elevation_map[2][rows_d, cols_d]) > 0.5
         # A cell the leg reaches first has no height of its own yet -- the
         # stride and the first sight of that ground are a close race -- so
         # fall back to the ground the map already holds around it: the
@@ -684,8 +686,8 @@ class ElevationMappingNode(Node):
         if not valid.all():
             r0 = max(int(row.min()) - 2, 0); r1 = min(int(row.max()) + 3, n)
             c0 = max(int(col.min()) - 2, 0); c1 = min(int(col.max()) + 3, n)
-            e_blk = cp.asnumpy(m.elevation_map[0, r0:r1, c0:c1])
-            v_blk = cp.asnumpy(m.elevation_map[2, r0:r1, c0:c1]) > 0.5
+            e_blk = backend.asnumpy(m.elevation_map[0, r0:r1, c0:c1])
+            v_blk = backend.asnumpy(m.elevation_map[2, r0:r1, c0:c1]) > 0.5
             for k in np.flatnonzero(~valid):
                 rr, cc = row[k] - r0, col[k] - c0
                 ws = slice(max(rr - 2, 0), rr + 3); cs = slice(max(cc - 2, 0), cc + 3)

@@ -92,7 +92,7 @@ DEFAULTS = dict(
 def _gpu_modules(a):
     """scipy or cupyx, matching where the elevation actually lives."""
     try:
-        import cupy as cp
+        from elevation_mapping_cupy.backend import xp as cp
 
         if isinstance(a, cp.ndarray):
             import cupyx.scipy.ndimage as ndi
@@ -416,7 +416,7 @@ class StairsFilter(PluginBase):
         *args,
         **kwargs,
     ):
-        import cupy as cp
+        from elevation_mapping_cupy.backend import xp as cp
 
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5

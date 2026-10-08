@@ -6,7 +6,7 @@
 # downstream read this directly: cost scales with (1 - drivability) and
 # NaN stays NaN, which is what unknown must remain for navigation.
 #
-import cupy as cp
+from elevation_mapping_cupy.backend import xp as cp
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 

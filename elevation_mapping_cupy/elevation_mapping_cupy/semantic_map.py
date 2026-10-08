@@ -3,9 +3,9 @@
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
 from elevation_mapping_cupy.parameter import Parameter
-import cupy as cp
+from elevation_mapping_cupy.backend import xp as cp
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Any
 import re
 
 
@@ -161,13 +161,13 @@ class SemanticMap:
     def update_layers_image(
         self,
         # sub_key: str,
-        image: cp._core.core.ndarray,
+        image: Any,
         channels: List[str],
         # fusion_methods: List[str],
-        uv_correspondence: cp._core.core.ndarray,
-        valid_correspondence: cp._core.core.ndarray,
-        image_height: cp._core.core.ndarray,
-        image_width: cp._core.core.ndarray,
+        uv_correspondence: Any,
+        valid_correspondence: Any,
+        image_height: Any,
+        image_width: Any,
     ):
         """Update the semantic map with the new image.
 

@@ -2,14 +2,15 @@
 # Copyright (c) 2023, Takahiro Miki. All rights reserved.
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
-import cupy as cp
 import numpy as np
 import string
+
+from elevation_mapping_cupy.backend import USE_CUPY, xp as cp
 
 from .fusion_manager import FusionBase
 
 
-def exponential_correspondences_to_map_kernel(resolution, width, height, alpha):
+def _cupy_exponential_correspondences_to_map_kernel(resolution, width, height, alpha):
     exponential_correspondences_to_map_kernel = cp.ElementwiseKernel(
         in_params="raw U sem_map, raw U map_idx, raw U image_mono, raw U uv_correspondence, raw B valid_correspondence, raw U image_height, raw U image_width",
         out_params="raw U new_sem_map",
@@ -37,6 +38,12 @@ def exponential_correspondences_to_map_kernel(resolution, width, height, alpha):
         name="exponential_correspondences_to_map_kernel",
     )
     return exponential_correspondences_to_map_kernel
+
+
+if USE_CUPY:
+    exponential_correspondences_to_map_kernel = _cupy_exponential_correspondences_to_map_kernel
+else:
+    from elevation_mapping_cupy.kernels.numpy_kernels import exponential_correspondences_to_map_kernel  # noqa: E402
 
 
 class ImageExponential(FusionBase):

@@ -6,8 +6,7 @@
 # measures them directly: max minus min elevation within the window, which for
 # a clean step equals the riser height.
 #
-import cupy as cp
-from cupyx.scipy import ndimage
+from elevation_mapping_cupy.backend import xp as cp, ndimage
 
 from elevation_mapping_cupy.plugins.plugin_manager import PluginBase
 
