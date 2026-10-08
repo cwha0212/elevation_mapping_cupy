@@ -19,7 +19,7 @@ p = Parameter(weight_file=str(root / "config/core/weights.dat"), plugin_config_f
 p.resolution, p.map_length, p.max_ray_length = RES, L, 5.0
 p.subscriber_cfg = {"lidar": {"topic_name": "/p", "data_type": "pointcloud"}, "front_cam": {"topic_name": "/i", "channels": ["untrav"], "data_type": "image"}}
 p.update(); emap = ElevationMap(p)
-rng = np.random.default_rng(0); R = np.eye(3, np.float32); t = np.array([0, 0, 0.7], np.float32)
+rng = np.random.default_rng(0); R = np.eye(3, dtype=np.float32); t = np.array([0, 0, 0.7], np.float32)
 def cloud():
     d = rng.uniform(0.3, 8.0, N); a = rng.uniform(-np.pi, np.pi, N); z = rng.normal(0, 0.01, N) + 0.3 * (rng.random(N) < 0.02) - 0.7
     return np.stack([d * np.cos(a), d * np.sin(a), z], 1).astype(np.float32)
