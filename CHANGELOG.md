@@ -6,8 +6,20 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 (`Dev vX.Y.Z — … 반영` 머지 커밋), 릴리스는 `main`. 상류(leggedrobotics)의 이력은
 `original-ros2`/`ros2` 브랜치에 남아 있다.
 
-## [Unreleased]
+## [Unreleased] (branch `numpy-port`)
 ### Added
+- **CPU 백엔드.** `backend.py` 가 cupy/numpy 를 고르고(`ELEVATION_BACKEND=cupy|numpy|auto`, 기본 auto
+  = cupy 있으면 cupy), `kernels/numpy_kernels.py` 가 CUDA 커널 9개(점 융합·가시성 ray·드리프트
+  통계·finalize·dilation·normal·이미지 투영/가림·지수/색 융합)를 numpy 로 다시 쓴다. ray 보행 두 개는
+  numba JIT(필수: numba 없으면 프레임당 6 s). 통과도 필터는 scipy 상관. 플러그인·융합·매퍼·노드는
+  `backend` 의 `xp`/`ndimage` 를 쓰도록만 바뀌어 cupy 경로는 그대로다. SAM-TP 노드는 CUDA 전용 그대로.
+- `tests/backend_scenario.py`, `tests/test_numpy_backend.py`, `tools/backend_ab.py`, `tools/backend_bench.py`.
+- 동일성(Orin, 같은 합성 시나리오, cupy vs numpy): elevation·variance·is_valid·upper_bound·slope·step·
+  roughness·drivability·safety 전부 유효 셀 100 % 일치, |차| 최대 6e-4. traversability(통과도 CNN)는
+  dilation 의 동점 처리 차이로 p95 0.016, untrav·normal 은 극소수 셀만 다름.
+- 비용(Orin A78 코어 1개 고정, 15k 점, 10 m/0.05): 융합+가시성 29 ms, 플러그인 체인+발행 11 ms,
+  이미지 투영 4 ms → 10 Hz 에서 약 45 % 코어. 6 m/0.10 이면 12 ms. 실기 bag 재생(SLAM 동시, 10 Hz
+  발행): 매퍼 프로세스 CPU 27~35 %, RSS 274 MB(cupy 1 GB), 클라우드 410/410 융합, 격자 10 Hz.
 ### Changed
 ### Removed
 ### Fixed

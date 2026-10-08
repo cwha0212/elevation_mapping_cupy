@@ -24,6 +24,8 @@
     <depend>nav_msgs</depend>
     <depend>rclcpp</depend>
     <depend>python3-scipy</depend>
+    <!-- CPU backend: numba JITs the two ray walks; without it they take seconds -->
+    <exec_depend>python3-numba</exec_depend>
     <depend>python3-numpy</depend>
     <depend>tf2_ros</depend>
     <depend>cv_bridge</depend>

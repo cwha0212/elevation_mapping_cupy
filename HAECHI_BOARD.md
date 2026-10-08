@@ -142,3 +142,19 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 ```
+
+## 8. CUDA 없는 보드 (numpy 백엔드, 브랜치 `numpy-port`)
+
+cupy 가 없으면 자동으로 numpy 로 돈다(강제: `ELEVATION_BACKEND=numpy`). numba 가 **필수**다(없으면 ray 보행이
+프레임당 6 s). SAM-TP 는 CUDA 전용이라 `use_semantics:=false`.
+
+```bash
+pip install --user "numpy>=1.23,<2" scipy numba ruamel.yaml simple-parsing
+rosdep install --from-paths src/elevation_mapping_cupy --ignore-src -r -y
+colcon build --packages-select elevation_map_msgs elevation_mapping_cupy
+ELEVATION_BACKEND=numpy taskset -c 4-7 ros2 launch elevation_mapping_cupy haechi_nav.launch.py use_semantics:=false
+```
+
+Orin A78 코어 1개 기준 10 m/0.05/10 Hz 에서 약 45 %, 6 m/0.10 이면 약 12 %. RK3588 의 A76 은 A78 보다
+약 1.4배 느리다고 보면 된다. 큰 코어에 고정(taskset)하고, 매퍼 로그 첫 줄 `Array backend: numpy` 로 확인.
+
