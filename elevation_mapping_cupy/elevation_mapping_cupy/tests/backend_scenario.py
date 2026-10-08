@@ -14,6 +14,11 @@ def run_scenario(frames=12, resolution=0.05, map_length=10.0, with_image=True):
     from elevation_mapping_cupy.backend import asnumpy
 
     root = Path(__file__).resolve().parents[2]
+    if not (root / "config" / "core" / "weights.dat").exists():
+        # installed package: the config lives in the share directory
+        from ament_index_python.packages import get_package_share_directory
+
+        root = Path(get_package_share_directory("elevation_mapping_cupy"))
     p = Parameter(
         weight_file=str(root / "config" / "core" / "weights.dat"),
         plugin_config_file=str(root / "config" / "setups" / "haechi" / "plugin_config.yaml"),
