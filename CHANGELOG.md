@@ -12,6 +12,61 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ### Removed
 ### Fixed
 
+## [v0.2.6] - 2026-10-21
+
+`Dev v0.2.6` — **지형 prior · 전역 지형 격자 · Nav2 2D 맵 교체, 실기 bag 실측 기반 매퍼/플러그인 보정.**
+
+매핑 때 지형 분석을 prior 로 녹화해 지도 폴더에 함께 저장하고, localization 때 그 prior 로 전역 코스트맵과
+Nav2 의 2D 맵을 채운다. 매퍼의 자기 몸체 처리와 지형 플러그인은 실기 ds1020 bag 과 Isaac 시뮬 실측으로 손봤다.
+navi_nav2 `nav2_params_elevation.yaml` 쪽 짝 변경(전역 static_layer `map_topic: /terrain/global_grid`,
+`trinary_costmap: False` + `lethal_cost_threshold: 100`, obstacle_layer `combination_method: 1`)이 함께 필요하다.
+
+### Added
+- `scripts/terrain_prior_recorder.py` (런치 `prior_record`, `prior_out_dir`, `prior_res`): 매핑 중
+  `elevation_map_terrain` 을 전역 격자에 누적하며 셀마다 관측 수/비주행 판정 수를 센다. 종료(SIGINT) 또는
+  `~/save` 에 `map_terrain_prior.pgm/yaml` + `terrain_prior.npz` 저장. 비용은 투표(관측 ≥ 10, 불량 ≥ 50 %) 로
+  매기고 상한 89 — prior 는 절대 벽이 아니다. best-effort 구독(10 Hz 1 MB GridMap 이 reliable 구독자를 막는다).
+- `scripts/terrain_global_node.py` (런치 `global_grid`, 기본 true; `global_merge`, `terrain_prior`): 10 m 롤링
+  지형 격자를 `/map` 과 같은 기하에 누적해 `/terrain/global_grid` 로 발행(transient local, 1 Hz — 2 Hz 는 UDP
+  수신 버퍼를 넘쳤다). 셀 우선순위 live 지형 > prior > `/map`, lethal 은 99 로 내보내 NavFn 이 우회하되 갇히지
+  않게 한다. 전역 코스트맵 static_layer 가 `/map` 대신 이것을 읽는다.
+- `scripts/terrain_map_merge.py`: 지도 폴더의 SLAM 2D 맵(`map.yaml`)과 지형 prior 를 같은 기하로 합쳐
+  `map_terrain.png/yaml` 을 쓴다 — elevation 스택의 2D 맵. SLAM 벽 100 유지, 지형이 판정한 셀은 prior 비용,
+  나머지는 SLAM 값. `map.pgm` 은 건드리지 않는다. 미관측은 PNG alpha 0(nav2 scale 모드는 투명 픽셀만 unknown 으로
+  읽는다; PGM 205 는 비용 19 가 된다). yaml 임계값 0.995/0.005 로 map_server 가 비용을 그대로 돌려준다.
+  recorder 가 저장 뒤 `<out_dir>/map.yaml` 이 있으면 자동 실행(`merge_map`).
+- `scripts/terrain_map_loader.py` (런치 `load_nav2_map`, 기본 true; `nav2_map2d_yaml`, `load_map_service`):
+  `terrain_prior` 가 주어지면 그 폴더의 `map_terrain.yaml` 을 `/map_server/load_map` 으로 올려 Nav2 의 `/map` 을
+  교체하고, 다른 지도로 바뀌면(orchestrator 의 localization 시작 시 `map.yaml` 로드) 되돌린다. 파일이 없으면
+  `map.yaml` + prior 로 즉석 생성. `terrain_prior` 없이는 뜨지 않는다. `package.xml` 에 `nav2_msgs`,
+  `python3-pil`, `python3-yaml` exec_depend.
+- `haechi.launch.py`: navi_lidar 프로파일(`ROBOT_TYPE`, 기본 haechi)의 `nav2.footprint` 를
+  `odom_2d_to_base_link` 만큼 옮긴 `body_polygon` 과 `sensor_height` 를 매퍼/격자 노드에 넘긴다 — 드라이버 컷,
+  매퍼 몸체 컷·leg ring·standing prior, 격자의 몸체 아래 free 가 한 정본을 쓴다. 새 인자 `body_prior`,
+  `graded_free`/`graded_lethal`, `body_margin_grid`.
+- `haechi_nav.launch.py`: `prior_record` / `prior_out_dir` / `terrain_prior` / `load_nav2_map` 통과.
+- `HAECHI_BOARD.md` 4.1절: 매핑 때 prior 녹화와 2D 맵 생성, localization 때 prior 로드 절차.
+
+### Changed
+- `haechi.yaml` 융합 게이트: `time_variance` 0.0001 → 0.01. 셀 분산이 v/k 로 줄고 다시 열리지 않아 첫 1 초
+  평균(다리 리턴, LIO 초기 잡음)에 고정되던 문제(실기 bag: 셀 26 % 깜빡임, 로봇 자취가 0.3–0.6 m 턱). `max_variance`
+  는 100 유지 — 1.0 이면 finalize 커널이 20 초 안 본 셀을 무효화하고 점 하나로 재시드한다(실측 71 % 차단).
+- `plugin_config.yaml`: slope `window_size` 3 → 5(2.5 cm 잡음에 27° 가 찍혔다), step `min_valid_count` 4 → 10,
+  새 `median_size: 3`(`step_filter.py`: max−min 전에 3×3 median, 스파이크 셀 하나가 턱으로 읽히지 않게).
+- `elevation_mapping_node.py`: 몸체 컷과 leg ring 이 박스 대신 `body_polygon`(even-odd, z 무관) 을 쓴다.
+  leg ring 에 지면 기준이 없을 때 `sensor_height` 로 대체(실기: 몸 옆 0.3 m 링의 낮은 리턴 59 개/클라우드가
+  0.1–0.4 m 스파이크로 융합돼 자취의 52 % 가 비주행). `body_prior`: pose 갱신마다 몸체 폴리곤 아래 셀에
+  "서 있는 지면"(센서 z − sensor_height, 맵 중심 z 기준 상대값) 을 작은 분산으로 써 넣는다 — 라이다가 다시 재지
+  않는 셀이다.
+- `terrain_grid_node`: 임계값 이분 대신 graded 비용(`graded_free` 0.6 → 0, `graded_lethal` 0.2 → 100, 선형;
+  카메라 비토 상한 유지). 몸체 폴리곤(+`body_margin` 0.10, 뒤 꼬리 `body_tail` 0.40, TF map→body_frame) 아래
+  셀은 free 로 강제 — 로봇이 서 있는 곳은 정의상 주행 가능. 하류 `trinary_costmap: false` 필요.
+- 실기 bag 감사(elevation_on_bag): footprint 에 비주행 셀이 든 경로 샘플 52 % → 34 %(매퍼/플러그인 보정) → 5 %
+  (투표 prior). Isaac 시뮬: t30–t390 전 구간 도달.
+
+### Fixed
+- 없음.
+
 ## [v0.2.5] - 2026-10-06
 
 `Dev v0.2.5` — **지형 발행 기본 10 Hz.**

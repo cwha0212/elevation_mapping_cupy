@@ -31,10 +31,14 @@ class StepFilter(PluginBase):
         resolution: float = 0.05,
         window_size: int = 5,
         min_valid_count: int = 4,
+        median_size: int = 0,
         **kwargs,
     ):
         self.window_size = int(window_size)
         self.min_valid_count = int(min_valid_count)
+        # Robust span: a median over median_size x median_size cells before max - min, so a single spiked cell
+        # (a leg return, a first-sample outlier frozen by the fusion gate) no longer reads as a riser. 0 = off.
+        self.median_size = int(median_size)
 
     def __call__(
         self,
@@ -50,6 +54,14 @@ class StepFilter(PluginBase):
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5
         w = self.window_size
+        if self.median_size >= 3:
+            # invalid cells must not take part, and cupyx has no nan-aware median_filter: fill them with the
+            # local mean of the valid cells first
+            e0 = cp.where(valid, elevation, 0.0).astype(cp.float32)
+            cnt = ndimage.uniform_filter(valid.astype(cp.float32), size=self.median_size, mode="nearest")
+            mean = ndimage.uniform_filter(e0, size=self.median_size, mode="nearest") / cp.maximum(cnt, 1e-6)
+            fill = cp.where(valid, elevation, mean)
+            elevation = ndimage.median_filter(fill, size=self.median_size, mode="nearest")
 
         # Invalid cells must not win either extreme, so they enter the max as
         # -inf and the min as +inf.

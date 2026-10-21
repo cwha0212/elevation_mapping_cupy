@@ -163,12 +163,27 @@ class ElevationMappingNode(Node):
         # body-cut node: one parse of the cloud instead of parse, filter,
         # serialize, parse.
         for name, default in (("body_filter_min", [0.0, 0.0, 0.0]), ("body_filter_max", [0.0, 0.0, 0.0]),
-                              ("dedup_voxel", 0.0), ("leg_ring", [0.0, 0.0, 0.0]), ("leg_rise", 0.08)):
+                              ("dedup_voxel", 0.0), ("leg_ring", [0.0, 0.0, 0.0]), ("leg_rise", 0.08),
+                              ("body_polygon", [0.0]), ("sensor_height", 0.0), ("body_prior", False)):
             if not self.has_parameter(name):
                 self.declare_parameter(name, default)
         lo = np.array([float(v) for v in self.get_parameter('body_filter_min').value], dtype=np.float32)
         hi = np.array([float(v) for v in self.get_parameter('body_filter_max').value], dtype=np.float32)
         self._body_box = (lo, hi) if lo.shape == (3,) and hi.shape == (3,) and np.any(hi > lo) else None
+        # navi_lidar's own self-body rule: the profile's nav2.footprint polygon moved into lidar_frame by
+        # odom_2d_to_base_link (flat x0 y0 x1 y1 ..., even-odd inside test, z-independent). When given it defines
+        # the body for the cut, the leg ring and the standing prior, and the box becomes its bounding box.
+        poly = [float(v) for v in self.get_parameter('body_polygon').value]
+        self._body_poly = np.array(poly, dtype=np.float32).reshape(-1, 2) if len(poly) >= 6 and len(poly) % 2 == 0 else None
+        if self._body_poly is not None:
+            lo = np.array([self._body_poly[:, 0].min(), self._body_poly[:, 1].min(), -10.0], dtype=np.float32)
+            hi = np.array([self._body_poly[:, 0].max(), self._body_poly[:, 1].max(), 10.0], dtype=np.float32)
+            self._body_box = (lo, hi)
+        # height of the cloud frame origin above the ground the robot stands on (profile sensor_height, haechi 0.74):
+        # gives the leg ring a ground reference where the map has none, and the standing prior its height.
+        self._sensor_height = float(self.get_parameter('sensor_height').value)
+        self._body_prior = bool(self.get_parameter('body_prior').value) and self._body_poly is not None and self._sensor_height > 0.0
+        self._prior_writes = 0
         if not self.has_parameter('body_filter'):
             self.declare_parameter('body_filter', True)
         self._body_filter = bool(self.get_parameter('body_filter').value)
@@ -632,15 +647,32 @@ class ElevationMappingNode(Node):
             throttle_duration_sec=5.0,
         )
 
+    @staticmethod
+    def _inside_polygon(x: np.ndarray, y: np.ndarray, poly: np.ndarray) -> np.ndarray:
+        """Even-odd ray casting, z-independent: navi_lidar's insideFootprint(), vectorised."""
+        inside = np.zeros(x.shape[0], dtype=bool)
+        n = poly.shape[0]
+        for i in range(n):
+            xi, yi = poly[i]; xj, yj = poly[(i + 1) % n]
+            cond = (yi > y) != (yj > y)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                xint = xi + (y - yi) * (xj - xi) / (yj - yi)
+            inside ^= cond & (x < xint)
+        return inside
+
     def _cut_body(self, pts: np.ndarray) -> np.ndarray:
         """Drop the robot's own returns, then thin to one point per voxel.
 
         The same sequence the body-cut node ran: finite points only, box
-        test, then a first-of-each-voxel dedup with the same key and order.
+        (or navi_lidar's footprint polygon, z-independent) test, then a
+        first-of-each-voxel dedup with the same key and order.
         """
         pts = pts[np.isfinite(pts).all(axis=1)]
         lo, hi = self._body_box
-        inside = np.all((pts >= lo) & (pts <= hi), axis=1)
+        if self._body_poly is not None:
+            inside = self._inside_polygon(pts[:, 0], pts[:, 1], self._body_poly)
+        else:
+            inside = np.all((pts >= lo) & (pts <= hi), axis=1)
         dropped = int(inside.sum())
         pts = pts[~inside]
         if dropped:
@@ -658,7 +690,10 @@ class ElevationMappingNode(Node):
         front, side, back = self._leg_ring
         x, y = pts[:, 0], pts[:, 1]
         in_ring = (x >= lo[0] - back) & (x <= hi[0] + front) & (y >= lo[1] - side) & (y <= hi[1] + side)
-        in_ring &= ~((x >= lo[0]) & (x <= hi[0]) & (y >= lo[1]) & (y <= hi[1]))
+        if self._body_poly is not None:
+            in_ring &= ~self._inside_polygon(x, y, self._body_poly)
+        else:
+            in_ring &= ~((x >= lo[0]) & (x <= hi[0]) & (y >= lo[1]) & (y <= hi[1]))
         if not in_ring.any():
             return pts
         ring_idx = np.flatnonzero(in_ring)
@@ -692,6 +727,14 @@ class ElevationMappingNode(Node):
                 vv = v_blk[ws, cs]
                 if vv.sum() >= 5:
                     elev[k] = np.median(e_blk[ws, cs][vv]); valid[k] = True
+        # Still no reference (first sight of that ground): the robot is standing right there, so the ground is
+        # sensor_height below the cloud frame origin. Measured on the real ds1020 bag (2026-10-20): 59 low returns
+        # per cloud in the 0.3 m ring outside the driver's cut, fused as 0.1-0.4 m spikes beside the body that made
+        # the robot's own trail non-drivable in 52 % of the route samples.
+        # (map heights are relative to the map centre z, like `rel` above)
+        if self._sensor_height > 0.0 and not valid.all():
+            elev[~valid] = float(t_np[2] - centre[2]) - self._sensor_height
+            valid[:] = True
         leg = valid & (rel[:, 2] - elev > self._leg_rise)
         if not leg.any():
             return pts
@@ -758,8 +801,43 @@ class ElevationMappingNode(Node):
         trans = np.array([t.x, t.y, t.z], dtype=np.float32)
         rot = quaternion_matrix([q.x, q.y, q.z, q.w])[:3, :3].astype(np.float32)
         self._map.move_to(trans, rot)
+        if self._body_prior:
+            self._write_body_prior(trans, rot)
         self._map_t = t
         self._map_q = q
+
+    def _write_body_prior(self, trans: np.ndarray, rot: np.ndarray) -> None:
+        """Cells under the body polygon get the ground the robot is standing on.
+
+        The lidars never see under the body, so those cells kept whatever hit them last (leg returns, LIO-init
+        noise) and the robot's own footprint read as a 0.3-0.6 m step. The robot IS standing there: write
+        elevation = sensor z - sensor_height with a small variance, overwriting the stale value. Variance is kept
+        above the floor so a later proper measurement (after the robot moved on) still updates the cell.
+        """
+        import cupy as cp
+        m = self._map
+        n = m.cell_n; res = m.resolution
+        centre = self._get_map_center()
+        poly_map = self._body_poly @ rot[:2, :2].T + trans[:2]          # polygon in map frame (yaw only matters)
+        xs = (poly_map[:, 0] - centre[0]) / res + 0.5 * (n - 1); ys = (poly_map[:, 1] - centre[1]) / res + 0.5 * (n - 1)
+        c0, c1 = int(np.floor(xs.min())), int(np.ceil(xs.max())); r0, r1 = int(np.floor(ys.min())), int(np.ceil(ys.max()))
+        c0, c1, r0, r1 = max(c0, 1), min(c1, n - 2), max(r0, 1), min(r1, n - 2)
+        if c1 <= c0 or r1 <= r0:
+            return
+        cc, rr = np.meshgrid(np.arange(c0, c1 + 1), np.arange(r0, r1 + 1))
+        cx = (cc.ravel() - 0.5 * (n - 1)) * res + centre[0]; cy = (rr.ravel() - 0.5 * (n - 1)) * res + centre[1]
+        inside = self._inside_polygon(cx, cy, poly_map.astype(np.float32))
+        if not inside.any():
+            return
+        rows_d = cp.asarray(rr.ravel()[inside]); cols_d = cp.asarray(cc.ravel()[inside])
+        # map heights are stored relative to the map centre z (see get_upper_bound: + self.center[2])
+        z = float(trans[2] - centre[2]) - self._sensor_height
+        m.elevation_map[0][rows_d, cols_d] = z
+        m.elevation_map[1][rows_d, cols_d] = 0.02
+        m.elevation_map[2][rows_d, cols_d] = 1.0
+        self._prior_writes += 1
+        if self._prior_writes % 200 == 1:
+            self.get_logger().info(f"body prior: {int(inside.sum())} cells under the footprint set to z={z + float(centre[2]):.2f} (writes {self._prior_writes})")
 
     def update_variance(self) -> None:
         self._map.update_variance()

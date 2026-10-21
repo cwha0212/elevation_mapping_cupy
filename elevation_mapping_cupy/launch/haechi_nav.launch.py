@@ -47,6 +47,17 @@ def generate_launch_description():
         # default stays 3 Hz; see CHANGELOG v0.2.4 for why 10 Hz is not safe yet.
         DeclareLaunchArgument("terrain_fps", default_value="10.0",
                               description="Terrain grid publish rate (Hz)."),
+        # Terrain prior (2026-10-21): MAPPING records it into the NAVI map folder, LOCALIZATION loads it.
+        DeclareLaunchArgument("prior_record", default_value="false",
+                              description="MAPPING: terrain_prior_recorder -> prior_out_dir/map_terrain_prior.* (+ map_terrain.* "
+                                          "once map.yaml is there). Use ~/map_folder/<map>/<submap> as prior_out_dir."),
+        DeclareLaunchArgument("prior_out_dir", default_value=os.path.expanduser("~/terrain_prior")),
+        DeclareLaunchArgument("terrain_prior", default_value="",
+                              description="LOCALIZATION: map_terrain_prior.yaml of the loaded map for terrain_global_node "
+                                          "(live terrain > prior > /map) and, with load_nav2_map, Nav2's /map becomes the "
+                                          "folder's map_terrain.yaml. Empty = none."),
+        DeclareLaunchArgument("load_nav2_map", default_value="true",
+                              description="with terrain_prior: replace Nav2's 2D map (/map_server/load_map) by map_terrain.yaml."),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi.launch.py")),
             launch_arguments={
@@ -63,6 +74,10 @@ def generate_launch_description():
                 "audit": "false",
                 "map_length": PythonExpression(["'8.0' if ", lite_on, " else '10.0'"]),
                 "terrain_fps": LaunchConfiguration("terrain_fps"),
+                "prior_record": LaunchConfiguration("prior_record"),
+                "prior_out_dir": LaunchConfiguration("prior_out_dir"),
+                "terrain_prior": LaunchConfiguration("terrain_prior"),
+                "load_nav2_map": LaunchConfiguration("load_nav2_map"),
                 "samtp_max_rate": PythonExpression(["'2.0' if ", lite_on, " else '4.0'"]),
             }.items(),
         ),
