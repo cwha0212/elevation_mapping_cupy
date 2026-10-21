@@ -13,7 +13,7 @@ slope_filter:
   is_height_layer: False
   layer_name: "slope"                       # degrees
   extra_params:
-    window_size: 3
+    window_size: 5                          # was 3: central differences on a 3x3 mean at 0.05 m trip 27 deg on 2.5 cm of noise
     min_valid_ratio: 0.5
 step_filter:
   enable: True
@@ -22,7 +22,8 @@ step_filter:
   layer_name: "step"                        # meters
   extra_params:
     window_size: 5                          # 0.25 m reach at 0.05 m cells
-    min_valid_count: 4
+    min_valid_count: 10                     # was 4: a span computed from 4 of 25 cells is noise (2026-10-20 audit)
+    median_size: 3                          # 3x3 median before max-min: single spiked cells no longer read as risers
 roughness_filter:
   enable: True
   fill_nan: False

@@ -92,6 +92,31 @@ ros2 launch navi_lidar nav2.launch.py robot:=haechi map:=$HOME/map_folder/test/s
 
 되돌리기: 4번 터미널을 `params_file:=` 없이 다시 띄운다.
 
+### 4.1 매핑 때 지형 prior 와 2D 맵 (선택)
+
+NAVI 매핑(`nx_<slam>_mapping.launch.py` / RMS `/navi/select_mode mapping <map> <submap>`)과 함께 3번을
+녹화 모드로 띄우면 지도 폴더에 elevation 산출물이 추가된다.
+
+```bash
+# 3' elevation + 지형 prior 녹화 (매핑 중). out_dir = NAVI 가 쓰는 지도 폴더
+ros2 launch elevation_mapping_cupy haechi_nav.launch.py use_semantics:=false \
+  prior_record:=true prior_out_dir:=$HOME/map_folder/<map>/<submap>
+# 매핑 종료(idle) 로 laserMapping 이 map.pcd/map.pgm/map.yaml 을 쓴 뒤 3' 을 Ctrl-C → 저장
+#   map_terrain_prior.pgm/yaml, terrain_prior.npz   지형 prior (셀별 투표, 비용 ≤ 89, 벽 없음)
+#   map_terrain.png/yaml                             SLAM 벽 + 지형 비용을 map.yaml 기하에 합친 2D 맵
+# 3' 을 먼저 내렸으면(map.yaml 이 아직 없을 때) 나중에 한 번:
+ros2 run elevation_mapping_cupy terrain_map_merge.py $HOME/map_folder/<map>/<submap>
+```
+
+localization 때는 `haechi_nav.launch.py terrain_prior:=$HOME/map_folder/<map>/<submap>/map_terrain_prior.yaml`
+로 넘긴다. 그러면 (1) 전역 격자 `/terrain/global_grid` 가 live 지형 > prior > `/map` 순으로 채워지고,
+(2) `terrain_map_loader` 가 같은 폴더의 `map_terrain.yaml` 을 `/map_server/load_map` 으로 올려 Nav2 의 `/map`
+자체를 elevation 2D 맵으로 바꾼다(orchestrator 가 `map.yaml` 을 다시 올려도 되돌린다; 끄려면
+`load_nav2_map:=false`). `terrain_prior` 를 안 주면 둘 다 동작하지 않고 Nav2 는 `map.yaml` 그대로다. 전역
+costmap 은 `trinary_costmap: false` 여야 한다(`nav2_params_elevation.yaml` 기준; 기본 nav2_params 로는 비용 89 가
+벽이 된다).
+orchestrator 의 map_saved 검증은 필수 5종만 보므로 추가 파일이 있어도 통과하고, 지도 전송(rclone)은 폴더째 옮긴다.
+
 ## 5. 확인
 
 ```bash

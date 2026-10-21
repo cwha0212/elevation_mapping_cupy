@@ -30,6 +30,17 @@
     resolution: 0.05
     map_length: 10.0
 
+    #### Fusion gate (2026-10-20, measured on the real ds1020 bag) ########
+    # The outlier test is |h - z| > variance * mahalanobis_thresh; the cell variance shrinks as v/k and the core
+    # time_variance 0.0001 never re-opens it, so every cell froze its first-second mean (leg returns, LIO-init
+    # noise) and 26 % of cells flickered / the robot's own trail read as 0.3-0.6 m steps. Add 0.01 per variance
+    # update (floor ~3 cm gate) and cap at 1 m^2 so stale cells expire and get re-measured.
+    time_variance: 0.01
+    # NOT max_variance 1.0: finalize_map_kernel RESETS a cell to invalid when its variance exceeds max_variance, so with
+    # time_variance 0.01 every cell unseen for ~20 s was wiped and re-seeded by a single point (measured 2026-10-20:
+    # 71 % of route samples blocked, dz p95 0.75 m). Keep the core 100.
+    max_variance: 100.0
+
     #### Drift ########
     # FAST-LIO already corrects the body pose. Running the built-in compensation
     # on top of it means two estimators fighting over the same z.

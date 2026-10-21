@@ -44,6 +44,18 @@ CAMERA_SIZE = [1280, 720]
 CAMERA_TIME_OFFSET_S = 0.019554
 
 
+def _find_key(d, key):
+    """First value of `key` anywhere in a nested dict (the profile keeps sensor_height under its lidar section)."""
+    if isinstance(d, dict):
+        if key in d:
+            return d[key]
+        for v in d.values():
+            r = _find_key(v, key)
+            if r is not None:
+                return r
+    return None
+
+
 def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
     core_param_path = os.path.join(share_dir, "config", "core", "core_param.yaml")
@@ -138,6 +150,27 @@ def generate_launch_description():
     # shifted by odom_2d_to_base_link (+0.23, -0.105), i.e. x -0.53..0.77,
     # y -0.38..0.18 -- 1.30 x 0.56 m, measured 2026-09-16. It runs inside
     # the mapper's cloud callback; nothing else is filtered.
+    # navi_lidar's own self-body polygon: profile nav2.footprint (base_link) + odom_2d_to_base_link -> lidar_frame,
+    # the same list lidar.launch.py injects as footprint_polygon. One source of truth for the driver cut, the
+    # mapper's body cut / leg ring / standing prior and the terrain grid's under-body clearing.
+    body_polygon, sensor_height = [], 0.74
+    try:
+        import yaml
+        robot = os.environ.get("ROBOT_TYPE", "").strip() or "haechi"
+        prof_path = os.path.join(get_package_share_directory("navi_lidar"), "config", "profile", robot + ".yaml")
+        with open(prof_path) as f:
+            prof = yaml.safe_load(f) or {}
+        nv_fp = (prof.get("nav2") or {}).get("footprint")
+        if nv_fp:
+            poly = yaml.safe_load(nv_fp) if isinstance(nv_fp, str) else nv_fp
+            bl = (prof.get("base_link") or {}).get("odom_2d_to_base_link") or {}
+            ox, oy = float(bl.get("x", 0.0)), float(bl.get("y", 0.0))
+            for vx, vy in poly:
+                body_polygon += [float(vx) + ox, float(vy) + oy]
+        sh = _find_key(prof, "sensor_height")
+        sensor_height = float(sh) if sh is not None else 0.74
+    except Exception as e:  # noqa: BLE001 - profile missing: fall back to the hard-coded box below
+        print("[haechi.launch] navi_lidar profile not used (%s): body box fallback" % e)
     body_filter = LaunchConfiguration("body_filter")
     body_margin = LaunchConfiguration("body_margin")
     # The box is always handed over: the leg ring is defined around it even
@@ -166,6 +199,9 @@ def generate_launch_description():
                 "leg_ring": LaunchConfiguration("leg_ring"),
                 "leg_rise": LaunchConfiguration("leg_rise"),
                 "dedup_voxel": LaunchConfiguration("dedup_voxel"),
+                "body_polygon": body_polygon,
+                "sensor_height": sensor_height,
+                "body_prior": LaunchConfiguration("body_prior"),
             },
         ],
     )
@@ -185,8 +221,54 @@ def generate_launch_description():
                 "base_layer": "drivability",
                 "threshold": LaunchConfiguration("grid_threshold"),
                 "veto_cost": LaunchConfiguration("veto_cost"),
+                "graded_free": LaunchConfiguration("graded_free"),
+                "graded_lethal": LaunchConfiguration("graded_lethal"),
+                "body_polygon": body_polygon,
+                "body_frame": "lidar_frame",
+                "body_margin": LaunchConfiguration("body_margin_grid"),
+                "body_tail": 0.40,
             }
         ],
+    )
+
+    # Global memory of the terrain grid on the Nav2 map geometry (merged with /map) for the GLOBAL costmap: the
+    # elevation map is a 10 m window, the planner needs what the robot has already judged (2026-10-20).
+    terrain_global = Node(
+        package="elevation_mapping_cupy",
+        executable="terrain_global_node.py",
+        name="terrain_global_node",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("global_grid")),
+        parameters=[{"use_sim_time": use_sim_time, "input_topic": "/terrain/local_grid", "map_topic": "/map",
+                     "output_topic": "/terrain/global_grid", "mode": "last", "rate_hz": 1.0,
+                     "merge": LaunchConfiguration("global_merge"), "prior_file": LaunchConfiguration("terrain_prior")}],
+    )
+
+    # LOCALIZATION with a terrain prior: replace Nav2's 2D map with map_terrain.yaml from the prior's folder (SLAM walls +
+    # terrain cost, terrain_map_merge.py; built on the fly from map.yaml + the prior if missing) through
+    # /map_server/load_map, and keep it there if the orchestrator reloads map.yaml. Nothing runs without terrain_prior.
+    terrain_prior = LaunchConfiguration("terrain_prior")
+    map_loader = Node(
+        package="elevation_mapping_cupy",
+        executable="terrain_map_loader.py",
+        name="terrain_map_loader",
+        output="screen",
+        condition=IfCondition(PythonExpression(["'", terrain_prior, "'.strip() != '' and '", LaunchConfiguration("load_nav2_map"),
+                                                "'.lower() in ('true', '1')"])),
+        parameters=[{"use_sim_time": use_sim_time, "terrain_prior": terrain_prior, "map2d_yaml": LaunchConfiguration("nav2_map2d_yaml"),
+                     "load_map_service": LaunchConfiguration("load_map_service")}],
+    )
+
+    # MAPPING: record the terrain analysis and save it as the terrain prior (map_terrain_prior.pgm/yaml + npz) that the
+    # navigation stack loads through terrain_prior / terrain_global_node (2026-10-21).
+    prior_recorder = Node(
+        package="elevation_mapping_cupy",
+        executable="terrain_prior_recorder.py",
+        name="terrain_prior_recorder",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("prior_record")),
+        parameters=[{"use_sim_time": use_sim_time, "out_dir": LaunchConfiguration("prior_out_dir"),
+                     "res": LaunchConfiguration("prior_res")}],
     )
 
     # The geometry-only grid beside it, for the board's diff and reach probes
@@ -246,6 +328,37 @@ def generate_launch_description():
                 "as a leg. Ground, slopes and stair risers measured on approach pass. "
                 "Measured 2026-09-28: leg bursts reach 0.25 m ahead, half that sideways, none behind.",
             ),
+            DeclareLaunchArgument("global_grid", default_value="true",
+                                  description="terrain_global_node: accumulate the terrain grid on the /map geometry -> /terrain/global_grid "
+                                              "for Nav2's global costmap (nav2_params_elevation.yaml static_layer.map_topic)."),
+            DeclareLaunchArgument("prior_record", default_value="false",
+                                  description="MAPPING: run terrain_prior_recorder (accumulates the terrain grid with per-cell vote "
+                                              "counters, saves map_terrain_prior.pgm/yaml + terrain_prior.npz to prior_out_dir on "
+                                              "shutdown or ~/save)."),
+            DeclareLaunchArgument("prior_out_dir", default_value=os.path.expanduser("~/terrain_prior")),
+            DeclareLaunchArgument("prior_res", default_value="0.1"),
+            DeclareLaunchArgument("terrain_prior", default_value="",
+                                  description="terrain_global_node: map_terrain_prior.yaml (+pgm, mode scale) baked at mapping time "
+                                              "(terrain_map_bake.py); the 2D grid the elevation stack plans on: live terrain > prior > /map. "
+                                              "Prior cost is capped at 89 (never a wall). Empty = no prior."),
+            DeclareLaunchArgument("load_nav2_map", default_value="true",
+                                  description="with terrain_prior: load <prior dir>/map_terrain.yaml into Nav2's map_server "
+                                              "(/map_server/load_map) and keep it loaded. false = Nav2 keeps map.yaml."),
+            DeclareLaunchArgument("nav2_map2d_yaml", default_value="",
+                                  description="the 2D map file to load instead of <prior dir>/map_terrain.yaml."),
+            DeclareLaunchArgument("load_map_service", default_value="/map_server/load_map"),
+            DeclareLaunchArgument("global_merge", default_value="override",
+                                  description="terrain_global_node: 'override' = a terrain-judged cell replaces the prior /map value "
+                                              "(dirty SLAM pgm is cleaned as the robot re-observes it); 'max' = /map lethal is permanent."),
+            DeclareLaunchArgument("body_prior", default_value="true",
+                                  description="write the standing ground (sensor z - sensor_height) under the body polygon on every "
+                                              "pose update: the lidars never re-measure those cells (2026-10-20)."),
+            DeclareLaunchArgument("graded_free", default_value="0.6",
+                                  description="terrain grid: safety >= this -> cost 0; <= graded_lethal -> 100; linear between "
+                                              "(graded_lethal < 0 = old binary cut at grid_threshold)."),
+            DeclareLaunchArgument("graded_lethal", default_value="0.2"),
+            DeclareLaunchArgument("body_margin_grid", default_value="0.10",
+                                  description="terrain grid: cells under the body polygon + this margin (+0.4 m tail) forced free."),
             DeclareLaunchArgument("leg_rise", default_value="0.08",
                                   description="Height above the known cell that marks a ring point as a leg."),
             DeclareLaunchArgument(
@@ -287,6 +400,9 @@ def generate_launch_description():
             semantic_node,
             elevation_mapping_node,
             terrain_grid,
+            terrain_global,
+            map_loader,
+            prior_recorder,
             terrain_grid_geom,
             octomap,
         ]
