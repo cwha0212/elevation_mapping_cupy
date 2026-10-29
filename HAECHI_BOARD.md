@@ -142,6 +142,12 @@ tegrastats --interval 1000                                          # GR3D 평�
 
 ## 7. 함정
 
+- **⚠ dev02(PulseOS R36.5.0) 실측 2026-10-21/22: GPU 클럭을 풀면(min 306 MHz) 보드가 하드 리셋된다.** 두 번 재현
+  — elevation 종료 후 GPU 가 유휴로 내려간 2분 뒤(10-21 09:41 UTC), elevation 기동 1분 뒤(10-22 01:39 UTC, 매핑 중).
+  저널은 비영속이라 리셋 직전 로그가 남지 않는다. 반대로 PulseOS 기본(918 고정) 상태에서는 매핑+elevation+측정 도구를
+  60분 돌려도 재시작 0, odom gap 0 이었고, 풀린 상태(DVFS 전환)에서는 매핑 odom 에 분당 1회꼴 200–330 ms 지연이
+  생겼다(localization 은 영향 없음). **elevation 만 쓸 때는 아래 unpin 을 하지 말 것.** 아래 SAM-TP 리셋 실측(고정
+  상태에서 리셋, 풀면 해결)과 상충하므로 SAM-TP 를 올릴 보드에서는 둘을 따로 다시 확인해야 한다.
 - **PulseOS 보드(Orin NX, R36.5.0)는 GPU 클럭이 부팅부터 min=max=918 MHz 로 고정돼 있다.** 그 상태에서 SAM-TP(fp16 TensorRT, 4 Hz 간헐 추론)를 돌리면 커널 로그 한 줄 없이 보드가 하드 리셋된다(2026-09-30 실측 6/6, 전원 레일·온도·메모리 정상). GPU 최소 클럭을 풀면 사라진다(SAM-TP 단독 306프레임, 전체 스택 4분 통과).
   ```bash
   echo 306000000 | sudo tee /sys/class/devfreq/17000000.gpu/min_freq     # 재부팅마다 필요. 영구 적용은 oneshot 유닛(HAECHI_BOARD 7절 끝)

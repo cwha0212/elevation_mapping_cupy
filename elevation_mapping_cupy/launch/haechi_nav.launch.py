@@ -56,6 +56,8 @@ def generate_launch_description():
                               description="LOCALIZATION: map_terrain_prior.yaml of the loaded map for terrain_global_node "
                                           "(live terrain > prior > /map) and, with load_nav2_map, Nav2's /map becomes the "
                                           "folder's map_terrain.yaml. Empty = none."),
+        DeclareLaunchArgument("judge_radius", default_value="4.0",
+                              description="terrain memory/prior: believe cells only within this distance (m) of the robot."),
         DeclareLaunchArgument("load_nav2_map", default_value="true",
                               description="with terrain_prior: replace Nav2's 2D map (/map_server/load_map) by map_terrain.yaml."),
         IncludeLaunchDescription(
@@ -78,6 +80,7 @@ def generate_launch_description():
                 "prior_out_dir": LaunchConfiguration("prior_out_dir"),
                 "terrain_prior": LaunchConfiguration("terrain_prior"),
                 "load_nav2_map": LaunchConfiguration("load_nav2_map"),
+                "judge_radius": LaunchConfiguration("judge_radius"),
                 "samtp_max_rate": PythonExpression(["'2.0' if ", lite_on, " else '4.0'"]),
             }.items(),
         ),

@@ -241,7 +241,8 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration("global_grid")),
         parameters=[{"use_sim_time": use_sim_time, "input_topic": "/terrain/local_grid", "map_topic": "/map",
                      "output_topic": "/terrain/global_grid", "mode": "last", "rate_hz": 1.0,
-                     "merge": LaunchConfiguration("global_merge"), "prior_file": LaunchConfiguration("terrain_prior")}],
+                     "merge": LaunchConfiguration("global_merge"), "prior_file": LaunchConfiguration("terrain_prior"),
+                     "judge_radius": LaunchConfiguration("judge_radius")}],
     )
 
     # LOCALIZATION with a terrain prior: replace Nav2's 2D map with map_terrain.yaml from the prior's folder (SLAM walls +
@@ -268,7 +269,7 @@ def generate_launch_description():
         output="screen",
         condition=IfCondition(LaunchConfiguration("prior_record")),
         parameters=[{"use_sim_time": use_sim_time, "out_dir": LaunchConfiguration("prior_out_dir"),
-                     "res": LaunchConfiguration("prior_res")}],
+                     "res": LaunchConfiguration("prior_res"), "judge_radius": LaunchConfiguration("judge_radius")}],
     )
 
     # The geometry-only grid beside it, for the board's diff and reach probes
@@ -337,6 +338,10 @@ def generate_launch_description():
                                               "shutdown or ~/save)."),
             DeclareLaunchArgument("prior_out_dir", default_value=os.path.expanduser("~/terrain_prior")),
             DeclareLaunchArgument("prior_res", default_value="0.1"),
+            DeclareLaunchArgument("judge_radius", default_value="4.0",
+                                  description="terrain_global_node / terrain_prior_recorder: believe terrain cells only within this "
+                                              "distance (m) of the robot; the outer ring of the 10 m window is sparse grazing-angle "
+                                              "LiDAR that reads as non-drivable (dev02 2026-10-21). 0 = whole window."),
             DeclareLaunchArgument("terrain_prior", default_value="",
                                   description="terrain_global_node: map_terrain_prior.yaml (+pgm, mode scale) baked at mapping time "
                                               "(terrain_map_bake.py); the 2D grid the elevation stack plans on: live terrain > prior > /map. "

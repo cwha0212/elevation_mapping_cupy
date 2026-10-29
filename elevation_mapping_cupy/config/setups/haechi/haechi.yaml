@@ -40,6 +40,12 @@
     # time_variance 0.01 every cell unseen for ~20 s was wiped and re-seeded by a single point (measured 2026-10-20:
     # 71 % of route samples blocked, dz p95 0.75 m). Keep the core 100.
     max_variance: 100.0
+    # Absolute ceiling for input points, metres ABOVE THE SENSOR (core default 10.5 = off). The distance ramp alone lets a
+    # door lintel / canopy at 2.1-2.5 m into the map once the robot is >= 5 m away (threshold 0.2 + 0.3*(d-1)); the cell
+    # then holds 2.2 m as its "ground", the fusion gate rejects the later floor returns, and a 0.7 m doorway reads as a
+    # wall (ds1020 bag, building entrance 5 m SW of the start, 2026-10-23). 1.2 m above the sensor = 1.94 m above ground:
+    # above the robot (0.94 m) with margin, below any lintel; costs < 0.1 % of ground cells on the ds1020 route.
+    max_height_range: 1.2
 
     #### Drift ########
     # FAST-LIO already corrects the body pose. Running the built-in compensation

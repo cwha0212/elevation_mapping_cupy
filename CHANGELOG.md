@@ -9,8 +9,15 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 ## [Unreleased]
 ### Added
 ### Changed
+- `HAECHI_BOARD.md` 7절: dev02(PulseOS R36.5.0) 실측 — GPU 클럭 unpin 이 하드 리셋(2회)과 매핑 odom 지연의 원인.
+  elevation 만 쓸 때는 PulseOS 기본 고정(918 MHz)을 유지한다. 고정 상태 매핑+elevation 60분: 재시작 0, odom gap 0.
 ### Removed
 ### Fixed
+- `terrain_global_node.py` / `terrain_prior_recorder.py`: 새 `judge_radius`(기본 4.0 m, 런치 인자 동일 이름). 롤링 맵
+  창 중심(로봇)에서 이 거리 밖의 셀은 믿지 않는다 — 바깥 링은 라이다가 스치듯 맞아 프레임의 1 %만 유효하고 그때마다
+  비주행으로 판정돼(dev02 정지 매핑 실측 2026-10-21: 4.5–5 m 링 불량 투표 74–100 %) prior 에 비용 링으로 굳고
+  전역 격자에서는 떠난 자취가 99 로 남았다. 전역 격자의 "창 안은 진실" 초기화도 같은 반경 안으로 제한한다
+  (바깥 링이 지나간 셀의 기억을 지우지 않도록). 같은 데이터 재구움: 비용 셀 2667 → 742.
 
 ## [v0.2.6] - 2026-10-21
 
