@@ -100,8 +100,54 @@ def _resample(cost, info_src, shape, info_dst):
     return out
 
 
-def merge_terrain_map(map_yaml, prior_yaml, out_stem, cap=89, log=print):
-    """Write <out_stem>.pgm/.yaml; returns a dict of counts. Raises on missing inputs."""
+def stairs_lane_cost(stairs_yaml, X, Y, base=8, edge=45):
+    """Lane-centre gradient inside the registered flights and their end margins: cost = base at the flight centreline,
+    rising linearly to `edge` at the lateral limits. NavFn then runs the global path down the middle of every flight and
+    arrives square to the first riser (the A-3 wedge, 2026-10-29: a diagonal entry from the landing). Returns float HxW
+    with NaN where no flight applies."""
+    import yaml
+    d = yaml.safe_load(open(stairs_yaml)); out = np.full(X.shape, np.nan)
+    for f in d.get("flights", []):
+        p0, ax, lat = np.array(f["p0"]), np.array(f["axis"]), np.array(f["lat"])
+        s = (X - p0[0]) * ax[0] + (Y - p0[1]) * ax[1]; l = (X - p0[0]) * lat[0] + (Y - p0[1]) * lat[1]
+        s1 = f["s0"] + (f["n"] - 1) * f["tread"] + 0.20
+        lc = 0.5 * (f["l_lo"] + f["l_hi"]); half = max(0.3, 0.5 * (f["l_hi"] - f["l_lo"]))
+        m = (s >= f["s0"] - 1.5) & (s <= s1 + 1.5) & (l >= f["l_lo"]) & (l <= f["l_hi"])
+        c = base + (edge - base) * np.clip(np.abs(l - lc) / half, 0, 1)
+        out[m] = np.where(np.isnan(out[m]), c[m], np.minimum(out[m], c[m]))
+    return out
+
+
+def stairs_cells(stairs_yaml, map_yaml, shape, info, lateral_margin=0.0):
+    """bool HxW on the map geometry: registered stair segments (flights + landings + margins, walls cut) of map_stairs.yaml."""
+    import importlib.util
+    import yaml
+    spec = importlib.util.spec_from_file_location("stairs_prior_publisher", os.path.join(os.path.dirname(os.path.abspath(__file__)), "stairs_prior_publisher.py"))
+    pub = importlib.util.module_from_spec(spec); spec.loader.exec_module(pub)
+    d = yaml.safe_load(open(stairs_yaml))
+    if not d.get("flights"):
+        return np.zeros(shape, bool)
+    res = float(info["resolution"])
+    grid, x0, y0, _, _ = pub.rasterise(d["flights"], d.get("staircases", []), res, map_yaml=map_yaml, lateral_margin=lateral_margin)
+    ox, oy = float(info["origin"][0]), float(info["origin"][1])
+    out = np.zeros(shape, bool)
+    yy, xx = np.nonzero(grid >= 50)
+    i = np.round((y0 + (yy + 0.5) * res - oy) / res - 0.5).astype(int); j = np.round((x0 + (xx + 0.5) * res - ox) / res - 0.5).astype(int)
+    ok = (i >= 0) & (j >= 0) & (i < shape[0]) & (j < shape[1]); out[i[ok], j[ok]] = True
+    return out
+
+
+def merge_terrain_map(map_yaml, prior_yaml, out_stem, cap=89, log=print, stairs_yaml="", stairs_cost=8, speckle_cells=20, speckle_prior_max=60,
+                      stairs_lateral_margin=0.0, lane_gradient=True, swath_r=0.23):
+    """Permissive global map (2026-10-29): the global planner only needs the certain walls; whether a cell is really
+    passable is decided by the live elevation when the robot gets there. So: SLAM occupied clusters up to speckle_cells
+    whose terrain prior is at most speckle_prior_max are dropped (projection noise, low clutter), registered stairs are
+    written at their full measured width (the local grid keeps its own lateral margin), and the prior stays a cost, never
+    a wall (cap)."""
+    """Write <out_stem>.pgm/.yaml; returns a dict of counts. Raises on missing inputs.
+    stairs_yaml (map_stairs.yaml registered at mapping time): its segments are written at stairs_cost, over the SLAM wall
+    (the 2D projection draws flights as occupied) and over the prior (which judges risers non-drivable). Without this the
+    staircase was a wall in the global map and the planner only got through where the live terrain happened to override it."""
     slam, info = _read_map(map_yaml)
     prior, pinfo = _read_map(prior_yaml)
     prior[prior >= 100] = -1               # walls copied into a bake are the SLAM map's business
@@ -111,13 +157,59 @@ def merge_terrain_map(map_yaml, prior_yaml, out_stem, cap=89, log=print):
     judged = prior >= 0
     merged[judged] = prior[judged]
     wall = slam >= 100
+    # 2D-projection speckle (2026-10-29, 1f live map): small occupied clusters on open floor where the terrain prior judged
+    # the ground drivable are projection noise, not walls (33 % of the floor-box occupied cells were clusters <= 8 cells,
+    # 79 % of those with prior <= 30; real walls/pillars are large clusters with the prior at cap or unjudged). They are
+    # dropped; everything else the SLAM map calls a wall stays a wall.
+    n_speckle = 0
+    if speckle_cells > 0:
+        from scipy import ndimage
+        lab, nlab = ndimage.label(wall, structure=np.ones((3, 3)))
+        if nlab:
+            size = np.bincount(lab.ravel()); small = (size[lab] <= speckle_cells) & wall
+            drop = small & judged & (prior <= speckle_prior_max)
+            n_speckle = int(drop.sum()); wall = wall & ~drop
+            merged[drop] = prior[drop]
+    # the mapping robot's own swath: SLAM occupied cells within swath_r of the mapping trajectory (stairs_record.npz, same
+    # folder) are projection noise / the operator (the robot walked there) -> not walls. On the 1f real map 46 such cells in
+    # 20 clusters blocked 12 % of the real route's footprint (B terrace where the robot stood 25 s); without them 2.3 %.
+    n_swath = 0
+    rec = os.path.join(os.path.dirname(os.path.abspath(map_yaml)), "stairs_record.npz")
+    if swath_r > 0 and os.path.isfile(rec):
+        try:
+            from scipy import ndimage
+            L = np.load(rec)["lidar"]; res_ = float(info["resolution"]); ox_, oy_ = float(info["origin"][0]), float(info["origin"][1])
+            sw = np.zeros(slam.shape, bool)
+            i = np.round((L[:, 1] - oy_) / res_ - 0.5).astype(int); j = np.round((L[:, 0] - ox_) / res_ - 0.5).astype(int)
+            ok = (i >= 0) & (j >= 0) & (i < sw.shape[0]) & (j < sw.shape[1]); sw[i[ok], j[ok]] = True
+            k = int(np.ceil(swath_r / res_)); yy, xx = np.ogrid[-k:k + 1, -k:k + 1]
+            sw = ndimage.binary_dilation(sw, structure=(xx * xx + yy * yy) <= k * k)
+            drop = wall & sw; n_swath = int(drop.sum()); wall = wall & ~drop
+            merged[drop] = np.where(judged[drop], prior[drop], 0)
+            if n_swath:
+                log("swath: %d SLAM occupied cells within %.2f m of the mapping trajectory dropped (the robot walked there)" % (n_swath, swath_r))
+        except Exception as e:  # noqa: BLE001
+            log("swath rule skipped: %s" % e)
     merged[wall] = 100
+    n_stairs = 0
+    if stairs_yaml and os.path.isfile(stairs_yaml):
+        st = stairs_cells(stairs_yaml, map_yaml, slam.shape, info, stairs_lateral_margin)
+        n_stairs = int(st.sum()); merged[st] = stairs_cost
+        if lane_gradient:
+            res_ = float(info["resolution"]); ox_, oy_ = float(info["origin"][0]), float(info["origin"][1])
+            yy_, xx_ = np.mgrid[0:slam.shape[0], 0:slam.shape[1]]
+            lane = stairs_lane_cost(stairs_yaml, ox_ + (xx_ + 0.5) * res_, oy_ + (yy_ + 0.5) * res_, base=stairs_cost)
+            k = st & np.isfinite(lane); merged[k] = np.round(lane[k]).astype(merged.dtype)
+            log("stairs: lane-centre gradient %d..45 applied on %d of the stair cells" % (stairs_cost, int(k.sum())))
+        log("stairs: %d cells of %s written at cost %d (%d of them were SLAM walls)" % (n_stairs, os.path.basename(stairs_yaml), stairs_cost, int((st & wall).sum())))
+    if n_speckle:
+        log("speckle: %d SLAM occupied cells in clusters <= %d with prior <= %d dropped" % (n_speckle, speckle_cells, speckle_prior_max))
     _write_map(out_stem, merged, info)
     stats = dict(width=int(slam.shape[1]), height=int(slam.shape[0]), resolution=float(info["resolution"]),
                  slam_wall=int(wall.sum()), slam_free=int((slam == 0).sum()), slam_unknown=int((slam < 0).sum()),
                  terrain_judged=int(judged.sum()), terrain_over_free=int((judged & (slam == 0)).sum()),
                  terrain_over_unknown=int((judged & (slam < 0)).sum()), terrain_cost_cells=int((judged & (prior > 0)).sum()),
-                 terrain_at_cap=int((judged & (prior >= cap)).sum()), out=out_stem + ".yaml")
+                 terrain_at_cap=int((judged & (prior >= cap)).sum()), stairs=n_stairs, out=out_stem + ".yaml")
     log("map_terrain: %dx%d @ %.3f m -> %s | SLAM wall %d free %d unknown %d | terrain judged %d (over free %d, over unknown %d), "
         "cost>0 %d, at cap %d" % (stats["width"], stats["height"], stats["resolution"], stats["out"], stats["slam_wall"], stats["slam_free"],
                                   stats["slam_unknown"], stats["terrain_judged"], stats["terrain_over_free"], stats["terrain_over_unknown"],
@@ -131,6 +223,8 @@ def main(argv=None):
     ap.add_argument("--map", default="map.yaml", help="SLAM 2D map yaml in map_dir (default map.yaml)")
     ap.add_argument("--prior", default="map_terrain_prior.yaml", help="terrain prior yaml, relative to map_dir or absolute")
     ap.add_argument("--out", default="map_terrain", help="output stem in map_dir (default map_terrain -> map_terrain.png/yaml)")
+    ap.add_argument("--stairs", default=None, help="map_stairs.yaml (default: <map_dir>/map_stairs.yaml if present)")
+    ap.add_argument("--stairs_cost", type=int, default=8)
     ap.add_argument("--cap", type=int, default=89, help="max terrain cost (never a wall), default 89")
     a = ap.parse_args(argv)
     d = os.path.abspath(os.path.expanduser(a.map_dir))
@@ -140,7 +234,8 @@ def main(argv=None):
         if not os.path.isfile(p):
             print("terrain_map_merge: missing %s" % p, file=sys.stderr)
             return 2
-    merge_terrain_map(map_yaml, prior_yaml, os.path.join(d, a.out), cap=a.cap)
+    st = a.stairs if a.stairs is not None else os.path.join(d, "map_stairs.yaml")
+    merge_terrain_map(map_yaml, prior_yaml, os.path.join(d, a.out), cap=a.cap, stairs_yaml=st if os.path.isfile(st) else "", stairs_cost=a.stairs_cost)
     return 0
 
 

@@ -231,6 +231,17 @@ def generate_launch_description():
         ],
     )
 
+    # MAPPING: register the stairs the robot walks (trajectory + accumulated clouds -> map_stairs.yaml/png in prior_out_dir)
+    stairs_recorder = Node(
+        package="elevation_mapping_cupy",
+        executable="stairs_prior_recorder.py",
+        name="stairs_prior_recorder",
+        output="screen",
+        condition=IfCondition(PythonExpression(["'", LaunchConfiguration("prior_record"), "'.lower() in ('true','1') and '",
+                                                LaunchConfiguration("stairs_record"), "'.lower() in ('true','1')"])),
+        parameters=[{"use_sim_time": use_sim_time, "out_dir": LaunchConfiguration("prior_out_dir")}],
+    )
+
     # Global memory of the terrain grid on the Nav2 map geometry (merged with /map) for the GLOBAL costmap: the
     # elevation map is a 10 m window, the planner needs what the robot has already judged (2026-10-20).
     terrain_global = Node(
@@ -394,6 +405,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("gait", default_value="false",
                                   description="Add the stairs/ramp/drop chain and the octomap path."),
+            DeclareLaunchArgument("stairs_record", default_value="true",
+                                  description="With prior_record:=true also register the walked stairs (map_stairs.yaml/png in prior_out_dir)."),
             DeclareLaunchArgument("audit", default_value="false",
                                   description="Publish the extra terrain layers the driven-ground audit reads."),
             DeclareLaunchArgument("geom_grid", default_value="true",
@@ -405,6 +418,7 @@ def generate_launch_description():
             semantic_node,
             elevation_mapping_node,
             terrain_grid,
+            stairs_recorder,
             terrain_global,
             map_loader,
             prior_recorder,
