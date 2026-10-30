@@ -31,6 +31,16 @@ def generate_launch_description():
     lite = LaunchConfiguration("lite")
     lite_on = PythonExpression(["'", lite, "'.lower() in ('true', '1')"])
     return LaunchDescription([
+        DeclareLaunchArgument("use_sim_time", default_value="false",
+                              description="true only when replaying a bag with --clock (the robot runs on wall time)."),
+        DeclareLaunchArgument("stairs", default_value="false",
+                              description="NAVIGATION: stair segments of stairs_map lifted in the terrain grid + /scan_nav "
+                                          "(Nav2 must then read /scan_nav: nav2_params_elevation stairs variant)."),
+        DeclareLaunchArgument("stairs_map", default_value="",
+                              description="NAVIGATION: map_stairs.yaml written at mapping time next to the map "
+                                          "(prior_record:=true registers the walked stairs)."),
+        DeclareLaunchArgument("terrain_speckle_min", default_value="1",
+                              description="terrain_grid_node: lethal clusters smaller than this many cells become cost 70 (1 = off)."),
         DeclareLaunchArgument("lite", default_value="false",
                               description="8 m map and SAM-TP at 2 Hz for a loaded board."),
         DeclareLaunchArgument("use_semantics", default_value="true"),
@@ -63,7 +73,10 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi.launch.py")),
             launch_arguments={
-                "use_sim_time": "false",
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "stairs": LaunchConfiguration("stairs"),
+                "stairs_map": LaunchConfiguration("stairs_map"),
+                "terrain_speckle_min": LaunchConfiguration("terrain_speckle_min"),
                 "use_semantics": LaunchConfiguration("use_semantics"),
                 "body_filter": LaunchConfiguration("body_filter"),
                 "leg_ring": LaunchConfiguration("leg_ring"),

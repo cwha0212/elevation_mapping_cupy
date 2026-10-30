@@ -47,7 +47,8 @@ class TerrainGlobal(Node):
         # 1 Hz: the grid is the full /map (2.6 MB for ds1020 at 0.05 m); 2 Hz overflowed the UDP receive buffer of reliable
         # subscribers sharing the host (RcvbufErrors, 100 s stalls, 2026-10-21) and the global costmap only updates at 1 Hz.
         self.declare_parameter("rate_hz", 1.0)
-        self.declare_parameter("forget_s", 0.0)
+        from rcl_interfaces.msg import ParameterDescriptor
+        self.declare_parameter("forget_s", 0.0, ParameterDescriptor(dynamic_typing=True))   # launch may hand over an int (30)
         self.declare_parameter("lethal_votes", 2)
         # Value published for lethal terrain in the GLOBAL grid. 99 (default): StaticLayer (trinary off) scales it to 251,
         # below the inscribed 253 that NavFn treats as a wall, so the planner routes AROUND terrain at high cost but a
@@ -195,9 +196,18 @@ class TerrainGlobal(Node):
         if self.forget > 0:
             stale = (self.seen > 0) & (time.time() - self.seen > self.forget)
             terr = np.where(stale, -1, terr)
-        base = self.map if self.prior is None else np.where(self.prior >= 0, self.prior, self.map)   # prior > /map
+        # Walls stay walls (2026-10-29): with plain 'live > prior > /map' the wall foot, judged graded at a grazing angle,
+        # and the capped prior (89) replaced the SLAM wall (100) - on the 1f map only 57 % of the SLAM wall cells were
+        # still lethal in the global costmap and NavFn planned through walls. Now the prior only fills cells the map
+        # leaves free/unknown, and a live judgement lowers a wall only when it says FREE (0: the phantom-obstacle case).
+        wall = self.map >= self.lethal_as
+        if self.prior is None:
+            base = self.map
+        else:
+            base = np.where((self.prior >= 0) & (self.map <= 0), self.prior, self.map)              # prior > free/unknown map
         if self.merge == "override":
-            out = np.where(terr >= 0, terr, base).astype(np.int8)                                   # live > prior > /map
+            keep_wall = wall & (terr > 0)
+            out = np.where((terr >= 0) & ~keep_wall, terr, base).astype(np.int8)                     # live > prior > /map, walls kept
         else:
             out = np.where(terr >= 0, np.maximum(base, terr), base).astype(np.int8)
         m = OccupancyGrid(); m.header.frame_id = self.frame; m.header.stamp = self.get_clock().now().to_msg()

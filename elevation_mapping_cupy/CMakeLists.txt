@@ -53,6 +53,8 @@ install(PROGRAMS
   scripts/terrain_map_merge.py
   scripts/terrain_map_loader.py
   scripts/voxel_downsample_node.py
+  scripts/stairs_scan_filter.py
+  scripts/stairs_reclear.py
   scripts/stairs_prior_recorder.py
   scripts/stairs_prior_publisher.py
   scripts/stairs_fit.py

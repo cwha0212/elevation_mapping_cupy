@@ -18,6 +18,7 @@
 // is a solved problem in a library we already depend on for the message type.
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -83,6 +84,29 @@ public:
       tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
       RCLCPP_INFO(get_logger(), "body polygon: %zu vertices in %s (+%.2f m margin, %.2f m tail) forced free",
         body_polygon_.size() / 2, body_frame_.c_str(), body_margin_, body_tail_);
+    }
+
+    // Stairs (2026-10-29): stairs registered at mapping time (stairs_prior_publisher.py: map_stairs.yaml -> OccupancyGrid on
+    // stairs_prior_topic, >= 50 = stairs). The safety layer scores a flight from slope/step/roughness and calls every riser
+    // a wall, so the registered cells are published at stairs_cost instead (a low uniform cost: the MPPI obstacle critic
+    // repels from any non-zero cost, ~0 at 8) and a second grid (stairs_output_topic, 70 = stairs, -1 elsewhere) tells the
+    // scan filter and the stairs supervisor where the flights are. Empty stairs_prior_topic = off.
+    stairs_cost_ = declare_parameter<int>("stairs_cost", 8);
+    stairs_output_topic_ = declare_parameter<std::string>("stairs_output_topic", "/terrain/stairs_grid");
+    stairs_prior_topic_ = declare_parameter<std::string>("stairs_prior_topic", "");
+    // Speckle: lethal cells in 8-connected clusters smaller than lethal_min_cluster become speckle_cost instead of lethal.
+    // A lone lethal cell is inflated by the costmap's inscribed radius (0.31 m haechi) into a ~120-cell disc that MPPI
+    // treats as collision: 6 such specks on the upper floor closed the top exit of staircase A (sim, 2026-10-29). 1 = off.
+    lethal_min_cluster_ = declare_parameter<int>("lethal_min_cluster", 1);
+    speckle_cost_ = declare_parameter<int>("speckle_cost", 70);
+    if (!stairs_prior_topic_.empty()) {
+      stairs_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>(stairs_output_topic_, 1);
+      rclcpp::QoS q(1);
+      q.transient_local().reliable();
+      prior_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+        stairs_prior_topic_, q, [this](nav_msgs::msg::OccupancyGrid::SharedPtr m) {prior_ = m;});
+      RCLCPP_INFO(get_logger(), "stairs: registered flights on '%s' -> cost %d, grid '%s'", stairs_prior_topic_.c_str(),
+        stairs_cost_, stairs_output_topic_.c_str());
     }
 
     publisher_ = create_publisher<nav_msgs::msg::OccupancyGrid>(output_topic_, 1);
@@ -161,7 +185,13 @@ private:
           cut(i) = 0.0f;
         }
       }
+      if (prior_) {
+        applyStairs(map, cut);
+      }
       clearBody(map, cut);
+      if (lethal_min_cluster_ > 1) {
+        dropSpeckles(cut, lethal_min_cluster_, 1.0f - static_cast<float>(speckle_cost_) / 100.0f);
+      }
       grid_map::GridMapRosConverter::toOccupancyGrid(map, layer_, 1.0, 0.0, grid);
     } else {
       grid_map::GridMapRosConverter::toOccupancyGrid(map, layer_, data_min_, data_max_, grid);
@@ -174,7 +204,77 @@ private:
     }
   }
 
+  // Registered stair cells -> stairs_cost, and the stairs grid (70 = stairs, -1 elsewhere).
+  void applyStairs(grid_map::GridMap & map, grid_map::Matrix & cut)
+  {
+    const auto & info = prior_->info;
+    map.add("stairs_band", NAN);
+    grid_map::Matrix & sb = map.get("stairs_band");
+    const float stair = 1.0f - static_cast<float>(stairs_cost_) / 100.0f;
+    size_t n = 0;
+    for (grid_map::GridMapIterator it(map); !it.isPastEnd(); ++it) {
+      grid_map::Position pos;
+      map.getPosition(*it, pos);
+      const int pj = static_cast<int>(std::floor((pos.x() - info.origin.position.x) / info.resolution));
+      const int pi = static_cast<int>(std::floor((pos.y() - info.origin.position.y) / info.resolution));
+      if (pi >= 0 && pj >= 0 && pi < static_cast<int>(info.height) && pj < static_cast<int>(info.width) &&
+        prior_->data[static_cast<size_t>(pi) * info.width + pj] >= 50)
+      {
+        cut((*it)(0), (*it)(1)) = stair;   // passable at a uniform low cost
+        sb((*it)(0), (*it)(1)) = 0.7f;
+        ++n;
+      }
+    }
+    nav_msgs::msg::OccupancyGrid sg;
+    grid_map::GridMapRosConverter::toOccupancyGrid(map, "stairs_band", 0.0, 1.0, sg);
+    stairs_pub_->publish(sg);
+    if (published_ % 30 == 1) {
+      RCLCPP_INFO(get_logger(), "stairs: %zu registered cells at cost %d", n, stairs_cost_);
+    }
+  }
+
   // Force the cells under the body polygon (grown by body_margin, extended body_tail behind) to free.
+  // lethal (cut == 0) clusters of fewer than min_cells cells (8-connected) -> value (a graded cost, not a wall)
+  void dropSpeckles(grid_map::Matrix & cut, int min_cells, float value)
+  {
+    const int R = static_cast<int>(cut.rows()), C = static_cast<int>(cut.cols());
+    std::vector<uint8_t> seen(static_cast<size_t>(R) * C, 0);
+    std::vector<int> stack, comp;
+    int n_dropped = 0;
+    for (int r = 0; r < R; ++r) {
+      for (int c = 0; c < C; ++c) {
+        const int id = r * C + c;
+        if (seen[id] || cut(r, c) != 0.0f) {
+          continue;
+        }
+        stack.assign(1, id); seen[id] = 1; comp.clear();
+        while (!stack.empty()) {
+          const int k = stack.back(); stack.pop_back(); comp.push_back(k);
+          const int kr = k / C, kc = k % C;
+          for (int dr = -1; dr <= 1; ++dr) {
+            for (int dc = -1; dc <= 1; ++dc) {
+              const int nr = kr + dr, nc = kc + dc;
+              if (nr < 0 || nc < 0 || nr >= R || nc >= C) {
+                continue;
+              }
+              const int nid = nr * C + nc;
+              if (!seen[nid] && cut(nr, nc) == 0.0f) {
+                seen[nid] = 1; stack.push_back(nid);
+              }
+            }
+          }
+        }
+        if (static_cast<int>(comp.size()) < min_cells) {
+          for (int k : comp) {
+            cut(k / C, k % C) = value;
+          }
+          n_dropped += static_cast<int>(comp.size());
+        }
+      }
+    }
+    speckles_dropped_ += n_dropped;
+  }
+
   void clearBody(grid_map::GridMap & map, grid_map::Matrix & cut)
   {
     if (!tf_buffer_) {
@@ -228,8 +328,15 @@ private:
     }
   }
 
+  std::string stairs_output_topic_, stairs_prior_topic_;
+  int stairs_cost_{8};
+  nav_msgs::msg::OccupancyGrid::SharedPtr prior_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr prior_sub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr stairs_pub_;
   std::string input_topic_, output_topic_, layer_, base_layer_, body_frame_;
   double data_min_{1.0}, data_max_{0.0}, threshold_{0.4}, graded_free_{-1.0}, graded_lethal_{-1.0};
+  int lethal_min_cluster_{1}, speckle_cost_{70};
+  long speckles_dropped_{0};
   double body_margin_{0.1}, body_tail_{0.4};
   std::vector<double> body_polygon_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
