@@ -123,6 +123,26 @@ class ElevationMap:
         self.mean_error = 0.0
         self.additive_mean_error = 0.0
 
+    def forget(self, variance):
+        """Soft clear (2026-11-03): keep every height but raise the variance of the valid cells to at least `variance`, so
+        the next measurement passes the Mahalanobis gate and overwrites the cell (Kalman gain ~1). Used on stairs instead of
+        clear(): the stale grazing-angle cells of the other floor go as soon as they are seen again, and the map is never
+        blank in between. `variance` must stay below max_variance or finalize resets the cells to invalid."""
+        with self.map_lock:
+            valid = self.elevation_map[2] > 0.5
+            self.elevation_map[1] = cp.where(valid, cp.maximum(self.elevation_map[1], float(variance)), self.elevation_map[1])
+        return int(cp.count_nonzero(valid))
+
+    def set_time_variance(self, value=None):
+        """Short-memory mode (2026-11-03, RAEM-style sliding window): time_variance is what update_variance adds to every
+        valid cell per call; cells whose variance passes max_variance are reset to invalid by finalize. A large value makes a
+        cell that is not re-observed expire within seconds, so on a staircase the stale grazing-angle cells of the other
+        floor vanish by themselves while everything in view keeps updating. None restores the configured value."""
+        if not hasattr(self, "_time_variance_default"):
+            self._time_variance_default = float(self.param.time_variance)
+        self.param.time_variance = self._time_variance_default if value is None else float(value)
+        return self.param.time_variance
+
     def get_center_position(self, position):
         """Return the position of the map center.
 

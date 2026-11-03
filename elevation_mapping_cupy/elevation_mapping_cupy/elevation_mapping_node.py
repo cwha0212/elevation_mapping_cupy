@@ -445,6 +445,56 @@ class ElevationMappingNode(Node):
             service_clear,
             self.handle_clear_map
         )
+        # forget_map (2026-11-03): soft clear - heights stay, variances are raised so the next observations overwrite
+        if not self.has_parameter('forget_variance'):
+            self.declare_parameter('forget_variance', 50.0)
+        self.forget_variance = float(self.get_parameter('forget_variance').value)
+        self._srv_forget_map = self.create_service(
+            Trigger,
+            self._resolve_service_name('forget_map'),
+            self.handle_forget_map
+        )
+        # stairs_mode (2026-11-03, RAEM-style sliding window): while on, cells not re-observed for stairs_memory_s expire
+        # (time_variance raised so the variance passes max_variance in that time); off restores the configured value
+        if not self.has_parameter('stairs_memory_s'):
+            self.declare_parameter('stairs_memory_s', 2.0)
+        self.stairs_memory_s = float(self.get_parameter('stairs_memory_s').value)
+        from std_srvs.srv import SetBool
+        self._srv_stairs_mode = self.create_service(
+            SetBool,
+            self._resolve_service_name('stairs_mode'),
+            self.handle_stairs_mode
+        )
+
+    def handle_stairs_mode(self, request, response):
+        try:
+            if request.data:
+                tv = float(self.param.max_variance) / max(self.stairs_memory_s * self.update_variance_fps, 1e-6)
+                v = self._map.set_time_variance(tv)
+                response.message = f"short memory on: time_variance {v:g} per update ({self.update_variance_fps:g} Hz) -> unseen cells expire in ~{self.stairs_memory_s:g} s"
+            else:
+                v = self._map.set_time_variance(None)
+                response.message = f"short memory off: time_variance back to {v:g}"
+            response.success = True
+            self.get_logger().info("stairs_mode: " + response.message)
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+            self.get_logger().error(f"stairs_mode failed: {exc}")
+        return response
+
+    def handle_forget_map(self, request, response):
+        del request
+        try:
+            n = self._map.forget(self.forget_variance)
+            response.success = True
+            response.message = f"{n} cells set to variance >= {self.forget_variance:g}"
+            self.get_logger().info(f"forget_map: {n} valid cells now overwritable (variance >= {self.forget_variance:g})")
+        except Exception as exc:
+            response.success = False
+            response.message = str(exc)
+            self.get_logger().error(f"forget_map failed: {exc}")
+        return response
 
     def publish_map(self, key: str) -> None:
         if self._map_q is None:

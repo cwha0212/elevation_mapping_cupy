@@ -142,6 +142,11 @@ if(BUILD_TESTING)
     TIMEOUT 180
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
+  ament_add_pytest_test(test_stair_step_filter
+    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_stair_step_filter.py
+    TIMEOUT 180
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
   # mapping-time stair registration on fixed records (skips when ~/data/haechi_sim/testdata/stairs_records is absent)
   ament_add_pytest_test(test_stairs_fit_regression
     ${CMAKE_CURRENT_SOURCE_DIR}/test/test_stairs_fit_regression.py

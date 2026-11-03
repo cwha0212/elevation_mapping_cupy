@@ -32,7 +32,9 @@ class Reclear(Node):
         self.dz = float(self.declare_parameter("dz", 0.6).value)
         self.min_band = int(self.declare_parameter("min_band", 50).value)
         self.frame = self.declare_parameter("robot_frame", "lidar_frame").value   # 3D pose (base_link hangs off odom_2d: z is always 0)
-        self.service = self.declare_parameter("service", "/elevation_mapping_cupy/clear_map").value
+        # forget_map (2026-11-03): the mapper keeps its heights and only raises the variances, so the stale cells are
+        # overwritten by the next observation instead of the whole 10 m map going blank for a second. clear_map = old way.
+        self.service = self.declare_parameter("service", "/elevation_mapping_cupy/forget_map").value
         self.tf = tf2_ros.Buffer(); self.tfl = tf2_ros.TransformListener(self.tf, self)
         self.radius = float(self.declare_parameter("radius", 0.8).value)
         # arrival on a level (floor, landing, upper floor): height changed >= arrive_dz since the last clear and has been
@@ -47,6 +49,15 @@ class Reclear(Node):
         # and the lidar does not refresh the floor within ~1.5 m of the body, so the stale lethal band seen from the
         # flight stayed right in front of the robot (16 lethal cells -> 202 inscribed, 2026-10-29).
         self.settled_cleared_z = None; self.last_clear_t = -1e9
+        # short-memory mode of the mapper while on a segment (2026-11-03): the map forgets cells it has not re-observed for
+        # stairs_memory_s, so the other floor's stale cells expire by themselves (RAEM rebuilds its local map every cycle;
+        # this is the fused-map equivalent). Switched on when the robot enters a segment, off leave_s after it left.
+        self.mode_service = self.declare_parameter("mode_service", "/elevation_mapping_cupy/stairs_mode").value
+        self.leave_s = float(self.declare_parameter("leave_s", 1.5).value)
+        self.mode_on = False; self.t_off = None
+        if self.mode_service:
+            from std_srvs.srv import SetBool
+            self.cli_mode = self.create_client(SetBool, self.mode_service)
         self.grid = None; self.z_ref = None; self.busy = False; self.n = 0
         # the one "robot is on a stair segment" judgement of the stack (stairs_scan_filter reads it instead of judging again)
         self.on_pub = self.create_publisher(Bool, self.declare_parameter("on_stairs_topic", "/terrain/on_stairs").value, 1)
@@ -75,6 +86,7 @@ class Reclear(Node):
         win = mask[max(0, i - k):max(0, i + k + 1), max(0, j - k):max(0, j + k + 1)]
         on = bool(win.any())
         self.on_pub.publish(Bool(data=on))
+        self.update_mode(on)
         if self.dz <= 0 or self.busy:
             return
         self.get_logger().info("robot (%.2f, %.2f, z %.2f) on stairs %s, z_ref %s" % (
@@ -92,12 +104,34 @@ class Reclear(Node):
         settle_clear = settled and self.settled_cleared_z is None and now - self.last_clear_t >= self.settle_s
         if (abs(p.z - self.z_ref) >= self.dz or arrived or settle_clear) and self.cli.service_is_ready():
             self.busy = True; self.n += 1
-            self.get_logger().info("on stairs, height %+.2f m since last clear%s -> clear_map (#%d)" % (
-                p.z - self.z_ref, " (arrived on a level)" if arrived and abs(p.z - self.z_ref) < self.dz else (" (settled near stairs)" if settle_clear else ""), self.n))
+            self.get_logger().info("on stairs, height %+.2f m since last clear%s -> %s (#%d)" % (
+                p.z - self.z_ref, " (arrived on a level)" if arrived and abs(p.z - self.z_ref) < self.dz else (" (settled near stairs)" if settle_clear else ""),
+                self.service.rsplit("/", 1)[-1], self.n))
             self.z_ref = p.z; self.last_clear_t = now
             if settle_clear:
                 self.settled_cleared_z = p.z
             self.cli.call_async(Trigger.Request()).add_done_callback(lambda f: setattr(self, "busy", False))
+
+    def update_mode(self, on):
+        if not self.mode_service:
+            return
+        now = self.get_clock().now().nanoseconds * 1e-9
+        if on:
+            self.t_off = None
+            if not self.mode_on:
+                self.set_mode(True)
+        elif self.mode_on:
+            self.t_off = self.t_off or now
+            if now - self.t_off >= self.leave_s:
+                self.set_mode(False)
+
+    def set_mode(self, on):
+        from std_srvs.srv import SetBool
+        if not self.cli_mode.service_is_ready():
+            self.get_logger().warn("%s not available" % self.mode_service, throttle_duration_sec=5.0); return
+        self.mode_on = on; self.t_off = None
+        req = SetBool.Request(); req.data = bool(on)
+        self.cli_mode.call_async(req).add_done_callback(lambda f: self.get_logger().info("mapper short memory %s: %s" % ("ON" if on else "off", f.result().message if f.result() else "?")))
 
 
 def main():

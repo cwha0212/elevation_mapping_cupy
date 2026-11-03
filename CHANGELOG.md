@@ -20,6 +20,19 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 - `stairs_fit` 이 `mapping_path.npz`(매핑 궤적 t/t0/lidar, 수십 KB)를 지도 폴더에 남긴다; `terrain_map` 의 swath 규칙과
   haechi_sim 의 bag 평가 도구가 이것을 읽는다. 등록/제외 요약(`flights_walked`, `not_registered_ramp`,
   `not_registered_no_data`)을 로그와 `map_stairs.yaml` 메타에 기록.
+- 오를 수 있는 단은 통행 가능 (2026-11-03, RAEM arXiv 2608.25366 의 원리): 플러그인 `stair_step_filter`(레이어 `stairlike`)가
+  발 크기 창(0.25 m) 안의 표면이 두 층으로 나뉘고(분산/(span²/4) ≥ 0.5) 그 차가 `step_climb` 0.20 m 이하이며 두 디딤판
+  길이(0.65 m)로 맞춘 평면의 기울기가 35° 이하인 셀을 1 로 표시하고, `drivability_filter` 가 그 셀의 점수를 `override_value`
+  0.5 로 올린다(terrain grid 임계 0.4 → 자유). 0.05 m 격자에서 riser 를 59° 경사·거친 표면으로 읽어 치명이 되던 것을 바로잡는다.
+  합성 검증(`tests/test_stair_step_filter.py`): 30° 계단 비주행 67 % → 2 %, 0.5 m 턱·45° 경사·풀·바닥은 변화 없음.
+- `elevation_mapping_cupy/forget_map` 서비스(파라미터 `forget_variance` 50): 높이는 두고 유효 셀의 분산만 올려 다음 관측이
+  Mahalanobis 게이트를 지나 바로 덮어쓰게 한다(soft clear). `stairs_reclear` 의 기본 서비스를 `clear_map` 에서 이것으로 바꿨다
+  (stairs.yaml `service`). 단독으로는 부족했다(1F 하강: 위에서 비스듬히 본 아래층의 오래된 치명 셀이 다시 관측되기 전까지
+  로봇 앞에 남아 복구 2회) — 그래서 아래 짧은 기억 모드를 함께 쓴다.
+- `elevation_mapping_cupy/stairs_mode` 서비스(SetBool, 파라미터 `stairs_memory_s` 2.0): 켜면 `time_variance` 를
+  `max_variance / (stairs_memory_s × update_variance_fps)` 로 올려 **재관측되지 않은 셀이 약 2 초 만에 만료**(finalize 가
+  무효화)되고 보이는 셀은 계속 갱신된다 — RAEM(arXiv 2608.25366)이 로컬 지도를 매 주기 새로 만드는 것의 융합 지도판.
+  `stairs_reclear` 가 구간 진입 시 켜고 이탈 `leave_s` 1.5 s 뒤 끈다(stairs.yaml `mode_service`). 지도를 통째로 비우는 일은 없다.
 - `test/test_stairs_fit_regression.py`: 고정 기록(1F sim·bag_live 6 flight/2 계단, ds1020 0)으로 등록 회귀 시험(colcon test 등록).
 ### Changed
 - `stairs_record.npz` 는 임시 파일: fit 이 성공하면 삭제하고(`--delete_record`), 실패하면 오프라인 재맞춤용으로 남긴다.

@@ -76,7 +76,10 @@ stairs_scan_filter:
 # ---- navigation: re-clear the elevation map on height change, publish /terrain/on_stairs
 stairs_reclear:
   ros__parameters:
-    dz: 0.6                # clear_map every this much height change on a segment [m] (<= 0: off)
+    service: /elevation_mapping_cupy/forget_map   # soft clear: heights stay, variances raised (2026-11-03); /elevation_mapping_cupy/clear_map = blank the map
+    mode_service: /elevation_mapping_cupy/stairs_mode   # short-memory mode of the mapper while on a segment ('' = off); memory length = mapper stairs_memory_s
+    leave_s: 1.5           # short memory switched off this long after the robot left the segment
+    dz: 0.6                # forget/clear every this much height change on a segment [m] (<= 0: off)
     radius: 0.8            # "on a segment" = a stair cell within this of the robot [m]
     min_band: 50
     arrive_dz: 0.3         # arrival on a level: >= this since the last clear and settled

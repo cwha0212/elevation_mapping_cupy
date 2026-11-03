@@ -32,6 +32,25 @@ roughness_filter:
   extra_params:
     window_size: 5
     min_valid_count: 6
+# Climbable steps are traversable (2026-11-03, RAEM-style): one riser of <= step_climb between two levels with a coarse
+# slope <= slope_max_deg is a step the quadruped walks, whatever slope/roughness say about it. drivability lifts those
+# cells to override_value (0.5 -> safety 0.5 >= grid_threshold 0.4 -> free in the terrain grid). Walls, ledges, rubble
+# and vegetation fail the span / two-level tests and keep their verdict. See stair_step_filter.py. Synthetic check: a
+# 30 deg flight 67 % condemned -> 2 %, a 0.5 m ledge, a 45 deg ramp, vegetation and flat floor unchanged.
+stair_step_filter:
+  enable: True
+  fill_nan: False
+  is_height_layer: False
+  layer_name: "stairlike"                   # 1 climbable step, 0 not, NaN unobserved
+  extra_params:
+    window_size: 5                          # 0.25 m: at most one riser of a 0.3 m tread
+    median_size: 3
+    coarse_window: 13                       # 0.65 m plane: two treads -> the flight's own slope (30 deg), not the riser's
+    step_climb: 0.20                        # D1 MaxPro stepped 0.174 m (2026-10-29); walls / ledges are taller
+    span_min: 0.06                          # below: flat noise, the normal filters decide
+    slope_max_deg: 35.0
+    bimodal_min: 0.5                        # two-level ratio (1 = even split, 1/3 = heights spread evenly)
+    min_valid_count: 10
 drivability_filter:
   enable: True
   fill_nan: False
@@ -56,6 +75,8 @@ drivability_filter:
     # off-route cells (step p95 0.18 m, roughness p95 0.043). A 0.12 m curb
     # passes this geometry; the roadway stays the semantic layer's job.
     limits: [45.0, 0.30, 0.08]
+    override_layer: "stairlike"             # climbable steps: score raised to override_value (2026-11-03)
+    override_value: 0.5
 semantic_safety_filter:
   enable: True
   fill_nan: False
