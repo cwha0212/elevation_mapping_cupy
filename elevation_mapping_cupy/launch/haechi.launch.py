@@ -90,7 +90,7 @@ def generate_launch_description():
         "['", plugin_config_path, "']",
         " + (['", gait_config_path, "'] if ", gait_on, " else [])"])
     terrain_layers = PythonExpression([
-        "['elevation', 'variance', 'slope', 'step', 'roughness', 'drivability', 'safety']"
+        "['elevation', 'variance', 'slope', 'step', 'roughness', 'stairlike', 'drivability', 'safety']"
         " + (['stairs', 'ramp', 'drop'] if ", gait_on, " else []) if ", audit_on,
         " else (['slope', 'drivability', 'safety', 'stairs', 'drop'] if ", gait_on,
         " else ['drivability', 'safety'])"])
