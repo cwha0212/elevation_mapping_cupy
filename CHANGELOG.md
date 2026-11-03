@@ -8,10 +8,29 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 
 ## [Unreleased]
 ### Added
+- `haechi_terrain` 파이썬 패키지(2026-11-03): 계단 등록 `stairs_fit`, 계단 래스터 `stairs_raster`, 지형 2D 지도 병합 `terrain_map`,
+  공용 수치 `config`. 스크립트 5개(`stairs_fit.py`, `stairs_prior_publisher.py`, `terrain_map_merge.py`, `stairs_prior_recorder.py`,
+  `terrain_map_loader.py`, `terrain_prior_recorder.py`)가 서로 `importlib` 로 파일을 직접 읽던 것을 패키지 import 로 바꿨다.
+- `config/setups/haechi/stairs.yaml`: 계단 파이프라인의 수치를 한 파일에. `haechi.launch.py` 가 노드 4개(recorder, publisher,
+  scan filter, reclear)에 파라미터 파일로 넘기고 `terrain_grid_node` 의 `stairs_cost`/`speckle_cost` 도 여기서 읽는다;
+  `stairs_fit`/`terrain_map` 은 `haechi_terrain.config` 로 fit/merge 절을 읽는다. 런치 인자 `stairs_end_margin`, `stairs_reclear_dz` 는
+  이 파일로 흡수(삭제).
+- `stairs_reclear` 가 `/terrain/on_stairs`(Bool, 5 Hz)를 발행: "로봇이 계단 구간 위"라는 판정은 이 한 곳에서만 하고
+  `stairs_scan_filter` 는 이를 구독한다(각자 0.8 m 창으로 따로 판정하던 것 제거).
+- `stairs_fit` 이 `mapping_path.npz`(매핑 궤적 t/t0/lidar, 수십 KB)를 지도 폴더에 남긴다; `terrain_map` 의 swath 규칙과
+  haechi_sim 의 bag 평가 도구가 이것을 읽는다. 등록/제외 요약(`flights_walked`, `not_registered_ramp`,
+  `not_registered_no_data`)을 로그와 `map_stairs.yaml` 메타에 기록.
+- `test/test_stairs_fit_regression.py`: 고정 기록(1F sim·bag_live 6 flight/2 계단, ds1020 0)으로 등록 회귀 시험(colcon test 등록).
 ### Changed
+- `stairs_record.npz` 는 임시 파일: fit 이 성공하면 삭제하고(`--delete_record`), 실패하면 오프라인 재맞춤용으로 남긴다.
+  `stairs_fit.log` 는 fit 자신이 yaml 과 같은 실행에서 쓴다(오프라인 재실행도 같음; 기록기는 `stairs_fit.err` 로 크래시만 받음).
+- `terrain_global_node.forget_s` 가 벽시계 대신 노드 시계(`get_clock`)를 쓴다 — bag 재생/시뮬(`use_sim_time`)에서도 실기와
+  같은 의미. 런치가 float 로 고정해 넘기므로 `dynamic_typing` 땜질 제거.
 - `HAECHI_BOARD.md` 7절: dev02(PulseOS R36.5.0) 실측 — GPU 클럭 unpin 이 하드 리셋(2회)과 매핑 odom 지연의 원인.
   elevation 만 쓸 때는 PulseOS 기본 고정(918 MHz)을 유지한다. 고정 상태 매핑+elevation 60분: 재시작 0, odom gap 0.
 ### Removed
+- `stairs_reclear` 의 controller hold(계단 위에서 Nav2 `FollowPath` 의 vy/vx/wz/PathAlign 파라미터를 런타임에 바꾸던 것, 2026-10-29):
+  elevation 은 Nav2 파라미터를 건드리지 않는다. 계단 위 속도·보행 제한은 Nav2 쪽 설정의 일이다(2026-11-03 결정).
 ### Fixed
 - `terrain_global_node.py` / `terrain_prior_recorder.py`: 새 `judge_radius`(기본 4.0 m, 런치 인자 동일 이름). 롤링 맵
   창 중심(로봇)에서 이 거리 밖의 셀은 믿지 않는다 — 바깥 링은 라이다가 스치듯 맞아 프레임의 1 %만 유효하고 그때마다
