@@ -10,8 +10,8 @@ dilated by dilate_cells. +inf (not NaN) because the collision monitor ignores ou
 layer (inf_is_valid: true) uses them as clearing rays, so marks left from before the flight was recognised are wiped.
 On a stair segment the 2D scan itself is unreliable: its height band is fixed in odom_2d (not relative to the ground
 under the robot) and patchwork's ground fit breaks on the steps, so from flight A-1 the whole lower floor (z -0.73, at
-the band edge) came through as obstacles and the global planner found no path down (sim D1, 2026-10-29). So while the
-robot itself stands in the stairs mask (defer_on_stairs), beams ending on a cell the terrain grid calls traversable
+the band edge) came through as obstacles and the global planner found no path down (sim D1, 2026-10-29). So while
+stairs_reclear reports the robot on a stair segment (/terrain/on_stairs; defer_on_stairs), beams ending on a cell the terrain grid calls traversable
 (/terrain/local_grid < free_below) are dropped as well: the elevation map, which judges height relative to the ground,
 decides there; walls and other cells it keeps lethal still pass.
 Everything else passes untouched; with no fresh stairs grid (stale_s) the scan is republished unchanged, so Nav2
@@ -31,6 +31,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, qos_profile_sensor_data
 from scipy import ndimage
 from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Bool
 import tf2_ros
 
 
@@ -49,6 +50,10 @@ class StairsScanFilter(Node):
         self.terrain_topic = self.declare_parameter("terrain_topic", "/terrain/local_grid").value
         self.terrain = None
         self.n_defer = 0
+        # "robot on a stair segment" is judged once, by stairs_reclear (/terrain/on_stairs, 5 Hz); stale -> not on stairs
+        self.on_stairs = (0.0, False)
+        self.create_subscription(Bool, self.declare_parameter("on_stairs_topic", "/terrain/on_stairs").value,
+                                 lambda m: setattr(self, "on_stairs", (self.now_s(), bool(m.data))), 1)
         self.tf = tf2_ros.Buffer(); self.tfl = tf2_ros.TransformListener(self.tf, self)
         self.masks = {}                                    # topic -> (stamp_s, mask, ox, oy, res)
         self.create_subscription(OccupancyGrid, self.stairs_topic, lambda m: self.on_grid(m, "local"), 1)
@@ -114,13 +119,10 @@ class StairsScanFilter(Node):
                 X = t.transform.translation.x + math.cos(yaw) * ex - math.sin(yaw) * ey
                 Y = t.transform.translation.y + math.sin(yaw) * ex + math.cos(yaw) * ey
                 drop = np.zeros(len(r), bool)
-                on_stairs = False
-                rx, ry = t.transform.translation.x, t.transform.translation.y
                 for _, mask, ox, oy, res, _f in live:
                     drop |= fin & self.lookup(mask, ox, oy, res, X, Y)
-                    # robot's own cells are unobserved (-1): any stair cell within 0.8 m counts as "on stairs"
-                    k = int(np.ceil(0.8 / res)); ci = int(np.floor((ry - oy) / res)); cj = int(np.floor((rx - ox) / res))
-                    on_stairs |= bool(mask[max(0, ci - k):max(0, ci + k + 1), max(0, cj - k):max(0, cj + k + 1)].any())
+                t_on, on_stairs = self.on_stairs
+                on_stairs = on_stairs and (self.now_s() - t_on <= self.stale_s)
                 if self.defer and on_stairs:
                     if self.map is not None:              # keep only beams that end on a map wall
                         wmask, mox, moy, mres = self.map

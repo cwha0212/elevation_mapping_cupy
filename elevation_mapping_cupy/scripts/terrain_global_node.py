@@ -28,7 +28,6 @@ Parameters
                       Prior cells >= 100 (the SLAM walls copied into the bake) are dropped and left to /map.
 """
 import os
-import time
 
 import numpy as np
 import rclpy
@@ -47,8 +46,7 @@ class TerrainGlobal(Node):
         # 1 Hz: the grid is the full /map (2.6 MB for ds1020 at 0.05 m); 2 Hz overflowed the UDP receive buffer of reliable
         # subscribers sharing the host (RcvbufErrors, 100 s stalls, 2026-10-21) and the global costmap only updates at 1 Hz.
         self.declare_parameter("rate_hz", 1.0)
-        from rcl_interfaces.msg import ParameterDescriptor
-        self.declare_parameter("forget_s", 0.0, ParameterDescriptor(dynamic_typing=True))   # launch may hand over an int (30)
+        self.declare_parameter("forget_s", 0.0)
         self.declare_parameter("lethal_votes", 2)
         # Value published for lethal terrain in the GLOBAL grid. 99 (default): StaticLayer (trinary off) scales it to 251,
         # below the inscribed 253 that NavFn treats as a wall, so the planner routes AROUND terrain at high cost but a
@@ -170,7 +168,7 @@ class TerrainGlobal(Node):
             tv[upd] = np.maximum(tv[upd], agg[upd]).astype(np.int8)
         else:
             tv[upd] = agg[upd].astype(np.int8)
-        self.seen.ravel()[upd] = time.time()
+        self.seen.ravel()[upd] = self.now_s()
         # Inside the current window the local map is the truth: cells it now reports UNKNOWN lose their memory,
         # otherwise a lethal cell written while the LIO was still initialising (before clear_map) stays forever
         # and walls the start in (GUI run 2026-10-20 17:40: 67 lethal cells within 0.8 m, NavFn found no path).
@@ -180,6 +178,10 @@ class TerrainGlobal(Node):
         unk = wflat[agg[wflat] < 0]
         tv[unk] = -1
         self.n_in += 1
+
+    def now_s(self):
+        """Node clock: wall time on the robot, /clock in a bag replay or the sim, so forget_s means the same everywhere."""
+        return self.get_clock().now().nanoseconds * 1e-9
 
     def on_reset(self, req, res):
         """Forget the accumulated LIVE terrain (called with the elevation map's clear_map, e.g. after the SLAM init pose); the prior stays."""
@@ -194,7 +196,7 @@ class TerrainGlobal(Node):
             return
         terr = self.terr
         if self.forget > 0:
-            stale = (self.seen > 0) & (time.time() - self.seen > self.forget)
+            stale = (self.seen > 0) & (self.now_s() - self.seen > self.forget)
             terr = np.where(stale, -1, terr)
         # Walls stay walls (2026-10-29): with plain 'live > prior > /map' the wall foot, judged graded at a grazing angle,
         # and the capped prior (89) replaced the SLAM wall (100) - on the 1f map only 57 % of the SLAM wall cells were
