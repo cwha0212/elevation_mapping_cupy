@@ -142,7 +142,7 @@ class PriorRecorder(Node):
         return True, msg
 
     def _merge_map(self):
-        """map_terrain.png/yaml on the SLAM map geometry (terrain_map_merge.py next to this script), if map.yaml is there."""
+        """map_terrain.png/yaml on the SLAM map geometry (haechi_terrain.terrain_map), if map.yaml is there."""
         if not self.get_parameter("merge_map").value:
             return ""
         map_yaml = os.path.join(self.out_dir, str(self.get_parameter("merge_map_yaml").value))
@@ -150,11 +150,8 @@ class PriorRecorder(Node):
             self.get_logger().info("no %s yet: run terrain_map_merge.py %s once the SLAM 2D map is saved" % (map_yaml, self.out_dir))
             return "; map_terrain not written (no %s)" % os.path.basename(map_yaml)
         try:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(
-                "terrain_map_merge", os.path.join(os.path.dirname(os.path.abspath(__file__)), "terrain_map_merge.py"))
-            mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-            mod.merge_terrain_map(map_yaml, os.path.join(self.out_dir, "map_terrain_prior.yaml"),
+            from haechi_terrain.terrain_map import merge_terrain_map
+            merge_terrain_map(map_yaml, os.path.join(self.out_dir, "map_terrain_prior.yaml"),
                                   os.path.join(self.out_dir, "map_terrain"), cap=self.cap, log=self.get_logger().info)
             return "; map_terrain.png/yaml written"
         except Exception as e:                  # noqa: BLE001 - the prior is saved either way

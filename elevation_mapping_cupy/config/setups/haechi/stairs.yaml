@@ -1,0 +1,85 @@
+# The stairs pipeline's numbers, in ONE place (2026-11-03). haechi.launch.py hands this file to the nodes as a ROS
+# parameter file (a value here is the node's default; a launch argument still overrides what it names) and reads the
+# terrain_grid_node section for the C++ node. The plain-python parts (haechi_terrain.stairs_fit / terrain_map) read the
+# stairs_fit / terrain_map_merge sections through haechi_terrain.config. HAECHI_STAIRS_YAML=<file> points everything at
+# another copy. Every top-level key must look like a node with ros__parameters (rcl's parser refuses anything else).
+#
+# Mapping (prior_record:=true stairs_record:=true)   stairs_prior_recorder -> stairs_fit -> map_stairs.yaml, map_terrain.*
+# Navigation (stairs:=true stairs_map:=<map>/map_stairs.yaml)   stairs_prior_publisher -> terrain_grid_node (stairs_cost),
+#                                                              stairs_scan_filter (/scan -> /scan_nav), stairs_reclear
+
+# ---- mapping: record the trajectory + accumulated 5 cm voxels while the operator drives
+stairs_prior_recorder:
+  ros__parameters:
+    voxel: 0.05            # accumulation voxel [m]
+    max_range: 12.0        # points farther than this from the robot are not accumulated [m]
+    min_range: 0.3
+    merge_every: 20        # clouds per sorted merge
+    max_tf_age: 0.15       # TF map<-lidar older than this for a cloud stamp: cloud skipped [s]
+    prune_every: 10        # merges between prunes (memory bound: keep voxels near the stair traversals found so far)
+    keep_recent_s: 60.0
+    keep_r: 4.0
+    run_fit: true          # start stairs_fit at save
+
+# ---- mapping: the fit (haechi_terrain.stairs_fit DEFAULTS; sensor_height comes from the record). Not a ROS node.
+stairs_fit:
+  ros__parameters:
+    min_slope: 0.2         # |dz/ds| of the trajectory foot height that makes a stretch a stair traversal
+    min_run: 0.6           # ... over at least this arc length [m]
+    rise_min: 0.10         # accepted riser height range [m]
+    rise_max: 0.22
+    tread_min: 0.22        # accepted tread range [m]
+    tread_max: 0.55
+    blur: 0.15             # the lidar's voxel size the staircase profile is blurred by [m]
+    rise_prior: 0.165      # riser prior when the data cannot decide n [m]
+    n_tol: 0.05
+    stair_margin: 0.05
+    clearance: 0.30        # points higher than this above the local surface are not ground [m]
+    ramp_mad_min: 0.010    # a lane profile a straight line explains to within this is a plain ramp, not stairs [m]
+
+# ---- mapping: bake into map_terrain (haechi_terrain.terrain_map.merge_terrain_map). Not a ROS node.
+terrain_map_merge:
+  ros__parameters:
+    cap: 89                # terrain prior cost cap in the 2D map (never a wall)
+    stairs_cost: 8         # registered stair cells (flight centreline) in map_terrain; = terrain_grid_node.stairs_cost
+    lane_edge: 45          # cost at the lateral edge of a flight (NavFn keeps the path in the middle)
+    lateral_margin: 0.0    # the global map writes the full measured width; the local grid (publisher) keeps its own margin
+    speckle_cells: 20      # SLAM occupied clusters up to this size with prior <= speckle_prior_max are dropped
+    speckle_prior_max: 60
+    swath_r: 0.23          # SLAM occupied cells within this of the mapping trajectory are not walls [m]
+
+# ---- navigation: map_stairs.yaml -> OccupancyGrid for terrain_grid_node / the scan filter
+stairs_prior_publisher:
+  ros__parameters:
+    res: 0.05
+    end_margin: 1.0        # segment extends this far beyond the staircase foot and top exit [m]
+    max_landing: 2.5       # landings shorter than this between two flights belong to the segment [m]
+    flight_margin: 0.3     # every flight extended this far along its axis at both ends [m]
+    lateral_margin: 0.25   # measured width shrunk by this on each side (the wall foot is never stairs) [m]
+    wall_margin: 0.15      # SLAM wall cells dilated by this are cut out of the segment [m]
+
+# ---- navigation: terrain_grid_node (C++; haechi.launch.py reads these and passes them as node parameters)
+terrain_grid_node:
+  ros__parameters:
+    stairs_cost: 8         # local grid value of a registered stair cell (0-99); launch arg stairs_cost overrides
+    speckle_cost: 70       # lethal clusters smaller than terrain_speckle_min cells become this cost
+
+# ---- navigation: /scan -> /scan_nav
+stairs_scan_filter:
+  ros__parameters:
+    min_band: 50           # stairs grid value that counts as stairs
+    dilate_cells: 2        # stairs mask grown by this many cells before the beam test
+    stale_s: 1.0           # no stairs grid / on_stairs newer than this: scan passes unchanged
+    defer_on_stairs: true  # on a segment, beams not ending on a map wall are dropped (the 2D band is unreliable there)
+    free_below: 50
+
+# ---- navigation: re-clear the elevation map on height change, publish /terrain/on_stairs
+stairs_reclear:
+  ros__parameters:
+    dz: 0.6                # clear_map every this much height change on a segment [m] (<= 0: off)
+    radius: 0.8            # "on a segment" = a stair cell within this of the robot [m]
+    min_band: 50
+    arrive_dz: 0.3         # arrival on a level: >= this since the last clear and settled
+    settle_s: 2.0
+    settle_band: 0.03
+    robot_frame: lidar_frame

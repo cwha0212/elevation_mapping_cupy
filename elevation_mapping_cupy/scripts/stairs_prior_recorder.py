@@ -5,9 +5,9 @@ While the operator drives the robot and NAVI maps, this node keeps
   - the robot's 3D trajectory: TF map <- cloud frame (lidar_frame) at every cloud stamp
   - the clouds (/points/merged_deskewed) accumulated in map coordinates as 5 cm voxels within max_range of the robot:
     centroid, point count, number of clouds that saw the voxel, first/last time seen
-On save (Trigger ~/save, or at shutdown when save_on_shutdown) it writes <out_dir>/stairs_record.npz and starts
-stairs_fit.py on it in a detached process (the fit takes ~20 s on the 334 s / 6-flight 2026-10-27 bag, longer than
-launch waits at shutdown), which writes
+On save (Trigger ~/save, or at shutdown when save_on_shutdown) it writes <out_dir>/stairs_record.npz (a temporary file,
+removed by the fit on success, kept for an offline refit on failure) and starts stairs_fit.py on it in a detached
+process (the fit takes ~20 s on the 334 s / 6-flight 2026-10-27 bag, longer than launch waits at shutdown), which writes
   <out_dir>/map_stairs.yaml   flights (map frame: first riser, axis, lateral extent, n, rise, tread, levels) + staircases
   <out_dir>/map_stairs.png    review figure: top view of the registered flights + per-flight section with the fitted steps
 The navigation stack loads map_stairs.yaml through stairs_prior_publisher.py (stairs:=true stairs_map:=...).
@@ -216,9 +216,8 @@ class StairsRecorder(Node):
 
     def _stairs_fit(self):
         if not hasattr(self, "_sf"):
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("stairs_fit", os.path.join(os.path.dirname(os.path.realpath(__file__)), "stairs_fit.py"))
-            self._sf = importlib.util.module_from_spec(spec); spec.loader.exec_module(self._sf)
+            from haechi_terrain import stairs_fit
+            self._sf = stairs_fit
         return self._sf
 
     def _merge(self):
@@ -257,11 +256,13 @@ class StairsRecorder(Node):
         msg = "stairs record saved: %s (%d poses, %d voxels, z %.2f .. %.2f)" % (path, len(tr), int(keep.sum()), tr[:, 3].min(), tr[:, 3].max())
         self.get_logger().info(msg); self.saved = True
         if self.run_fit:
+            # the fit writes stairs_fit.log itself (same run as the yaml); stairs_fit.err only catches a crash. The record
+            # is a temporary file: the fit removes it when it succeeds and keeps it when it fails (refit offline).
             fit = os.path.join(os.path.dirname(os.path.realpath(__file__)), "stairs_fit.py")
-            log = open(os.path.join(self.out_dir, "stairs_fit.log"), "w")
-            subprocess.Popen([sys.executable, fit, "--record", path, "--out", self.out_dir], stdout=log, stderr=subprocess.STDOUT,
-                             stdin=subprocess.DEVNULL, start_new_session=True)
-            msg += "; stairs_fit.py started (map_stairs.yaml/png, log stairs_fit.log)"
+            err = open(os.path.join(self.out_dir, "stairs_fit.err"), "w")
+            subprocess.Popen([sys.executable, fit, "--record", path, "--out", self.out_dir, "--delete_record"], stdout=subprocess.DEVNULL,
+                             stderr=err, stdin=subprocess.DEVNULL, start_new_session=True)
+            msg += "; stairs_fit.py started (map_stairs.yaml/png, log stairs_fit.log; the record is removed on success)"
         return True, msg
 
     def on_save(self, req, res):

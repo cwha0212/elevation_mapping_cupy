@@ -43,6 +43,7 @@ ament_target_dependencies(terrain_grid_node
 install(TARGETS terrain_grid_node DESTINATION lib/${PROJECT_NAME})
 
 ament_python_install_package(${PROJECT_NAME})
+ament_python_install_package(haechi_terrain)   # stairs_fit / stairs_raster / terrain_map / config (plain python, used by the scripts)
 
 install(PROGRAMS
   scripts/elevation_mapping_node.py
@@ -139,6 +140,12 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_stairs_detect
     ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_stairs_detect.py
     TIMEOUT 180
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+  )
+  # mapping-time stair registration on fixed records (skips when ~/data/haechi_sim/testdata/stairs_records is absent)
+  ament_add_pytest_test(test_stairs_fit_regression
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_stairs_fit_regression.py
+    TIMEOUT 600
     ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
   )
 

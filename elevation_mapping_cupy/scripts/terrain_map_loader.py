@@ -15,7 +15,6 @@ haechi.launch.py when terrain_prior is non-empty; without a prior nothing runs a
                    reload_cooldown_s so two loaders can never fight.
   retry_s          period of the service wait / retry while map_server is not up or the load fails
 """
-import importlib.util
 import os
 import time
 
@@ -62,14 +61,13 @@ class TerrainMapLoader(Node):
 
     # ---- helpers ----
     def _build(self, yml, prior):
-        """map_terrain.yaml missing: make it from <dir>/map.yaml + the prior (terrain_map_merge.py next to this script)."""
+        """map_terrain.yaml missing: make it from <dir>/map.yaml + the prior (haechi_terrain.terrain_map)."""
         d = os.path.dirname(yml); map_yaml = os.path.join(d, "map.yaml")
         if not os.path.isfile(map_yaml) or not os.path.isfile(prior):
             self.get_logger().warn("cannot build %s: need %s and %s" % (yml, map_yaml, prior)); return
         try:
-            spec = importlib.util.spec_from_file_location("terrain_map_merge", os.path.join(os.path.dirname(os.path.abspath(__file__)), "terrain_map_merge.py"))
-            mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-            mod.merge_terrain_map(map_yaml, prior, os.path.splitext(yml)[0], log=self.get_logger().info)
+            from haechi_terrain.terrain_map import merge_terrain_map
+            merge_terrain_map(map_yaml, prior, os.path.splitext(yml)[0], log=self.get_logger().info)
         except Exception as e:                      # noqa: BLE001
             self.get_logger().error("terrain_map_merge failed: %s" % e)
 

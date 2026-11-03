@@ -19,6 +19,8 @@ both.
 import math
 import os
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -26,6 +28,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 # T_lidarframe_camera. Degrees here, radians at the call site -- the same
 # convention navi_lidar's robot profiles use.
@@ -69,6 +72,10 @@ def generate_launch_description():
     # naming a plugin layer would change the map, not just the traffic.
     plugin_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config.yaml")
     gait_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config_gait.yaml")
+    # every number of the stairs pipeline (recorder, fit, bake, publisher, scan filter, reclear, terrain_grid stairs cost)
+    stairs_yaml = os.path.join(share_dir, "config", "setups", "haechi", "stairs.yaml")
+    with open(stairs_yaml) as f:
+        stairs_cfg = yaml.safe_load(f) or {}
     for path in (core_param_path, robot_param_path, plugin_config_path, gait_config_path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Config file {path} does not exist")
@@ -164,7 +171,6 @@ def generate_launch_description():
     # mapper's body cut / leg ring / standing prior and the terrain grid's under-body clearing.
     body_polygon, sensor_height = [], 0.74
     try:
-        import yaml
         robot = os.environ.get("ROBOT_TYPE", "").strip() or "haechi"
         prof_path = os.path.join(get_package_share_directory("navi_lidar"), "config", "profile", robot + ".yaml")
         with open(prof_path) as f:
@@ -239,6 +245,7 @@ def generate_launch_description():
                 "stairs_prior_topic": stairs_prior,
                 "stairs_cost": LaunchConfiguration("stairs_cost"),
                 "lethal_min_cluster": LaunchConfiguration("terrain_speckle_min"),
+                "speckle_cost": int(stairs_cfg["terrain_grid_node"]["ros__parameters"]["speckle_cost"]),
             }
         ],
     )
@@ -249,8 +256,8 @@ def generate_launch_description():
         name="stairs_scan_filter",
         output="screen",
         condition=IfCondition(LaunchConfiguration("stairs")),
-        parameters=[{"use_sim_time": use_sim_time, "scan_in": LaunchConfiguration("scan_in"),
-                     "scan_out": LaunchConfiguration("scan_out")}],
+        parameters=[stairs_yaml, {"use_sim_time": use_sim_time, "scan_in": LaunchConfiguration("scan_in"),
+                                  "scan_out": LaunchConfiguration("scan_out")}],
     )
 
     stairs_prior_publisher = Node(
@@ -259,8 +266,7 @@ def generate_launch_description():
         name="stairs_prior_publisher",
         output="screen",
         condition=IfCondition(stairs_map_on),
-        parameters=[{"use_sim_time": use_sim_time, "stairs_map": LaunchConfiguration("stairs_map"),
-                     "end_margin": LaunchConfiguration("stairs_end_margin")}],
+        parameters=[stairs_yaml, {"use_sim_time": use_sim_time, "stairs_map": LaunchConfiguration("stairs_map")}],
     )
 
     # MAPPING: register the stairs the robot walks (trajectory + accumulated clouds -> map_stairs.yaml/png in prior_out_dir)
@@ -271,7 +277,8 @@ def generate_launch_description():
         output="screen",
         condition=IfCondition(PythonExpression(["'", LaunchConfiguration("prior_record"), "'.lower() in ('true','1') and '",
                                                 LaunchConfiguration("stairs_record"), "'.lower() in ('true','1')"])),
-        parameters=[{"use_sim_time": use_sim_time, "out_dir": LaunchConfiguration("prior_out_dir")}],
+        parameters=[stairs_yaml, {"use_sim_time": use_sim_time, "out_dir": LaunchConfiguration("prior_out_dir"),
+                                  "sensor_height": sensor_height}],
     )
 
     stairs_reclear = Node(
@@ -280,7 +287,7 @@ def generate_launch_description():
         name="stairs_reclear",
         output="screen",
         condition=IfCondition(LaunchConfiguration("stairs")),
-        parameters=[{"use_sim_time": use_sim_time, "dz": LaunchConfiguration("stairs_reclear_dz")}],
+        parameters=[stairs_yaml, {"use_sim_time": use_sim_time}],
     )
 
     # Global memory of the terrain grid on the Nav2 map geometry (merged with /map) for the GLOBAL costmap: the
@@ -295,7 +302,7 @@ def generate_launch_description():
                      "output_topic": "/terrain/global_grid", "mode": "last", "rate_hz": 1.0,
                      "merge": LaunchConfiguration("global_merge"), "prior_file": LaunchConfiguration("terrain_prior"),
                      "judge_radius": LaunchConfiguration("judge_radius"),
-                     "forget_s": LaunchConfiguration("terrain_forget_s")}],
+                     "forget_s": ParameterValue(LaunchConfiguration("terrain_forget_s"), value_type=float)}],
     )
 
     # LOCALIZATION with a terrain prior: replace Nav2's 2D map with map_terrain.yaml from the prior's folder (SLAM walls +
@@ -452,15 +459,12 @@ def generate_launch_description():
                                               "/terrain/local_grid, publish /terrain/stairs_grid, run the scan filter (/scan -> /scan_nav). Independent of gait."),
             DeclareLaunchArgument("stairs_prior_topic", default_value="",
                                   description="OccupancyGrid of known flights (>= 50 = stairs), e.g. the sim oracle /terrain/stairs_prior."),
-            DeclareLaunchArgument("stairs_cost", default_value="8", description="Grid value of a stair cell (0-99)."),
+            DeclareLaunchArgument("stairs_cost", default_value=str(stairs_cfg["terrain_grid_node"]["ros__parameters"]["stairs_cost"]),
+                                  description="Grid value of a stair cell (0-99); default from config/setups/haechi/stairs.yaml."),
             DeclareLaunchArgument("stairs_map", default_value="",
                                   description="map_stairs.yaml registered at mapping time: published as the stairs prior (stairs:=true)."),
-            DeclareLaunchArgument("stairs_end_margin", default_value="1.0",
-                                  description="Stair segment extends this far beyond the foot and the top exit [m]."),
             DeclareLaunchArgument("stairs_record", default_value="true",
                                   description="With prior_record:=true also register the walked stairs (map_stairs.yaml/png in prior_out_dir)."),
-            DeclareLaunchArgument("stairs_reclear_dz", default_value="0.6",
-                                  description="On a stair segment, clear the elevation map every this many m of robot height change (0 = off)."),
             DeclareLaunchArgument("terrain_forget_s", default_value="0.0",
                                   description="terrain_global_node: a live terrain cell not re-seen for this long falls back to the map (0 = keep forever)."),
             DeclareLaunchArgument("terrain_speckle_min", default_value="1",
