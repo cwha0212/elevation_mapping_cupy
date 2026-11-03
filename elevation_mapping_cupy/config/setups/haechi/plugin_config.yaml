@@ -46,7 +46,7 @@ stair_step_filter:
     window_size: 5                          # 0.25 m: at most one riser of a 0.3 m tread
     median_size: 3
     coarse_window: 13                       # 0.65 m plane: two treads -> the flight's own slope (30 deg), not the riser's
-    step_climb: 0.20                        # D1 MaxPro stepped 0.174 m (2026-10-29); walls / ledges are taller
+    step_climb: 0.30                        # platform envelope 30 cm stairs (user 2026-11-03; the D1 stepped 0.174 m in the sim); walls / ledges are taller
     span_min: 0.06                          # below: flat noise, the normal filters decide
     slope_max_deg: 35.0
     bimodal_min: 0.5                        # two-level ratio (1 = even split, 1/3 = heights spread evenly)

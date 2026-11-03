@@ -123,25 +123,26 @@ class ElevationMap:
         self.mean_error = 0.0
         self.additive_mean_error = 0.0
 
-    def forget(self, variance):
-        """Soft clear (2026-11-03): keep every height but raise the variance of the valid cells to at least `variance`, so
-        the next measurement passes the Mahalanobis gate and overwrites the cell (Kalman gain ~1). Used on stairs instead of
-        clear(): the stale grazing-angle cells of the other floor go as soon as they are seen again, and the map is never
-        blank in between. `variance` must stay below max_variance or finalize resets the cells to invalid."""
+    def forget(self, variance, stale_s=0.0):
+        """Soft clear (2026-11-03): keep every height but raise the variance of the valid cells not measured for more than
+        stale_s (0 = all valid cells) to at least `variance`, so their next measurement passes the Mahalanobis gate and
+        overwrites them (Kalman gain ~1). Cells currently in view keep their smooth fusion. `variance` must stay below
+        max_variance or finalize resets the cells to invalid."""
         with self.map_lock:
-            valid = self.elevation_map[2] > 0.5
-            self.elevation_map[1] = cp.where(valid, cp.maximum(self.elevation_map[1], float(variance)), self.elevation_map[1])
-        return int(cp.count_nonzero(valid))
+            sel = (self.elevation_map[2] > 0.5) & (self.elevation_map[4] > float(stale_s))
+            self.elevation_map[1] = cp.where(sel, cp.maximum(self.elevation_map[1], float(variance)), self.elevation_map[1])
+        return int(cp.count_nonzero(sel))
 
-    def set_time_variance(self, value=None):
-        """Short-memory mode (2026-11-03, RAEM-style sliding window): time_variance is what update_variance adds to every
-        valid cell per call; cells whose variance passes max_variance are reset to invalid by finalize. A large value makes a
-        cell that is not re-observed expire within seconds, so on a staircase the stale grazing-angle cells of the other
-        floor vanish by themselves while everything in view keeps updating. None restores the configured value."""
-        if not hasattr(self, "_time_variance_default"):
-            self._time_variance_default = float(self.param.time_variance)
-        self.param.time_variance = self._time_variance_default if value is None else float(value)
-        return self.param.time_variance
+    _stale_variance = 0.0
+    _stale_s = 0.0
+
+    def set_short_memory(self, stale_variance=0.0, stale_s=0.4):
+        """Short-memory mode (2026-11-03, RAEM-style sliding window): cells not measured for stale_s get stale_variance per
+        update_variance call and expire (finalize resets them past max_variance) while cells in view keep the configured
+        time_variance. 0 = off. Returns the values in force."""
+        self._stale_variance = float(stale_variance)
+        self._stale_s = float(stale_s)
+        return self._stale_variance, self._stale_s
 
     def get_center_position(self, position):
         """Return the position of the map center.
@@ -447,8 +448,16 @@ class ElevationMap:
         self.elevation_map[:, self.cell_min : self.cell_max, self.cell_min : self.cell_max] = near_map
 
     def update_variance(self):
-        """Adds the time variacne to the valid cells."""
-        self.elevation_map[1] += self.param.time_variance * self.elevation_map[2]
+        """Adds the time variance to the valid cells. In short-memory mode (set_short_memory) a cell not measured for
+        longer than stale_s gets stale_variance instead, so unseen cells expire while cells in view keep the normal,
+        smooth fusion (raising every cell's variance made each cell its last single sample: a noisy floor that read lethal
+        in flashes, 1F descent 2026-11-03)."""
+        valid = self.elevation_map[2]
+        if self._stale_variance > 0.0:
+            tv = cp.where(self.elevation_map[4] > self._stale_s, self._stale_variance, self.param.time_variance)
+            self.elevation_map[1] += tv * valid
+        else:
+            self.elevation_map[1] += self.param.time_variance * valid
 
     def update_time(self):
         """adds the time interval to the time layer."""

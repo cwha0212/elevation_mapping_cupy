@@ -33,6 +33,10 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
   `max_variance / (stairs_memory_s × update_variance_fps)` 로 올려 **재관측되지 않은 셀이 약 2 초 만에 만료**(finalize 가
   무효화)되고 보이는 셀은 계속 갱신된다 — RAEM(arXiv 2608.25366)이 로컬 지도를 매 주기 새로 만드는 것의 융합 지도판.
   `stairs_reclear` 가 구간 진입 시 켜고 이탈 `leave_s` 1.5 s 뒤 끈다(stairs.yaml `mode_service`). 지도를 통째로 비우는 일은 없다.
+  **나이 기준(2026-11-03 저녁)**: 처음엔 모든 셀의 분산을 올렸더니 보이는 바닥까지 셀마다 마지막 한 표본이 되어(칼만 이득 ≈ 1)
+  거칠기/경사가 튀며 **바닥 전체가 치명으로 깜빡였다**(1F A 하강, 발치 앞 바닥 치명 22–44 % → 복구 3–4). 이제 `forget_map` 과
+  짧은 기억 모드 모두 **`forget_stale_s` 0.4 s 이상 측정되지 않은 셀에만** 작용한다(time 레이어 = 마지막 측정 후 경과 초):
+  보이는 셀은 평소 융합(time_variance 0.01)을 유지하고, 안 보이는 셀만 ~2 s 에 만료한다.
 - `test/test_stairs_fit_regression.py`: 고정 기록(1F sim·bag_live 6 flight/2 계단, ds1020 0)으로 등록 회귀 시험(colcon test 등록).
 ### Changed
 - `stairs_record.npz` 는 임시 파일: fit 이 성공하면 삭제하고(`--delete_record`), 실패하면 오프라인 재맞춤용으로 남긴다.

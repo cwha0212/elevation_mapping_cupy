@@ -449,6 +449,11 @@ class ElevationMappingNode(Node):
         if not self.has_parameter('forget_variance'):
             self.declare_parameter('forget_variance', 50.0)
         self.forget_variance = float(self.get_parameter('forget_variance').value)
+        # only cells not measured for this long are forgotten / expire: cells in view keep their smooth fusion
+        # (raising the variance of every cell turned the visible floor into single noisy samples that read lethal)
+        if not self.has_parameter('forget_stale_s'):
+            self.declare_parameter('forget_stale_s', 0.4)
+        self.forget_stale_s = float(self.get_parameter('forget_stale_s').value)
         self._srv_forget_map = self.create_service(
             Trigger,
             self._resolve_service_name('forget_map'),
@@ -469,12 +474,13 @@ class ElevationMappingNode(Node):
     def handle_stairs_mode(self, request, response):
         try:
             if request.data:
-                tv = float(self.param.max_variance) / max(self.stairs_memory_s * self.update_variance_fps, 1e-6)
-                v = self._map.set_time_variance(tv)
-                response.message = f"short memory on: time_variance {v:g} per update ({self.update_variance_fps:g} Hz) -> unseen cells expire in ~{self.stairs_memory_s:g} s"
+                stale_s = float(self.forget_stale_s)
+                sv = float(self.param.max_variance) / max((self.stairs_memory_s - stale_s) * self.update_variance_fps, 1e-6)
+                v, s = self._map.set_short_memory(sv, stale_s)
+                response.message = f"short memory on: cells unseen for > {s:g} s get variance +{v:g} per update ({self.update_variance_fps:g} Hz) -> expire ~{self.stairs_memory_s:g} s after their last measurement; cells in view keep time_variance {self.param.time_variance:g}"
             else:
-                v = self._map.set_time_variance(None)
-                response.message = f"short memory off: time_variance back to {v:g}"
+                self._map.set_short_memory(0.0, 0.0)
+                response.message = "short memory off"
             response.success = True
             self.get_logger().info("stairs_mode: " + response.message)
         except Exception as exc:
@@ -486,10 +492,10 @@ class ElevationMappingNode(Node):
     def handle_forget_map(self, request, response):
         del request
         try:
-            n = self._map.forget(self.forget_variance)
+            n = self._map.forget(self.forget_variance, self.forget_stale_s)
             response.success = True
-            response.message = f"{n} cells set to variance >= {self.forget_variance:g}"
-            self.get_logger().info(f"forget_map: {n} valid cells now overwritable (variance >= {self.forget_variance:g})")
+            response.message = f"{n} cells unseen for > {self.forget_stale_s:g} s set to variance >= {self.forget_variance:g}"
+            self.get_logger().info(f"forget_map: {n} stale cells now overwritable (variance >= {self.forget_variance:g}, unseen > {self.forget_stale_s:g} s)")
         except Exception as exc:
             response.success = False
             response.message = str(exc)
