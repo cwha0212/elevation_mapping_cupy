@@ -34,11 +34,13 @@ class SlopeFilter(PluginBase):
         resolution: float = 0.05,
         window_size: int = 3,
         min_valid_ratio: float = 0.5,
+        min_samples: int = 0,
         **kwargs,
     ):
         self.resolution = float(resolution)
         self.window_size = int(window_size)
         self.min_valid_ratio = float(min_valid_ratio)
+        self.min_samples = int(min_samples)   # 0 = off; cells measured by fewer clouds are unknown (2026-11-04)
 
     def __call__(
         self,
@@ -53,6 +55,8 @@ class SlopeFilter(PluginBase):
     ) -> cp.ndarray:
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5
+        if self.min_samples > 0 and "sample_count" in layer_names:
+            valid = valid & (elevation_map[layer_names.index("sample_count")] >= self.min_samples)
 
         # Normalized masked mean: invalid cells contribute nothing, and the
         # result divides by how much of the window was actually observed.

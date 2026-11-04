@@ -891,6 +891,7 @@ class ElevationMappingNode(Node):
         m.elevation_map[0][rows_d, cols_d] = z
         m.elevation_map[1][rows_d, cols_d] = 0.02
         m.elevation_map[2][rows_d, cols_d] = 1.0
+        m.elevation_map[7][rows_d, cols_d] = cp.maximum(m.elevation_map[7][rows_d, cols_d], 10.0)   # sample_count: standing ground is well known
         self._prior_writes += 1
         if self._prior_writes % 200 == 1:
             self.get_logger().info(f"body prior: {int(inside.sum())} cells under the footprint set to z={z + float(centre[2]):.2f} (writes {self._prior_writes})")

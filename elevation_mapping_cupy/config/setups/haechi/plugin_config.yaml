@@ -15,6 +15,7 @@ slope_filter:
   extra_params:
     window_size: 5                          # was 3: central differences on a 3x3 mean at 0.05 m trip 27 deg on 2.5 cm of noise
     min_valid_ratio: 0.5
+    min_samples: 3                          # cells measured by < 3 clouds are unknown, not judged (2026-11-04, see roughness_filter)
 step_filter:
   enable: True
   fill_nan: False
@@ -24,6 +25,7 @@ step_filter:
     window_size: 5                          # 0.25 m reach at 0.05 m cells
     min_valid_count: 10                     # was 4: a span computed from 4 of 25 cells is noise (2026-10-20 audit)
     median_size: 3                          # 3x3 median before max-min: single spiked cells no longer read as risers
+    min_samples: 3
 roughness_filter:
   enable: True
   fill_nan: False
@@ -32,6 +34,11 @@ roughness_filter:
   extra_params:
     window_size: 5
     min_valid_count: 6
+    # min_samples (2026-11-04): a cell re-seeded by ONE return (after forget_map / the stairs short memory expiry, or seen
+    # once at a grazing angle) sits off its neighbours and read as rough: on the real 1F bag 50-68 % of the lethal cells
+    # within 4 m of the robot on a flight were roughness-condemned (26 % on the flat). Such cells are unknown until 3 clouds
+    # measured them (sample_count layer); unknown is passable for Nav2 (local: free, global: allow_unknown).
+    min_samples: 3
 # Climbable steps are traversable (2026-11-03, RAEM-style): one riser of <= step_climb between two levels with a coarse
 # slope <= slope_max_deg is a step the quadruped walks, whatever slope/roughness say about it. drivability lifts those
 # cells to override_value (0.5 -> safety 0.5 >= grid_threshold 0.4 -> free in the terrain grid). Walls, ledges, rubble
@@ -51,6 +58,7 @@ stair_step_filter:
     slope_max_deg: 35.0
     bimodal_min: 0.5                        # two-level ratio (1 = even split, 1/3 = heights spread evenly)
     min_valid_count: 10
+    min_samples: 3
 drivability_filter:
   enable: True
   fill_nan: False

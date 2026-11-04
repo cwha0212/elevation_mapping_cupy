@@ -55,7 +55,9 @@ class ElevationMap:
         self.cell_n = param.cell_n
 
         self.map_lock = threading.Lock()
-        self.elevation_map = xp.zeros((7, self.cell_n, self.cell_n), dtype=self.data_type)
+        # layer 7 sample_count (2026-11-04): clouds that measured the cell since it last became valid; the terrain plugins
+        # judge only cells with >= min_samples (a cell re-seeded by one return after forgetting / expiry read as rough).
+        self.elevation_map = xp.zeros((8, self.cell_n, self.cell_n), dtype=self.data_type)
         self.layer_names = [
             "elevation",
             "variance",
@@ -64,6 +66,7 @@ class ElevationMap:
             "time",
             "upper_bound",
             "is_upper_bound",
+            "sample_count",
         ]
 
         # buffers
@@ -131,6 +134,7 @@ class ElevationMap:
         with self.map_lock:
             sel = (self.elevation_map[2] > 0.5) & (self.elevation_map[4] > float(stale_s))
             self.elevation_map[1] = cp.where(sel, cp.maximum(self.elevation_map[1], float(variance)), self.elevation_map[1])
+            self.elevation_map[7] = cp.where(sel, 0.0, self.elevation_map[7])     # forgotten: judged again only after min_samples new clouds
         return int(cp.count_nonzero(sel))
 
     _stale_variance = 0.0
@@ -736,6 +740,8 @@ class ElevationMap:
             return self.get_upper_bound()
         if name == "is_upper_bound":
             return self.get_is_upper_bound()
+        if name == "sample_count":
+            return self.elevation_map[7, 1:-1, 1:-1]
         if name == "normal_x":
             return self.normal_map[0, 1:-1, 1:-1]
         if name == "normal_y":

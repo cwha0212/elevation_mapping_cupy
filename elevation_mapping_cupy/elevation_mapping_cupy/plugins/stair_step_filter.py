@@ -49,6 +49,7 @@ class StairStepFilter(PluginBase):
         slope_max_deg: float = 35.0,
         bimodal_min: float = 0.5,
         min_valid_count: int = 10,
+        min_samples: int = 0,
         **kwargs,
     ):
         self.cell_n = int(cell_n)
@@ -61,6 +62,7 @@ class StairStepFilter(PluginBase):
         self.slope_max = float(cp.tan(cp.radians(float(slope_max_deg))))
         self.bimodal_min = float(bimodal_min)
         self.min_valid_count = int(min_valid_count)
+        self.min_samples = int(min_samples)   # 0 = off; cells measured by fewer clouds are unknown (2026-11-04)
         idx = cp.arange(self.cell_n, dtype=cp.float32) * self.resolution
         self._coord_a = cp.broadcast_to(idx[:, None], (self.cell_n, self.cell_n)).copy()
         self._coord_b = cp.broadcast_to(idx[None, :], (self.cell_n, self.cell_n)).copy()
@@ -78,6 +80,8 @@ class StairStepFilter(PluginBase):
     ) -> cp.ndarray:
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5
+        if self.min_samples > 0 and "sample_count" in layer_names:
+            valid = valid & (elevation_map[layer_names.index("sample_count")] >= self.min_samples)
         m = valid.astype(cp.float32)
         w = self.window_size
         z = elevation

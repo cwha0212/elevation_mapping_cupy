@@ -37,6 +37,13 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
   거칠기/경사가 튀며 **바닥 전체가 치명으로 깜빡였다**(1F A 하강, 발치 앞 바닥 치명 22–44 % → 복구 3–4). 이제 `forget_map` 과
   짧은 기억 모드 모두 **`forget_stale_s` 0.4 s 이상 측정되지 않은 셀에만** 작용한다(time 레이어 = 마지막 측정 후 경과 초):
   보이는 셀은 평소 융합(time_variance 0.01)을 유지하고, 안 보이는 셀만 ~2 s 에 만료한다.
+- 표본 수 게이트 (2026-11-04): 지도에 8번째 레이어 `sample_count`(셀이 마지막으로 유효해진 뒤 그 셀을 측정한 클라우드 수; finalize 커널이
+  세고, 셀이 무효가 되거나 `forget_map` 으로 잊히면 0). slope/step/roughness/stair_step 필터의 `min_samples`(haechi 3): 그보다 적은
+  클라우드로만 측정된 셀은 **판정하지 않고 미관측(NaN)** 으로 둔다. 실기 1F bag 에서 계단 위 로봇 2 m 안 치명 셀 14~17 % 의 과반(50~68 %)이
+  거칠기 항이었고, 그 셀들은 잊기/만료 뒤 반사 한 개로 다시 채워져 이웃과 어긋난 셀이었다(짧은 기억이 꺼지면 3 s 안에 0 %). RAEM 의 "지금
+  점군에 있는 셀만 판정"을 융합 지도에 옮긴 것. 미관측은 Nav2 에서 통과 가능(로컬 free, 전역 allow_unknown). 몸 밑 prior 셀은 count 10.
+  audit 발행 레이어에 `sample_count` 추가. 실기 1F bag 계단 A 구간(0~150 s): 로봇 2 m 안 치명 평균 9.2 % → 2.6 %(flight 위 15~24 % → 0.3~5.6 %),
+  미관측 28.7 % → 51.4 %(판정하던 한 점짜리 셀이 회색이 됨). 장부 M54.
 - `test/test_stairs_fit_regression.py`: 고정 기록(1F sim·bag_live 6 flight/2 계단, ds1020 0)으로 등록 회귀 시험(colcon test 등록).
 ### Changed
 - `stairs_record.npz` 는 임시 파일: fit 이 성공하면 삭제하고(`--delete_record`), 실패하면 오프라인 재맞춤용으로 남긴다.
