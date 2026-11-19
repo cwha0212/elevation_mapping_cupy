@@ -7,6 +7,13 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 `original-ros2`/`ros2` 브랜치에 남아 있다.
 
 ## [Unreleased]
+
+## [v0.3.0] - 2026-11-19
+
+`Dev v0.3.0` — **NAVI 자동 기동 대응 + 계단 주행 보강(오를 수 있는 단 통행, 계단 구간 짧은 기억 모드, 표본 수 게이트) +
+실기 실행 경로 외 정리.** haechi 로봇 프로파일(NAVI navi_lidar v0.8.0 `elevation:`)이 이 패키지의 런치와 인자를 정하고 NAVI
+orchestrator 가 띄우고 내린다. gait 모드·`gz_demo`·mapper CNN traversability 를 뺐다(추적 파일 117 → 58). 짝: NAVI Dev v2.1.0.
+
 ### Added
 - NAVI 자동 기동(2026-11-19): haechi 로봇 프로파일(`navi_lidar/config/profile/haechi.yaml` `elevation:`)이 이 패키지의
   `haechi_nav.launch.py` 와 모드별 인자를 정하고, NAVI mode orchestrator 가 localization/mapping 과 함께 띄우고 내린다.
