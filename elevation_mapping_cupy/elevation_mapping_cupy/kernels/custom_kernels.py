@@ -352,7 +352,7 @@ def finalize_map_kernel(width, height, max_variance, initial_variance, outlier_v
         ).substitute(width=width, height=height),
         operation=string.Template(
             """
-            for (int layer = 0; layer < 7; ++layer) {
+            for (int layer = 0; layer < 8; ++layer) {
                 map[get_map_idx(i, layer)] = previous[get_map_idx(i, layer)];
             }
 
@@ -367,10 +367,12 @@ def finalize_map_kernel(width, height, max_variance, initial_variance, outlier_v
                 map[get_map_idx(i, 4)] = 0.0;
                 map[get_map_idx(i, 5)] = new_height;
                 map[get_map_idx(i, 6)] = 0.0;
+                map[get_map_idx(i, 7)] = (previous[get_map_idx(i, 2)] > 0.5) ? previous[get_map_idx(i, 7)] + 1.0 : 1.0;   // sample_count
                 if (new_variance > ${max_variance}) {
                     map[get_map_idx(i, 0)] = 0.0;
                     map[get_map_idx(i, 1)] = ${initial_variance};
                     map[get_map_idx(i, 2)] = 0.0;
+                    map[get_map_idx(i, 7)] = 0.0;
                 }
             }
             else {
@@ -402,6 +404,7 @@ def finalize_map_kernel(width, height, max_variance, initial_variance, outlier_v
                 map[get_map_idx(i, 0)] = 0.0;
                 map[get_map_idx(i, 1)] = ${initial_variance};
                 map[get_map_idx(i, 2)] = 0.0;
+                map[get_map_idx(i, 7)] = 0.0;
             }
             """
         ).substitute(

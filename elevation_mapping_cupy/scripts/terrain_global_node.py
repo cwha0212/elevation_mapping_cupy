@@ -17,6 +17,10 @@ Parameters
                 static obstacle the terrain never saw stays; 'max': old behaviour, /map lethal is permanent
   rate_hz       1.0   publish rate (full-map message; keep low)            unknown_as    -1 keeps -1; set 0 to publish unknown as free
   forget_s      0.0   > 0: a terrain cell not re-seen for this long falls back to the /map value
+  judge_radius  4.0   only terrain cells within this distance (m) of the window centre (= the robot) are believed;
+                      farther cells are sparse grazing-angle LiDAR returns that the terrain filters read as non-drivable
+                      (dev02 standing test 2026-10-21: 4.5-5 m ring valid in 1 %% of frames, judged bad 74-100 %%).
+                      Their memory is neither written nor cleared. 0 = off.
   prior_file    ''    a terrain PRIOR made at mapping time (map_terrain_prior.yaml + pgm, mode scale, 0..100 = cost; see
                       terrain_map_bake.py): the 2D grid the elevation stack plans on before the robot has re-observed a
                       cell. Merge order per cell: live terrain (judged) > prior > /map. Prior values are capped at
@@ -24,7 +28,6 @@ Parameters
                       Prior cells >= 100 (the SLAM walls copied into the bake) are dropped and left to /map.
 """
 import os
-import time
 
 import numpy as np
 import rclpy
@@ -53,9 +56,11 @@ class TerrainGlobal(Node):
         self.declare_parameter("merge", "override")
         self.declare_parameter("prior_file", "")
         self.declare_parameter("prior_cap", 89)
+        self.declare_parameter("judge_radius", 4.0)
         g = lambda n: self.get_parameter(n).value  # noqa: E731
         self.mode, self.forget = str(g("mode")), float(g("forget_s"))
         self.lethal_votes = int(g("lethal_votes")); self.lethal_as = int(g("lethal_as")); self.merge = str(g("merge"))
+        self.judge_radius = float(g("judge_radius"))
         self.prior_src = self._load_prior(str(g("prior_file")), int(g("prior_cap")))   # (cost HxW int16, ox, oy, res) or None
         self.prior = None        # prior resampled onto the /map geometry (int8, -1 none)
         self.map = None          # nav map (int8 HxW), geometry
@@ -69,7 +74,7 @@ class TerrainGlobal(Node):
         self.create_timer(1.0 / float(g("rate_hz")), self.publish)
         from std_srvs.srv import Trigger
         self.create_service(Trigger, "/terrain/global_grid/reset", self.on_reset)
-        self.get_logger().info("%s + %s -> %s (mode %s)" % (g("input_topic"), g("map_topic"), g("output_topic"), self.mode))
+        self.get_logger().info("%s + %s -> %s (mode %s, judge_radius %.1f m)" % (g("input_topic"), g("map_topic"), g("output_topic"), self.mode, self.judge_radius))
 
     def _load_prior(self, path, cap):
         if not path:
@@ -130,7 +135,15 @@ class TerrainGlobal(Node):
         rows, cols = np.mgrid[0:t.info.height, 0:t.info.width]
         X = t.info.origin.position.x + (cols + 0.5) * t.info.resolution; Y = t.info.origin.position.y + (rows + 0.5) * t.info.resolution
         gi = ((Y - oy) / res).astype(int); gj = ((X - ox) / res).astype(int)
-        ok = (gi >= 0) & (gi < H) & (gj >= 0) & (gj < W) & (a >= 0)
+        # judge_radius: believe only the inner disc of the rolling window around its centre (the robot). The outer ring
+        # is seen at grazing angles with a point every few frames and the filters call it non-drivable; those cells are
+        # neither written nor cleared here, they wait for a closer look.
+        near = np.ones(a.shape, bool)
+        if self.judge_radius > 0.0:
+            cx = t.info.origin.position.x + t.info.width * t.info.resolution / 2.0
+            cy = t.info.origin.position.y + t.info.height * t.info.resolution / 2.0
+            near = np.hypot(X - cx, Y - cy) <= self.judge_radius
+        ok = (gi >= 0) & (gi < H) & (gj >= 0) & (gj < W) & (a >= 0) & near
         if not ok.any():
             return
         flat = gi[ok] * W + gj[ok]
@@ -155,16 +168,20 @@ class TerrainGlobal(Node):
             tv[upd] = np.maximum(tv[upd], agg[upd]).astype(np.int8)
         else:
             tv[upd] = agg[upd].astype(np.int8)
-        self.seen.ravel()[upd] = time.time()
+        self.seen.ravel()[upd] = self.now_s()
         # Inside the current window the local map is the truth: cells it now reports UNKNOWN lose their memory,
         # otherwise a lethal cell written while the LIO was still initialising (before clear_map) stays forever
         # and walls the start in (GUI run 2026-10-20 17:40: 67 lethal cells within 0.8 m, NavFn found no path).
         # Memory therefore only persists OUTSIDE the 10 m window.
-        win = (gi >= 0) & (gi < H) & (gj >= 0) & (gj < W)
+        win = (gi >= 0) & (gi < H) & (gj >= 0) & (gj < W) & near
         wflat = np.unique(gi[win] * W + gj[win])
         unk = wflat[agg[wflat] < 0]
         tv[unk] = -1
         self.n_in += 1
+
+    def now_s(self):
+        """Node clock: wall time on the robot, /clock in a bag replay or the sim, so forget_s means the same everywhere."""
+        return self.get_clock().now().nanoseconds * 1e-9
 
     def on_reset(self, req, res):
         """Forget the accumulated LIVE terrain (called with the elevation map's clear_map, e.g. after the SLAM init pose); the prior stays."""
@@ -179,11 +196,20 @@ class TerrainGlobal(Node):
             return
         terr = self.terr
         if self.forget > 0:
-            stale = (self.seen > 0) & (time.time() - self.seen > self.forget)
+            stale = (self.seen > 0) & (self.now_s() - self.seen > self.forget)
             terr = np.where(stale, -1, terr)
-        base = self.map if self.prior is None else np.where(self.prior >= 0, self.prior, self.map)   # prior > /map
+        # Walls stay walls (2026-10-29): with plain 'live > prior > /map' the wall foot, judged graded at a grazing angle,
+        # and the capped prior (89) replaced the SLAM wall (100) - on the 1f map only 57 % of the SLAM wall cells were
+        # still lethal in the global costmap and NavFn planned through walls. Now the prior only fills cells the map
+        # leaves free/unknown, and a live judgement lowers a wall only when it says FREE (0: the phantom-obstacle case).
+        wall = self.map >= self.lethal_as
+        if self.prior is None:
+            base = self.map
+        else:
+            base = np.where((self.prior >= 0) & (self.map <= 0), self.prior, self.map)              # prior > free/unknown map
         if self.merge == "override":
-            out = np.where(terr >= 0, terr, base).astype(np.int8)                                   # live > prior > /map
+            keep_wall = wall & (terr > 0)
+            out = np.where((terr >= 0) & ~keep_wall, terr, base).astype(np.int8)                     # live > prior > /map, walls kept
         else:
             out = np.where(terr >= 0, np.maximum(base, terr), base).astype(np.int8)
         m = OccupancyGrid(); m.header.frame_id = self.frame; m.header.stamp = self.get_clock().now().to_msg()

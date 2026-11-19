@@ -2,16 +2,11 @@
 # Copyright (c) 2022, Takahiro Miki. All rights reserved.
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
-import math
-import os
 import threading
-import sys
-from dataclasses import dataclass
-from typing import Dict, List, Any, Tuple, Union, Optional
+from typing import List
 
 import numpy as np
 
-from elevation_mapping_cupy.traversability_filter import get_filter_torch
 from elevation_mapping_cupy.parameter import Parameter
 
 from elevation_mapping_cupy.kernels import (
@@ -55,7 +50,9 @@ class ElevationMap:
         self.cell_n = param.cell_n
 
         self.map_lock = threading.Lock()
-        self.elevation_map = xp.zeros((7, self.cell_n, self.cell_n), dtype=self.data_type)
+        # layer 7 sample_count (2026-11-04): clouds that measured the cell since it last became valid; the terrain plugins
+        # judge only cells with >= min_samples (a cell re-seeded by one return after forgetting / expiry read as rough).
+        self.elevation_map = xp.zeros((8, self.cell_n, self.cell_n), dtype=self.data_type)
         self.layer_names = [
             "elevation",
             "variance",
@@ -64,10 +61,10 @@ class ElevationMap:
             "time",
             "upper_bound",
             "is_upper_bound",
+            "sample_count",
         ]
 
         # buffers
-        self.traversability_buffer = xp.full((self.cell_n, self.cell_n), xp.nan, dtype=self.data_type)
         # One device buffer the publish path rotates each layer into, so the
         # host copy is a single contiguous transfer (see copy_layer_rot180).
         self._publish_buf = cp.empty((self.cell_n - 2, self.cell_n - 2), dtype=cp.float32)
@@ -89,11 +86,6 @@ class ElevationMap:
 
         self.compile_kernels()
         self.compile_image_kernels()
-
-        # No shell substitutions in research code: param.weight_file is expected to be a real path.
-        param.load_weights(param.weight_file)
-
-        self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
 
         # Semantic layers fed by image and pointcloud channels.
         self.semantic_map = SemanticMap(param)
@@ -123,6 +115,28 @@ class ElevationMap:
         self.mean_error = 0.0
         self.additive_mean_error = 0.0
 
+    def forget(self, variance, stale_s=0.0):
+        """Soft clear (2026-11-03): keep every height but raise the variance of the valid cells not measured for more than
+        stale_s (0 = all valid cells) to at least `variance`, so their next measurement passes the Mahalanobis gate and
+        overwrites them (Kalman gain ~1). Cells currently in view keep their smooth fusion. `variance` must stay below
+        max_variance or finalize resets the cells to invalid."""
+        with self.map_lock:
+            sel = (self.elevation_map[2] > 0.5) & (self.elevation_map[4] > float(stale_s))
+            self.elevation_map[1] = cp.where(sel, cp.maximum(self.elevation_map[1], float(variance)), self.elevation_map[1])
+            self.elevation_map[7] = cp.where(sel, 0.0, self.elevation_map[7])     # forgotten: judged again only after min_samples new clouds
+        return int(cp.count_nonzero(sel))
+
+    _stale_variance = 0.0
+    _stale_s = 0.0
+
+    def set_short_memory(self, stale_variance=0.0, stale_s=0.4):
+        """Short-memory mode (2026-11-03, RAEM-style sliding window): cells not measured for stale_s get stale_variance per
+        update_variance call and expire (finalize resets them past max_variance) while cells in view keep the configured
+        time_variance. 0 = off. Returns the values in force."""
+        self._stale_variance = float(stale_variance)
+        self._stale_s = float(stale_s)
+        return self._stale_variance, self._stale_s
+
     def get_center_position(self, position):
         """Return the position of the map center.
 
@@ -132,20 +146,6 @@ class ElevationMap:
         """
         position[0][:] = xp.asnumpy(self.center)
 
-    def move(self, delta_position):
-        """Shift the map along all three axes according to the input.
-
-        Args:
-            delta_position (numpy.ndarray):
-        """
-        # Shift map using delta position.
-        delta_position = xp.asarray(delta_position)
-        delta_pixel = xp.round(delta_position[:2] / self.resolution)
-        delta_position_xy = delta_pixel * self.resolution
-        self.center[:2] += xp.asarray(delta_position_xy)
-        self.center[2] += xp.asarray(delta_position[2])
-        self.shift_map_xy(delta_pixel)
-        self.shift_map_z(-delta_position[2])
 
     def move_to(self, position, R):
         """Shift the map to an absolute position and update the rotation of the robot.
@@ -244,8 +244,9 @@ class ElevationMap:
             (3, self.cell_n, self.cell_n),
             dtype=self.data_type,
         )
-        self.traversability_input = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
-        self.traversability_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
+        # dilated elevation (hole-filled) for the normal filter
+        self.dilated_elevation = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
+        self.dilation_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
 
         self.add_points_kernel = add_points_kernel(
             self.resolution,
@@ -311,13 +312,6 @@ class ElevationMap:
                 )
                 break
 
-    def shift_translation_to_map_center(self, t):
-        """Deduct the map center to get the translation of a point w.r.t. the map center.
-
-        Args:
-            t (cupy._core.core.ndarray): Absolute point position
-        """
-        t -= self.center
 
     def update_map_with_kernel(self, points_all, channels, R, t, position_noise, orientation_noise):
         """Update map with new measurement.
@@ -390,22 +384,19 @@ class ElevationMap:
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)
 
-            self.traversability_input *= 0.0
+            self.dilated_elevation *= 0.0
             self.dilation_filter_kernel(
                 self.elevation_map[5],
                 self.elevation_map[2] + self.elevation_map[6],
-                self.traversability_input,
-                self.traversability_mask_dummy,
+                self.dilated_elevation,
+                self.dilation_mask_dummy,
                 size=(self.cell_n * self.cell_n),
             )
-
-            traversability = self.traversability_filter(self.traversability_input)
-            self.elevation_map[3][3:-3, 3:-3] = traversability.reshape(
-                (traversability.shape[2], traversability.shape[3])
-            )
+            # layer 3 ("traversability") keeps its initial 1.0: upstream's CNN filled it, nothing here reads it
+            # (drift compensation, its only reader, is off for haechi).
             self.plugin_manager.reset_layers()
 
-        self.update_normal(self.traversability_input)
+        self.update_normal(self.dilated_elevation)
 
     def clear_overlap_map(self, t):
         """Clear overlapping areas around the map center.
@@ -427,8 +418,16 @@ class ElevationMap:
         self.elevation_map[:, self.cell_min : self.cell_max, self.cell_min : self.cell_max] = near_map
 
     def update_variance(self):
-        """Adds the time variacne to the valid cells."""
-        self.elevation_map[1] += self.param.time_variance * self.elevation_map[2]
+        """Adds the time variance to the valid cells. In short-memory mode (set_short_memory) a cell not measured for
+        longer than stale_s gets stale_variance instead, so unseen cells expire while cells in view keep the normal,
+        smooth fusion (raising every cell's variance made each cell its last single sample: a noisy floor that read lethal
+        in flashes, 1F descent 2026-11-03)."""
+        valid = self.elevation_map[2]
+        if self._stale_variance > 0.0:
+            tv = cp.where(self.elevation_map[4] > self._stale_s, self._stale_variance, self.param.time_variance)
+            self.elevation_map[1] += tv * valid
+        else:
+            self.elevation_map[1] += self.param.time_variance * valid
 
     def update_time(self):
         """adds the time interval to the time layer."""
@@ -604,21 +603,6 @@ class ElevationMap:
         """
         return self.process_map_for_publish(self.elevation_map[1], fill_nan=False, add_z=False)
 
-    def get_traversability(self):
-        """Get the traversability layer.
-
-        Returns:
-            traversability layer
-        """
-        traversability = cp.where(
-            (self.elevation_map[2] + self.elevation_map[6]) > 0.5,
-            self.elevation_map[3],
-            cp.nan,
-        )
-        self.traversability_buffer[3:-3, 3:-3] = traversability[3:-3, 3:-3]
-        traversability = self.traversability_buffer[1:-1, 1:-1]
-        return traversability
-
     def get_time(self):
         """Get the time layer.
 
@@ -661,14 +645,6 @@ class ElevationMap:
         is_upper_bound = is_upper_bound[1:-1, 1:-1]
         return is_upper_bound
 
-    def trim_memory_pool(self):
-        """Release cached CuPy allocator blocks that are not currently in use."""
-        pool.free_all_blocks()
-        cp.get_default_pinned_memory_pool().free_all_blocks()
-        torch = sys.modules.get("torch")
-        if torch is not None and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
     def exists_layer(self, name):
         """Check if the layer exists in elevation map or in the semantic map.
 
@@ -699,14 +675,14 @@ class ElevationMap:
             return self.get_variance()
         if name == "is_valid":
             return self.elevation_map[2, 1:-1, 1:-1]
-        if name == "traversability":
-            return self.get_traversability()
         if name == "time":
             return self.get_time()
         if name == "upper_bound":
             return self.get_upper_bound()
         if name == "is_upper_bound":
             return self.get_is_upper_bound()
+        if name == "sample_count":
+            return self.elevation_map[7, 1:-1, 1:-1]
         if name == "normal_x":
             return self.normal_map[0, 1:-1, 1:-1]
         if name == "normal_y":
@@ -749,36 +725,4 @@ class ElevationMap:
             cp.copyto(self._publish_buf, m[::-1, ::-1])
             self._publish_buf.get(out=host_out)
 
-    def get_map_with_name_ref(self, name, data):
-        """Load a layer in grid_map buffer order (rows -> -X, cols -> -Y) into data.
 
-        Kept for tests and external callers; the node publishes through
-        copy_layer_rot180, which produces the same bytes without the transpose.
-        """
-        tmp = np.empty_like(data)
-        self.copy_layer_rot180(name, tmp)
-        data[...] = tmp.T
-
-    def _transform_to_grid_map_coordinate_convention(self, m):
-        """Transform the map to the grid_map coordinate convention.
-
-        elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
-        grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
-        transformBufferOrderToMapFrame returns {-index[0], -index[1]})
-        Required transformation:
-           1. Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
-           2. Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
-           3. Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
-
-        This is equivalent to: rot90(m.T, k=2) or flip(flip(m.T, 0), 1)
-
-        Args:
-            m (cupy._core.core.ndarray):
-
-        Returns:
-            cupy._core.core.ndarray:
-        """
-        m = m.T
-        m = xp.flip(m, 0)
-        m = xp.flip(m, 1)
-        return m

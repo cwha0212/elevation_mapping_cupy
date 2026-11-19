@@ -11,7 +11,6 @@ publishes the negated raw logit as the `untrav` channel.
 | `SHA256SUMS` | | in git |
 | `fetch_assets.sh` | | downloads and verifies into `~/samtp` |
 | `build_engine.sh` | | rebuilds the engine from the ONNX with trtexec |
-| `export_samtp_onnx.py` | | re-exports the ONNX from the GENIE-SAMTP checkpoint (`checkpoint_2_512.pt`, 403 MB, not distributed here) |
 
 On the board:
 
@@ -21,6 +20,7 @@ On the board:
 
 The launch files look for `~/samtp/samtp_512_fp16.engine` (`samtp_engine:=` overrides).
 
-Re-export (only when the model changes): `export_samtp_onnx.py` expects the
-GENIE-SAMTP source tree and checkpoint (`REPO` at the top of the file) inside
-the training container; see that repo's REPRODUCE.md.
+Re-exporting the ONNX (only when the model changes) belongs to the GENIE-SAMTP
+training repo (checkpoint `checkpoint_2_512.pt`, see its REPRODUCE.md). The
+export script that used to live here was removed in the 2026-11 cleanup; git
+history still has it.

@@ -4,7 +4,6 @@
 #
 from elevation_mapping_cupy.parameter import Parameter
 import cupy as cp
-import numpy as np
 from typing import List, Dict
 import re
 
@@ -24,11 +23,8 @@ class SemanticMap:
 
         self.param = param
 
-        self.layer_specs_points = {}
         self.layer_specs_image = {}
         self.layer_names = []
-        self.unique_fusion = []
-        self.unique_data = []
         self.elements_to_shift = {}
 
         self.unique_fusion = self.param.fusion_algorithms
@@ -217,29 +213,7 @@ class SemanticMap:
         Returns:
             cp.array: map
         """
-        # If the layer is a color layer, return the rgb map
-        if name in self.layer_specs_points and self.layer_specs_points[name] == "color":
-            m = self.get_rgb(name)
-            return m
-        elif name in self.layer_specs_image and self.layer_specs_image[name] == "color":
-            m = self.get_rgb(name)
-            return m
-        else:
-            m = self.get_semantic(name)
-            return m
-
-    def get_rgb(self, name):
-        """Return the rgb map with the given name.
-
-        Args:
-            name:
-
-        Returns:
-            cp.array: rgb map
-        """
-        idx = self.layer_names.index(name)
-        c = self.process_map_for_publish(self.semantic_map[idx])
-        return c.astype(np.float32, copy=False)
+        return self.get_semantic(name)
 
     def get_semantic(self, name):
         """Return the semantic map layer with the given name.

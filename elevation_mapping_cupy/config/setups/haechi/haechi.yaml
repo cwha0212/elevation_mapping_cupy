@@ -21,7 +21,6 @@
     # left MID360 IMU, axes = robot FLU) sits on the 3D chain.
     map_frame: 'map'
     base_frame: 'lidar_frame'
-    corrected_map_frame: 'map'
 
     #### Map geometry ########
     # 0.05 m resolves the 10-20 cm curbs that separate roadway from sidewalk;
@@ -40,17 +39,17 @@
     # time_variance 0.01 every cell unseen for ~20 s was wiped and re-seeded by a single point (measured 2026-10-20:
     # 71 % of route samples blocked, dz p95 0.75 m). Keep the core 100.
     max_variance: 100.0
+    # Absolute ceiling for input points, metres ABOVE THE SENSOR (core default 10.5 = off). The distance ramp alone lets a
+    # door lintel / canopy at 2.1-2.5 m into the map once the robot is >= 5 m away (threshold 0.2 + 0.3*(d-1)); the cell
+    # then holds 2.2 m as its "ground", the fusion gate rejects the later floor returns, and a 0.7 m doorway reads as a
+    # wall (ds1020 bag, building entrance 5 m SW of the start, 2026-10-23). 1.2 m above the sensor = 1.94 m above ground:
+    # above the robot (0.94 m) with margin, below any lintel; costs < 0.1 % of ground cells on the ds1020 route.
+    max_height_range: 1.2
 
     #### Drift ########
     # FAST-LIO already corrects the body pose. Running the built-in compensation
     # on top of it means two estimators fighting over the same z.
     enable_drift_compensation: false
-
-    #### Fusion ########
-    # Image channels only; the lidar path takes xyz and nothing else.
-    image_channel_fusions:
-      rgb: 'color'
-      default: 'exponential'
 
     #### Subscribers ########
     subscribers:
@@ -76,17 +75,15 @@
     #### Publishers ########
     publishers:
       elevation_map_raw:
-        layers: ['elevation', 'traversability', 'variance']
+        layers: ['elevation', 'variance']
         basic_layers: ['elevation']
         fps: 5.0
-      # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
-      # launch selects it over the digging chain via plugin_config_file).
+      # Navigation terrain layers from setups/haechi/plugin_config.yaml.
+      # layers / basic_layers / fps are set by haechi.launch.py (audit, terrain_fps);
+      # listing a layer no plugin produces would abort a publish.
       elevation_map_terrain:
-        # The navigation chain's layers. stairs / ramp / drop belong to the
-        # gait chain (plugin_config_gait.yaml) and are added by haechi.launch.py
-        # gait:=true; listing a layer no plugin produces would abort a publish.
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
-        basic_layers: ['elevation']
+        layers: ['drivability', 'safety']
+        basic_layers: ['safety']
         fps: 10.0
       elevation_map_semantic:
         # basic_layers cannot be empty here: an empty sequence arrives as an

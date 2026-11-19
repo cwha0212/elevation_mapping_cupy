@@ -36,12 +36,14 @@ class RoughnessFilter(PluginBase):
         resolution: float = 0.05,
         window_size: int = 5,
         min_valid_count: int = 6,
+        min_samples: int = 0,
         **kwargs,
     ):
         self.cell_n = int(cell_n)
         self.resolution = float(resolution)
         self.window_size = int(window_size)
         self.min_valid_count = int(min_valid_count)
+        self.min_samples = int(min_samples)   # 0 = off; cells measured by fewer clouds are unknown (2026-11-04)
         idx = cp.arange(self.cell_n, dtype=cp.float32) * self.resolution
         self._coord_a = cp.broadcast_to(idx[:, None], (self.cell_n, self.cell_n)).copy()
         self._coord_b = cp.broadcast_to(idx[None, :], (self.cell_n, self.cell_n)).copy()
@@ -59,6 +61,8 @@ class RoughnessFilter(PluginBase):
     ) -> cp.ndarray:
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5
+        if self.min_samples > 0 and "sample_count" in layer_names:
+            valid = valid & (elevation_map[layer_names.index("sample_count")] >= self.min_samples)
         w = self.window_size
 
         m = valid.astype(cp.float32)

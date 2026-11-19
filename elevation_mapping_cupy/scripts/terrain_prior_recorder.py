@@ -11,6 +11,9 @@ The pgm uses the temporal-vote rule of terrain_map_bake.py (council 2026-10-21):
 bad in >= vote_frac of its views -> graded cost (free_above 0.6 -> 0, lethal_below 0.2 -> max) capped at cap (89, never a
 wall); bad in fewer views -> cost scaled by the vote share, at most minority_cap (60); drivable -> 0. Everything else is
 unknown and terrain_global_node falls back to /map there. Lethal is never baked: that is the live terrain's and /scan's job.
+Only cells within judge_radius (4 m) of the map centre (= the robot) are counted: the outer ring of the rolling map is
+seen at grazing angles once every ~100 frames and read as non-drivable, which a standing robot would bake into a cost ring
+(dev02 2026-10-21: 4.5-5 m valid in 1 % of frames, 74-100 % bad votes). While driving, every cell passes through the disc.
 
 Save: Trigger service ~/save, and automatically on shutdown (SIGINT from the orchestrator's mapping stop) when
 save_on_shutdown is true. Subscribes best-effort: the 1 MB GridMap at 10 Hz overflows reliable readers on the board.
@@ -21,6 +24,7 @@ on the map.yaml geometry (SLAM walls 100 + terrain cost capped, never a wall). I
 `terrain_map_merge.py <map_dir>` afterwards.
 """
 import os
+import signal
 import time
 
 import numpy as np
@@ -46,20 +50,22 @@ class PriorRecorder(Node):
         self.declare_parameter("cap", 89)
         self.declare_parameter("minority_cap", 60)
         self.declare_parameter("save_on_shutdown", True)
+        self.declare_parameter("judge_radius", 4.0)   # m from the map centre; 0 = count the whole window
         self.declare_parameter("merge_map", True)          # also write map_terrain.* when <out_dir>/map.yaml exists
         self.declare_parameter("merge_map_yaml", "map.yaml")  # the SLAM 2D map file in out_dir to merge onto
         g = lambda n: self.get_parameter(n).value  # noqa: E731
         self.out_dir, self.res, self.grow = str(g("out_dir")), float(g("res")), float(g("grow_m"))
         self.bad_below, self.min_obs, self.vote = float(g("bad_below")), int(g("min_obs")), float(g("vote_frac"))
         self.free, self.lethal, self.cap, self.mcap = float(g("free_above")), float(g("lethal_below")), int(g("cap")), int(g("minority_cap"))
+        self.judge_radius = float(g("judge_radius"))
         self.x0 = self.y0 = None; self.W = self.H = 0
         self.drv = self.elev = self.n_obs = self.n_bad = None
         self.n = 0; self.t0 = time.time(); self.saved = False
         qos = QoSProfile(depth=2, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.create_subscription(GridMap, str(g("topic")), self.cb, qos)
         self.create_service(Trigger, "~/save", self.on_save)
-        self.get_logger().info("recording %s -> %s (res %.2f m, vote %.0f%% of >= %d views, cap %d)" % (
-            g("topic"), self.out_dir, self.res, 100 * self.vote, self.min_obs, self.cap))
+        self.get_logger().info("recording %s -> %s (res %.2f m, vote %.0f%% of >= %d views, cap %d, judge_radius %.1f m)" % (
+            g("topic"), self.out_dir, self.res, 100 * self.vote, self.min_obs, self.cap, self.judge_radius))
 
     # ---- grid that grows ----
     def _ensure(self, xmin, xmax, ymin, ymax):
@@ -93,6 +99,8 @@ class PriorRecorder(Node):
         self._ensure(X.min(), X.max(), Y.min(), Y.max())
         gi = ((Y - self.y0) / self.res).astype(int); gj = ((X - self.x0) / self.res).astype(int)
         valid = np.isfinite(drv) & (gi >= 0) & (gi < self.H) & (gj >= 0) & (gj < self.W)
+        if self.judge_radius > 0.0:
+            valid &= np.hypot(X - cx, Y - cy) <= self.judge_radius
         self.drv[gi[valid], gj[valid]] = drv[valid]
         if elev is not None:
             ev = valid & np.isfinite(elev); self.elev[gi[ev], gj[ev]] = elev[ev]
@@ -135,7 +143,7 @@ class PriorRecorder(Node):
         return True, msg
 
     def _merge_map(self):
-        """map_terrain.png/yaml on the SLAM map geometry (terrain_map_merge.py next to this script), if map.yaml is there."""
+        """map_terrain.png/yaml on the SLAM map geometry (haechi_terrain.terrain_map), if map.yaml is there."""
         if not self.get_parameter("merge_map").value:
             return ""
         map_yaml = os.path.join(self.out_dir, str(self.get_parameter("merge_map_yaml").value))
@@ -143,11 +151,8 @@ class PriorRecorder(Node):
             self.get_logger().info("no %s yet: run terrain_map_merge.py %s once the SLAM 2D map is saved" % (map_yaml, self.out_dir))
             return "; map_terrain not written (no %s)" % os.path.basename(map_yaml)
         try:
-            import importlib.util
-            spec = importlib.util.spec_from_file_location(
-                "terrain_map_merge", os.path.join(os.path.dirname(os.path.abspath(__file__)), "terrain_map_merge.py"))
-            mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
-            mod.merge_terrain_map(map_yaml, os.path.join(self.out_dir, "map_terrain_prior.yaml"),
+            from haechi_terrain.terrain_map import merge_terrain_map
+            merge_terrain_map(map_yaml, os.path.join(self.out_dir, "map_terrain_prior.yaml"),
                                   os.path.join(self.out_dir, "map_terrain"), cap=self.cap, log=self.get_logger().info)
             return "; map_terrain.png/yaml written"
         except Exception as e:                  # noqa: BLE001 - the prior is saved either way
@@ -166,6 +171,11 @@ def main():
         pass
     finally:
         if n.get_parameter("save_on_shutdown").value:
+            # ros2 launch forwards its own SIGINT to every node after a Ctrl-C / group signal already hit us, and
+            # SIGTERMs after sigterm_timeout: either one used to abort the save mid-write (KeyboardInterrupt in
+            # savez, measured 2026-11-19). The save is the whole point of shutting down, so let it finish.
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
             try:
                 n.save()
             except Exception as e:              # noqa: BLE001

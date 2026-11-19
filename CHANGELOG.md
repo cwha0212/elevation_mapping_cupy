@@ -7,10 +7,95 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 `original-ros2`/`ros2` 브랜치에 남아 있다.
 
 ## [Unreleased]
+
+## [v0.3.0] - 2026-11-19
+
+`Dev v0.3.0` — **NAVI 자동 기동 대응 + 계단 주행 보강(오를 수 있는 단 통행, 계단 구간 짧은 기억 모드, 표본 수 게이트) +
+실기 실행 경로 외 정리.** haechi 로봇 프로파일(NAVI navi_lidar v0.8.0 `elevation:`)이 이 패키지의 런치와 인자를 정하고 NAVI
+orchestrator 가 띄우고 내린다. gait 모드·`gz_demo`·mapper CNN traversability 를 뺐다(추적 파일 117 → 58). 짝: NAVI Dev v2.1.0.
+
 ### Added
+- NAVI 자동 기동(2026-11-19): haechi 로봇 프로파일(`navi_lidar/config/profile/haechi.yaml` `elevation:`)이 이 패키지의
+  `haechi_nav.launch.py` 와 모드별 인자를 정하고, NAVI mode orchestrator 가 localization/mapping 과 함께 띄우고 내린다.
+  `/terrain/local_grid` 가 끊기면 orchestrator 가 이벤트를 내고 Nav2 goal 을 취소한다. 절차는 `HAECHI_BOARD.md` 4절.
+- `haechi_terrain` 파이썬 패키지(2026-11-03): 계단 등록 `stairs_fit`, 계단 래스터 `stairs_raster`, 지형 2D 지도 병합 `terrain_map`,
+  공용 수치 `config`. 스크립트 5개(`stairs_fit.py`, `stairs_prior_publisher.py`, `terrain_map_merge.py`, `stairs_prior_recorder.py`,
+  `terrain_map_loader.py`, `terrain_prior_recorder.py`)가 서로 `importlib` 로 파일을 직접 읽던 것을 패키지 import 로 바꿨다.
+- `config/setups/haechi/stairs.yaml`: 계단 파이프라인의 수치를 한 파일에. `haechi.launch.py` 가 노드 4개(recorder, publisher,
+  scan filter, reclear)에 파라미터 파일로 넘기고 `terrain_grid_node` 의 `stairs_cost`/`speckle_cost` 도 여기서 읽는다;
+  `stairs_fit`/`terrain_map` 은 `haechi_terrain.config` 로 fit/merge 절을 읽는다. 런치 인자 `stairs_end_margin`, `stairs_reclear_dz` 는
+  이 파일로 흡수(삭제).
+- `stairs_reclear` 가 `/terrain/on_stairs`(Bool, 5 Hz)를 발행: "로봇이 계단 구간 위"라는 판정은 이 한 곳에서만 하고
+  `stairs_scan_filter` 는 이를 구독한다(각자 0.8 m 창으로 따로 판정하던 것 제거).
+- `stairs_fit` 이 `mapping_path.npz`(매핑 궤적 t/t0/lidar, 수십 KB)를 지도 폴더에 남긴다; `terrain_map` 의 swath 규칙과
+  haechi_sim 의 bag 평가 도구가 이것을 읽는다. 등록/제외 요약(`flights_walked`, `not_registered_ramp`,
+  `not_registered_no_data`)을 로그와 `map_stairs.yaml` 메타에 기록.
+- 오를 수 있는 단은 통행 가능 (2026-11-03, RAEM arXiv 2608.25366 의 원리): 플러그인 `stair_step_filter`(레이어 `stairlike`)가
+  발 크기 창(0.25 m) 안의 표면이 두 층으로 나뉘고(분산/(span²/4) ≥ 0.5) 그 차가 `step_climb` 0.20 m 이하이며 두 디딤판
+  길이(0.65 m)로 맞춘 평면의 기울기가 35° 이하인 셀을 1 로 표시하고, `drivability_filter` 가 그 셀의 점수를 `override_value`
+  0.5 로 올린다(terrain grid 임계 0.4 → 자유). 0.05 m 격자에서 riser 를 59° 경사·거친 표면으로 읽어 치명이 되던 것을 바로잡는다.
+  합성 검증(`tests/test_stair_step_filter.py`): 30° 계단 비주행 67 % → 2 %, 0.5 m 턱·45° 경사·풀·바닥은 변화 없음.
+- `elevation_mapping_cupy/forget_map` 서비스(파라미터 `forget_variance` 50): 높이는 두고 유효 셀의 분산만 올려 다음 관측이
+  Mahalanobis 게이트를 지나 바로 덮어쓰게 한다(soft clear). `stairs_reclear` 의 기본 서비스를 `clear_map` 에서 이것으로 바꿨다
+  (stairs.yaml `service`). 단독으로는 부족했다(1F 하강: 위에서 비스듬히 본 아래층의 오래된 치명 셀이 다시 관측되기 전까지
+  로봇 앞에 남아 복구 2회) — 그래서 아래 짧은 기억 모드를 함께 쓴다.
+- `elevation_mapping_cupy/stairs_mode` 서비스(SetBool, 파라미터 `stairs_memory_s` 2.0): 켜면 `time_variance` 를
+  `max_variance / (stairs_memory_s × update_variance_fps)` 로 올려 **재관측되지 않은 셀이 약 2 초 만에 만료**(finalize 가
+  무효화)되고 보이는 셀은 계속 갱신된다 — RAEM(arXiv 2608.25366)이 로컬 지도를 매 주기 새로 만드는 것의 융합 지도판.
+  `stairs_reclear` 가 구간 진입 시 켜고 이탈 `leave_s` 1.5 s 뒤 끈다(stairs.yaml `mode_service`). 지도를 통째로 비우는 일은 없다.
+  **나이 기준(2026-11-03 저녁)**: 처음엔 모든 셀의 분산을 올렸더니 보이는 바닥까지 셀마다 마지막 한 표본이 되어(칼만 이득 ≈ 1)
+  거칠기/경사가 튀며 **바닥 전체가 치명으로 깜빡였다**(1F A 하강, 발치 앞 바닥 치명 22–44 % → 복구 3–4). 이제 `forget_map` 과
+  짧은 기억 모드 모두 **`forget_stale_s` 0.4 s 이상 측정되지 않은 셀에만** 작용한다(time 레이어 = 마지막 측정 후 경과 초):
+  보이는 셀은 평소 융합(time_variance 0.01)을 유지하고, 안 보이는 셀만 ~2 s 에 만료한다.
+- 표본 수 게이트 (2026-11-04): 지도에 8번째 레이어 `sample_count`(셀이 마지막으로 유효해진 뒤 그 셀을 측정한 클라우드 수; finalize 커널이
+  세고, 셀이 무효가 되거나 `forget_map` 으로 잊히면 0). slope/step/roughness/stair_step 필터의 `min_samples`(haechi 3): 그보다 적은
+  클라우드로만 측정된 셀은 **판정하지 않고 미관측(NaN)** 으로 둔다. 실기 1F bag 에서 계단 위 로봇 2 m 안 치명 셀 14~17 % 의 과반(50~68 %)이
+  거칠기 항이었고, 그 셀들은 잊기/만료 뒤 반사 한 개로 다시 채워져 이웃과 어긋난 셀이었다(짧은 기억이 꺼지면 3 s 안에 0 %). RAEM 의 "지금
+  점군에 있는 셀만 판정"을 융합 지도에 옮긴 것. 미관측은 Nav2 에서 통과 가능(로컬 free, 전역 allow_unknown). 몸 밑 prior 셀은 count 10.
+  audit 발행 레이어에 `sample_count` 추가. 실기 1F bag 계단 A 구간(0~150 s): 로봇 2 m 안 치명 평균 9.2 % → 2.6 %(flight 위 15~24 % → 0.3~5.6 %),
+  미관측 28.7 % → 51.4 %(판정하던 한 점짜리 셀이 회색이 됨). 장부 M54.
+- `test/test_stairs_fit_regression.py`: 고정 기록(1F sim·bag_live 6 flight/2 계단, ds1020 0)으로 등록 회귀 시험(colcon test 등록).
 ### Changed
+- `stairs_record.npz` 는 임시 파일: fit 이 성공하면 삭제하고(`--delete_record`), 실패하면 오프라인 재맞춤용으로 남긴다.
+  `stairs_fit.log` 는 fit 자신이 yaml 과 같은 실행에서 쓴다(오프라인 재실행도 같음; 기록기는 `stairs_fit.err` 로 크래시만 받음).
+- `terrain_global_node.forget_s` 가 벽시계 대신 노드 시계(`get_clock`)를 쓴다 — bag 재생/시뮬(`use_sim_time`)에서도 실기와
+  같은 의미. 런치가 float 로 고정해 넘기므로 `dynamic_typing` 땜질 제거.
+- `HAECHI_BOARD.md` 7절: dev02(PulseOS R36.5.0) 실측 — GPU 클럭 unpin 이 하드 리셋(2회)과 매핑 odom 지연의 원인.
+  elevation 만 쓸 때는 PulseOS 기본 고정(918 MHz)을 유지한다. 고정 상태 매핑+elevation 60분: 재시작 0, odom gap 0.
 ### Removed
+- 실기 실행 경로에 없는 것 일괄 정리(2026-11-19, 추적 파일 117 → 58). 실행 체인(`haechi_nav.launch.py` → `haechi.launch.py`:
+  mapper + 플러그인 6개, `terrain_grid_node` ×2, `terrain_global_node`, prior/계단 recorder·publisher, SAM-TP)은 그대로다.
+  - `gz_demo` 패키지 전체(Gazebo 벤치, 시뮬 Nav2 파라미터)와 rosdep 의 `ELEVATION_GZ` 조건.
+  - gait 모드: `haechi_octomap.launch.py`, `plugin_config_gait.yaml`, 플러그인 `stairs_filter`/`ramp_filter`/`drop_filter`,
+    `traversability_cloud_node.py`, `voxel_downsample_node.py`, `rviz/nav_test.rviz`.
+  - mapper 의 CNN traversability(`traversability_filter.py`, `config/core/weights.dat`, torch 의존)와 `image_color` 융합 —
+    mapper 는 이제 cupy 만 쓴다(torch 는 `samtp_node` 전용). 레이어 3 `traversability` 는 인덱스 고정을 위해 슬롯만 남는다.
+  - 상류 기본 `config/core/plugin_config.yaml`(haechi 는 항상 `setups/haechi/plugin_config.yaml`), 쓰지 않는 파라미터와
+    함수(메모리 풀 trim, multiarray 인코딩 등), `setup.py`/`setup.cfg`/`resource/`(ament_cmake_python 으로 일원화).
+  - 테스트(`elevation_mapping_cupy/tests/`, `test/`)와 상류 테스트 안내 `AGENTS.md`, `samtp/export_samtp_onnx.py`
+    (ONNX 재내보내기는 GENIE-SAMTP 저장소 몫). 필요하면 git 이력에서 되살린다.
+- `stairs_reclear` 의 controller hold(계단 위에서 Nav2 `FollowPath` 의 vy/vx/wz/PathAlign 파라미터를 런타임에 바꾸던 것, 2026-10-29):
+  elevation 은 Nav2 파라미터를 건드리지 않는다. 계단 위 속도·보행 제한은 Nav2 쪽 설정의 일이다(2026-11-03 결정).
 ### Fixed
+- `stairs_scan_filter.py`: scan 마다 scan stamp 의 TF 를 50 ms 블로킹 대기하던 것 제거(2026-11-19). TF listener 가 같은 단일 스레드
+  노드에 있어 대기 중엔 TF 가 들어올 수 없었고, 매번 시간을 다 쓴 뒤 최신 TF 로 넘어갔다 → `/scan_nav` 가 `/scan` 보다 ~70 ms 늦어
+  Nav2 collision monitor(`source_timeout` 0.3 s)가 20 Hz 주기의 95 % 이상에서 `/scan_nav` 를 버렸다(끊긴 소스는 정지가 아니라 무시).
+  이제 stamp 시점 TF 가 버퍼에 있으면 쓰고, 없으면 바로 최신 TF. Isaac ds1027_1f 실측: 도착 age p50 0.26 → 0.19 s(`/scan` 과 같음),
+  신선한 주기 3–5 % → 44 %(`/scan` 42 %). 계단 A 오르내리기 성공.
+- `terrain_prior_recorder.py` / `stairs_prior_recorder.py`: 종료 저장이 두 번째 SIGINT 에 끊기던 것(2026-11-19 bag 실측:
+  `np.savez_compressed` 중 `KeyboardInterrupt`, prior·계단 기록 모두 유실). 프로세스 그룹에 SIGINT 를 주면 `ros2 launch` 가
+  자식마다 한 번 더 전달한다. 저장을 시작하면 SIGINT/SIGTERM 을 무시한다(SIGKILL 은 여전히 듣는다). NAVI orchestrator 는
+  launch 프로세스에만 SIGINT 를 보내고 `--noninteractive sigterm_timeout:=<stop_timeout>` 으로 띄운다. 재실측: 저장 2종 +
+  stairs_fit 완료, 전 노드 정상 종료.
+- `stairs_prior_publisher.py`: 계단이 없는 `map_stairs.yaml`(계단 없는 지도)로 뜬 뒤 SIGINT 를 받으면 traceback 과
+  exit -2 로 죽던 것(spin 이 예외 처리 밖이었다). 파일이 없는 옛 지도는 error 가 아니라 warn.
+  NAVI 는 haechi localization 에서 항상 `stairs:=true stairs_map:=<지도>/map_stairs.yaml` 로 띄운다.
+- `haechi_nav.launch.py` 주석의 "terrain 3 Hz"(v0.2.5 부터 10 Hz), `haechi.launch.py` 의 octomap 언급.
+- `terrain_global_node.py` / `terrain_prior_recorder.py`: 새 `judge_radius`(기본 4.0 m, 런치 인자 동일 이름). 롤링 맵
+  창 중심(로봇)에서 이 거리 밖의 셀은 믿지 않는다 — 바깥 링은 라이다가 스치듯 맞아 프레임의 1 %만 유효하고 그때마다
+  비주행으로 판정돼(dev02 정지 매핑 실측 2026-10-21: 4.5–5 m 링 불량 투표 74–100 %) prior 에 비용 링으로 굳고
+  전역 격자에서는 떠난 자취가 99 로 남았다. 전역 격자의 "창 안은 진실" 초기화도 같은 반경 안으로 제한한다
+  (바깥 링이 지나간 셀의 기억을 지우지 않도록). 같은 데이터 재구움: 비용 셀 2667 → 742.
 
 ## [v0.2.6] - 2026-10-21
 

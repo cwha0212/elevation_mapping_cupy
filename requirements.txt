@@ -1,7 +1,6 @@
-# Minimal Python deps for native (non-Docker) usage on ROS 2 Jazzy / Ubuntu 24.04.
-# Prefer `rosdep install` for ROS/system deps; this file is only for pip-only extras.
+# pip-only Python deps (ROS 2 Humble / Ubuntu 22.04, Jetson Orin). ROS/system deps come from rosdep (package.xml).
 #
-# For CUDA torch wheels, follow the official PyTorch instructions (varies by CUDA/driver).
-simple-parsing
+# cupy: the elevation mapper (GPU map update, terrain plugins).
+# torch: samtp_node only (SAM-TP TensorRT I/O). Install the JetPack wheel, see HAECHI_BOARD.md.
 cupy-cuda12x
 torch

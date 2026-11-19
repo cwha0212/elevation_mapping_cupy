@@ -32,6 +32,8 @@ class DrivabilityFilter(PluginBase):
         resolution: float = 0.05,
         layers: list = ["slope", "step", "roughness"],
         limits: list = [30.0, 0.15, 0.05],
+        override_layer: str = "",
+        override_value: float = 0.5,
         **kwargs,
     ):
         if len(layers) != len(limits):
@@ -40,8 +42,12 @@ class DrivabilityFilter(PluginBase):
             )
         self.layers = list(layers)
         self.limits = [float(v) for v in limits]
+        # A layer that marks cells the robot can traverse whatever the terms say (stair_step_filter's climbable steps,
+        # 2026-11-03): where it reads >= 0.5 the score is raised to at least override_value. "" = off.
+        self.override_layer = str(override_layer or "")
+        self.override_value = float(override_value)
         # The manager reads this to compute the inputs lazily before this runs.
-        self.input_layer_names = list(layers)
+        self.input_layer_names = list(layers) + ([self.override_layer] if self.override_layer else [])
 
     def __call__(
         self,
@@ -70,5 +76,15 @@ class DrivabilityFilter(PluginBase):
             term = cp.where(fin, term, 1.0)
             score = term if score is None else cp.minimum(score, term)
             known = fin if known is None else (known | fin)
+
+        if self.override_layer:
+            ov = self.get_layer_data(
+                elevation_map, layer_names, plugin_layers, plugin_layer_names,
+                semantic_map, semantic_layer_names, self.override_layer,
+            )
+            if ov is not None:
+                lift = cp.isfinite(ov) & (ov >= 0.5)
+                score = cp.where(lift, cp.maximum(score, self.override_value), score)
+                known = known | lift
 
         return cp.where(known, score, cp.nan).astype(cp.float32)

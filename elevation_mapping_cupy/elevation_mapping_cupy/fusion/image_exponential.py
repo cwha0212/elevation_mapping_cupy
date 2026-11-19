@@ -3,7 +3,6 @@
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
 import cupy as cp
-import numpy as np
 import string
 
 from .fusion_manager import FusionBase

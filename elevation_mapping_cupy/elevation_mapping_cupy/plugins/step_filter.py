@@ -31,11 +31,13 @@ class StepFilter(PluginBase):
         resolution: float = 0.05,
         window_size: int = 5,
         min_valid_count: int = 4,
+        min_samples: int = 0,
         median_size: int = 0,
         **kwargs,
     ):
         self.window_size = int(window_size)
         self.min_valid_count = int(min_valid_count)
+        self.min_samples = int(min_samples)   # 0 = off; cells measured by fewer clouds are unknown (2026-11-04)
         # Robust span: a median over median_size x median_size cells before max - min, so a single spiked cell
         # (a leg return, a first-sample outlier frozen by the fusion gate) no longer reads as a riser. 0 = off.
         self.median_size = int(median_size)
@@ -53,6 +55,8 @@ class StepFilter(PluginBase):
     ) -> cp.ndarray:
         elevation = elevation_map[0]
         valid = elevation_map[2] > 0.5
+        if self.min_samples > 0 and "sample_count" in layer_names:
+            valid = valid & (elevation_map[layer_names.index("sample_count")] >= self.min_samples)
         w = self.window_size
         if self.median_size >= 3:
             # invalid cells must not take part, and cupyx has no nan-aware median_filter: fill them with the

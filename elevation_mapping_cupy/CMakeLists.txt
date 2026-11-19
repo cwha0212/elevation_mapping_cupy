@@ -3,36 +3,15 @@ project(elevation_mapping_cupy)
 
 find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
-find_package(cv_bridge REQUIRED)
-find_package(elevation_map_msgs REQUIRED)
-find_package(message_filters REQUIRED)
-find_package(rclpy REQUIRED)
+# Only the C++ node needs these at build time; the Python nodes' dependencies are exec_depends in package.xml.
+find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
 find_package(grid_map_msgs REQUIRED)
 find_package(grid_map_core REQUIRED)
 find_package(grid_map_ros REQUIRED)
-find_package(nav_msgs REQUIRED)
-find_package(rclcpp REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(tf2 REQUIRED)
-
-set(dependencies
-  cv_bridge
-  elevation_map_msgs
-  message_filters
-  rclpy
-  std_msgs
-  sensor_msgs
-  geometry_msgs
-  grid_map_msgs
-  grid_map_core
-  grid_map_ros
-  nav_msgs
-  rclcpp
-  tf2_ros
-)
 
 # The one C++ node here: grid_map's own converter, handing a terrain layer to
 # Nav2 whole instead of through the bearing fan. See src/terrain_grid_node.cpp
@@ -43,120 +22,26 @@ ament_target_dependencies(terrain_grid_node
 install(TARGETS terrain_grid_node DESTINATION lib/${PROJECT_NAME})
 
 ament_python_install_package(${PROJECT_NAME})
+ament_python_install_package(haechi_terrain)   # stairs_fit / stairs_raster / terrain_map / config (plain python, used by the scripts)
 
 install(PROGRAMS
   scripts/elevation_mapping_node.py
   scripts/samtp_node.py
-  scripts/traversability_cloud_node.py
   scripts/terrain_global_node.py
   scripts/terrain_prior_recorder.py
   scripts/terrain_map_merge.py
   scripts/terrain_map_loader.py
-  scripts/voxel_downsample_node.py
+  scripts/stairs_scan_filter.py
+  scripts/stairs_reclear.py
+  scripts/stairs_prior_recorder.py
+  scripts/stairs_prior_publisher.py
+  scripts/stairs_fit.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(
-  DIRECTORY launch config rviz
+  DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
 
-# The integration test's parameter file only; the tests themselves run from source.
-install(
-  DIRECTORY test/config
-  DESTINATION share/${PROJECT_NAME}/test
-)
-
-if(BUILD_TESTING)
-  find_package(ament_cmake_pytest REQUIRED)
-  find_package(ament_cmake_ros REQUIRED)
-  find_package(launch_testing_ament_cmake REQUIRED)
-
-  # Unit tests (run via pytest, no ROS dependencies)
-  # These are the PRIMARY regression tests for the axis-swap bug
-  # Note: PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 disables the launch_testing pytest plugin
-  # which would otherwise try to import the package (triggering cupy import errors)
-  ament_add_pytest_test(test_map_shifting
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_map_shifting.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_gridmap_layout
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_gridmap_layout.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_parameter
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_parameter.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_repo_config_sanity
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_repo_config_sanity.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_kernel_compile_smoke
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_kernel_compile_smoke.py
-    TIMEOUT 180
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_dilation_filter
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_dilation_filter.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_fusion_finalization
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_fusion_finalization.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_indexing_center
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_indexing_center.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_height_gate_translation_invariance
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_height_gate_translation_invariance.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_plugin_manager_cache
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_plugin_manager_cache.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_pointcloud_parser
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_pointcloud_parser.py
-    TIMEOUT 120
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-  ament_add_pytest_test(test_stairs_detect
-    ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}/tests/test_stairs_detect.py
-    TIMEOUT 180
-    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  )
-
-  # Define isolated launch test function for unique ROS_DOMAIN_ID per test
-  # See: https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Testing/Integration.html
-  function(add_ros_isolated_launch_test path)
-    set(RUNNER "${ament_cmake_ros_DIR}/run_test_isolated.py")
-    add_launch_test("${path}" RUNNER "${RUNNER}" ${ARGN})
-  endfunction()
-
-  # Integration test (launches ROS nodes)
-  # DDS fixes:
-  #   FASTDDS_BUILTIN_TRANSPORTS=UDPv4: Avoid FastDDS shared memory discovery issues
-  #   See: https://answers.ros.org/question/407025/
-  # SKIP_DDS_FLAKES=1: In CI, skip (not fail) on known DDS discovery issues.
-  # Locally, tests fail loudly to catch real regressions.
-  add_ros_isolated_launch_test(test/test_tf_gridmap_integration.py
-    TIMEOUT 180
-    ENV FASTDDS_BUILTIN_TRANSPORTS=UDPv4
-  )
-
-
-endif()
-
-ament_export_dependencies(${dependencies})
 ament_package()

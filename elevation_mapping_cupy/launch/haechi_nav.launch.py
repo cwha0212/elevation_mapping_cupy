@@ -3,7 +3,9 @@
     ros2 launch elevation_mapping_cupy haechi_nav.launch.py
     ros2 launch elevation_mapping_cupy haechi_nav.launch.py lite:=true
 
-No octomap: under the navigation split the global map is NAVI's map_server.
+Normally NAVI's mode orchestrator starts and stops this launch (robot profile
+`elevation:` section in navi_lidar); run it by hand only for debugging. The
+global map is NAVI's map_server.
 navi_lidar >= v0.6.4 cuts the exact footprint polygon out of the merged cloud
 at merge time, so the box cut here is off. Legs in mid-stride reach past the
 polygon (measured: the cell under the robot went lethal in 2.2% of frames,
@@ -12,7 +14,7 @@ ring points that stand above the cell height it already holds, which keeps
 ground, slopes and stair risers. The dedup is off because navi_lidar
 already voxelises at 0.15 m.
 
-The measured configuration (10 m map at 0.05, terrain at 3 Hz, SAM-TP at
+The measured configuration (10 m map at 0.05, terrain at 10 Hz, SAM-TP at
 4 Hz) is the default. lite:=true is the fallback for a loaded board: an 8 m
 map and SAM-TP at 2 Hz. Nav2 only ever reads the 5 x 5 m window either way.
 """
@@ -31,6 +33,16 @@ def generate_launch_description():
     lite = LaunchConfiguration("lite")
     lite_on = PythonExpression(["'", lite, "'.lower() in ('true', '1')"])
     return LaunchDescription([
+        DeclareLaunchArgument("use_sim_time", default_value="false",
+                              description="true only when replaying a bag with --clock (the robot runs on wall time)."),
+        DeclareLaunchArgument("stairs", default_value="false",
+                              description="NAVIGATION: stair segments of stairs_map lifted in the terrain grid + /scan_nav "
+                                          "(Nav2 must then read /scan_nav: nav2_params_elevation stairs variant)."),
+        DeclareLaunchArgument("stairs_map", default_value="",
+                              description="NAVIGATION: map_stairs.yaml written at mapping time next to the map "
+                                          "(prior_record:=true registers the walked stairs)."),
+        DeclareLaunchArgument("terrain_speckle_min", default_value="1",
+                              description="terrain_grid_node: lethal clusters smaller than this many cells become cost 70 (1 = off)."),
         DeclareLaunchArgument("lite", default_value="false",
                               description="8 m map and SAM-TP at 2 Hz for a loaded board."),
         DeclareLaunchArgument("use_semantics", default_value="true"),
@@ -41,10 +53,12 @@ def generate_launch_description():
         DeclareLaunchArgument("grid_threshold", default_value="0.4"),
         DeclareLaunchArgument("veto_cost", default_value="70"),
         DeclareLaunchArgument("geom_grid", default_value="true"),
-        # Passed through to haechi.launch.py. It used to be a fixed "3.0" in the
-        # include below, so terrain_fps:=... on this launch was silently ignored
-        # (measured 2026-09-30: the node still reported 3.0). The measured
-        # default stays 3 Hz; see CHANGELOG v0.2.4 for why 10 Hz is not safe yet.
+        DeclareLaunchArgument("audit", default_value="false",
+                              description="publish the whole terrain chain (elevation, variance, slope, step, roughness, stairlike, "
+                                          "drivability, safety) on elevation_map_terrain for inspection / videos."),
+        # Passed through to haechi.launch.py (it used to be a fixed "3.0" in the
+        # include below, so terrain_fps:=... here was silently ignored). 10 Hz
+        # since v0.2.5; see CHANGELOG v0.2.4/v0.2.5 for the measurements.
         DeclareLaunchArgument("terrain_fps", default_value="10.0",
                               description="Terrain grid publish rate (Hz)."),
         # Terrain prior (2026-10-21): MAPPING records it into the NAVI map folder, LOCALIZATION loads it.
@@ -56,12 +70,17 @@ def generate_launch_description():
                               description="LOCALIZATION: map_terrain_prior.yaml of the loaded map for terrain_global_node "
                                           "(live terrain > prior > /map) and, with load_nav2_map, Nav2's /map becomes the "
                                           "folder's map_terrain.yaml. Empty = none."),
+        DeclareLaunchArgument("judge_radius", default_value="4.0",
+                              description="terrain memory/prior: believe cells only within this distance (m) of the robot."),
         DeclareLaunchArgument("load_nav2_map", default_value="true",
                               description="with terrain_prior: replace Nav2's 2D map (/map_server/load_map) by map_terrain.yaml."),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi.launch.py")),
             launch_arguments={
-                "use_sim_time": "false",
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "stairs": LaunchConfiguration("stairs"),
+                "stairs_map": LaunchConfiguration("stairs_map"),
+                "terrain_speckle_min": LaunchConfiguration("terrain_speckle_min"),
                 "use_semantics": LaunchConfiguration("use_semantics"),
                 "body_filter": LaunchConfiguration("body_filter"),
                 "leg_ring": LaunchConfiguration("leg_ring"),
@@ -70,14 +89,14 @@ def generate_launch_description():
                 "grid_threshold": LaunchConfiguration("grid_threshold"),
                 "veto_cost": LaunchConfiguration("veto_cost"),
                 "geom_grid": LaunchConfiguration("geom_grid"),
-                "gait": "false",
-                "audit": "false",
+                "audit": LaunchConfiguration("audit"),
                 "map_length": PythonExpression(["'8.0' if ", lite_on, " else '10.0'"]),
                 "terrain_fps": LaunchConfiguration("terrain_fps"),
                 "prior_record": LaunchConfiguration("prior_record"),
                 "prior_out_dir": LaunchConfiguration("prior_out_dir"),
                 "terrain_prior": LaunchConfiguration("terrain_prior"),
                 "load_nav2_map": LaunchConfiguration("load_nav2_map"),
+                "judge_radius": LaunchConfiguration("judge_radius"),
                 "samtp_max_rate": PythonExpression(["'2.0' if ", lite_on, " else '4.0'"]),
             }.items(),
         ),
