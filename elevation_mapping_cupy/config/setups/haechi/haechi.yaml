@@ -21,7 +21,6 @@
     # left MID360 IMU, axes = robot FLU) sits on the 3D chain.
     map_frame: 'map'
     base_frame: 'lidar_frame'
-    corrected_map_frame: 'map'
 
     #### Map geometry ########
     # 0.05 m resolves the 10-20 cm curbs that separate roadway from sidewalk;
@@ -52,12 +51,6 @@
     # on top of it means two estimators fighting over the same z.
     enable_drift_compensation: false
 
-    #### Fusion ########
-    # Image channels only; the lidar path takes xyz and nothing else.
-    image_channel_fusions:
-      rgb: 'color'
-      default: 'exponential'
-
     #### Subscribers ########
     subscribers:
       # Geometry, 360 degrees. The deskewed topic is the rotation-corrected
@@ -82,17 +75,15 @@
     #### Publishers ########
     publishers:
       elevation_map_raw:
-        layers: ['elevation', 'traversability', 'variance']
+        layers: ['elevation', 'variance']
         basic_layers: ['elevation']
         fps: 5.0
-      # Navigation terrain layers from setups/haechi/plugin_config.yaml (the
-      # launch selects it over the digging chain via plugin_config_file).
+      # Navigation terrain layers from setups/haechi/plugin_config.yaml.
+      # layers / basic_layers / fps are set by haechi.launch.py (audit, terrain_fps);
+      # listing a layer no plugin produces would abort a publish.
       elevation_map_terrain:
-        # The navigation chain's layers. stairs / ramp / drop belong to the
-        # gait chain (plugin_config_gait.yaml) and are added by haechi.launch.py
-        # gait:=true; listing a layer no plugin produces would abort a publish.
-        layers: ['elevation', 'slope', 'step', 'roughness', 'drivability', 'safety']
-        basic_layers: ['elevation']
+        layers: ['drivability', 'safety']
+        basic_layers: ['safety']
         fps: 10.0
       elevation_map_semantic:
         # basic_layers cannot be empty here: an empty sequence arrives as an

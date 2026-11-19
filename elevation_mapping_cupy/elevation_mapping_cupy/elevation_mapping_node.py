@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-import math
 import message_filters
 import numpy as np
-import os
 from functools import partial
-from typing import Dict, List
+from typing import List
 
 import rclpy
 from rclpy.node import Node
@@ -16,26 +14,11 @@ from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from tf_transformations import quaternion_matrix
 import tf2_ros
 import tf2_py as tf2
-from rclpy.duration import Duration
 from grid_map_msgs.msg import GridMap
-from geometry_msgs.msg import Vector3, Quaternion
-from std_msgs.msg import Float32MultiArray
-from std_msgs.msg import MultiArrayLayout as MAL
-from std_msgs.msg import MultiArrayDimension as MAD
 from std_srvs.srv import Trigger
 from elevation_mapping_cupy import ElevationMap, Parameter
-from elevation_mapping_cupy.gridmap_utils import encode_layer_to_multiarray, encode_rot180_as_gridmap_column
+from elevation_mapping_cupy.gridmap_utils import encode_rot180_as_gridmap_column
 
-PDC_DATATYPE = {
-    "1": np.int8,
-    "2": np.uint8,
-    "3": np.int16,
-    "4": np.uint16,
-    "5": np.int32,
-    "6": np.uint32,
-    "7": np.float32,
-    "8": np.float64,
-}
 
 def _pointcloud2_xyz_f32(msg: PointCloud2) -> np.ndarray:
     """
@@ -106,14 +89,8 @@ class ElevationMappingNode(Node):
         )
 
         self.root = get_package_share_directory("elevation_mapping_cupy")
-        weight_file = os.path.join(self.root, "config/core/weights.dat")
-        plugin_config_file = os.path.join(self.root, "config/core/plugin_config.yaml")
-
-        # Initialize parameters with some defaults
-        self.param = Parameter(
-            weight_file=weight_file,
-            plugin_config_file=plugin_config_file
-        )
+        # plugin_config_file comes from the launch (config/setups/haechi/plugin_config.yaml).
+        self.param = Parameter()
 
         # Read ROS parameters (including YAML)
         self.initialize_ros()
@@ -152,7 +129,6 @@ class ElevationMappingNode(Node):
     def get_ros_params(self) -> None:
         self.map_frame = self.get_parameter('map_frame').get_parameter_value().string_value
         self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
-        self.corrected_map_frame = self.get_parameter('corrected_map_frame').get_parameter_value().string_value
         self.update_variance_fps = self.get_parameter('update_variance_fps').get_parameter_value().double_value
         self.time_interval = self.get_parameter('time_interval').get_parameter_value().double_value
         self.update_pose_fps = self.get_parameter('update_pose_fps').get_parameter_value().double_value
@@ -200,11 +176,6 @@ class ElevationMappingNode(Node):
         self._leg_ring = ring if len(ring) == 3 and max(ring) > 0.0 and self._body_box is not None else None
         self._leg_rise = float(self.get_parameter('leg_rise').value)
         self._legs_cut = 0
-        if not self.has_parameter('cupy_memory_pool_trim_interval_s'):
-            self.declare_parameter('cupy_memory_pool_trim_interval_s', 0.0)
-        self.cupy_memory_pool_trim_interval_s = float(
-            self.get_parameter('cupy_memory_pool_trim_interval_s').value
-        )
         subscribers_params = self.get_parameters_by_prefix('subscribers')
         self.my_subscribers = {}
         for param_name, param_value in subscribers_params.items():
@@ -228,18 +199,9 @@ class ElevationMappingNode(Node):
     def set_param_values_from_ros(self):
         # Assign to self.param so it won't use defaults. This is research code: crash loudly if
         # a required parameter is missing or mistyped.
-        if self.has_parameter("plugin_config_file"):
-            # One file, or a list of files merged in order (the gait chain
-            # rides on top of the navigation chain that way).
-            plugin_config_file = self.get_parameter("plugin_config_file").value
-            assert plugin_config_file
-            if not isinstance(plugin_config_file, str):
-                plugin_config_file = [str(v) for v in plugin_config_file]
-            self.param.plugin_config_file = plugin_config_file
-        if self.has_parameter("weight_file"):
-            weight_file = self.get_parameter("weight_file").get_parameter_value().string_value
-            assert weight_file
-            self.param.weight_file = weight_file
+        plugin_config_file = self.get_parameter("plugin_config_file").get_parameter_value().string_value
+        assert plugin_config_file, "plugin_config_file is required (set by the launch)"
+        self.param.plugin_config_file = plugin_config_file
         self.param.resolution = self.get_parameter('resolution').get_parameter_value().double_value
         self.param.map_length = self.get_parameter('map_length').get_parameter_value().double_value
         self.param.sensor_noise_factor = self.get_parameter('sensor_noise_factor').get_parameter_value().double_value
@@ -431,12 +393,6 @@ class ElevationMappingNode(Node):
             self.time_interval,
             self.update_time
         )
-        self.timer_cupy_memory_pool = None
-        if self.cupy_memory_pool_trim_interval_s > 0.0:
-            self.timer_cupy_memory_pool = self.create_timer(
-                self.cupy_memory_pool_trim_interval_s,
-                self.trim_cupy_memory_pool
-            )
 
     def register_services(self) -> None:
         service_clear = self._resolve_service_name('clear_map')
@@ -902,11 +858,6 @@ class ElevationMappingNode(Node):
     def update_time(self) -> None:
         self._map.update_time()
 
-    def trim_cupy_memory_pool(self) -> None:
-        self._map.trim_memory_pool()
-
-    def destroy_node(self) -> None:
-        super().destroy_node()
 
 def main(args=None) -> None:
     rclpy.init(args=args)

@@ -1,9 +1,6 @@
 # haechi navigation terrain-analysis chain: what the local costmap needs.
 #
-# slope / step / roughness -> drivability -> safety (camera veto folded in).
-# The gait channel (stairs, ramp, drop) lives in plugin_config_gait.yaml and is
-# merged on top by haechi.launch.py gait:=true; it is the most expensive part
-# of the chain and nothing on the navigation path reads it.
+# slope / step / roughness / stair_step -> drivability -> safety (camera veto folded in).
 #
 # TODO(measure): limits below are the quadruped envelope pending real trials --
 # especially max step, which depends on gait, not just leg reach.

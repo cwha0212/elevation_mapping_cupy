@@ -24,10 +24,19 @@ import os
 import numpy as np
 import rclpy
 from nav_msgs.msg import OccupancyGrid
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
 from haechi_terrain.stairs_raster import load, rasterise
+
+def _spin(n):
+    """spin until launch's SIGINT; a shutdown is not an error (was a traceback + exit -2 in the no-flights branch)."""
+    try:
+        rclpy.spin(n)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+
 
 def main():
     rclpy.init()
@@ -39,11 +48,12 @@ def main():
     max_landing = float(n.declare_parameter("max_landing", 2.5).value)
     frame = n.declare_parameter("frame_id", "map").value
     if not path or not os.path.isfile(path):
-        n.get_logger().error("stairs_map '%s' not found: nothing published" % path); rclpy.shutdown(); return
+        # an old map folder (recorded before stairs registration) has no map_stairs.yaml: expected, not an error
+        n.get_logger().warn("stairs_map '%s' not found: nothing published" % path); rclpy.shutdown(); return
     d = load(path)
     flights, scs = d.get("flights", []), d.get("staircases", [])
     if not flights:
-        n.get_logger().warn("%s has no flights: nothing published" % path); rclpy.spin(n); return
+        n.get_logger().warn("%s has no flights: nothing published" % path); _spin(n); return
     flight_margin = float(n.declare_parameter("flight_margin", 0.3).value)
     lateral_margin = float(n.declare_parameter("lateral_margin", 0.25).value)
     wall_margin = float(n.declare_parameter("wall_margin", 0.15).value)
@@ -83,10 +93,7 @@ def main():
                         "lateral margin %.2f m, %d wall cells cut by %s)" % (
         len(flights), len(scs), n_land, path, topic, grid.shape[1], grid.shape[0], res, int((grid >= 50).sum()), end_margin, lateral_margin,
         n_wall, map_yaml if os.path.isfile(map_yaml) else "(no map.yaml)"))
-    try:
-        rclpy.spin(n)
-    except KeyboardInterrupt:
-        pass
+    _spin(n)
 
 
 if __name__ == "__main__":

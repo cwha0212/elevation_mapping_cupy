@@ -101,9 +101,12 @@ class StairsScanFilter(Node):
         live = [v for v in self.masks.values() if self.now_s() - v[0] <= self.stale_s]
         if self.enabled and live:
             frame = live[0][5] or "map"
+            # No timeout: the TF listener runs on this single-threaded node, so a blocking wait cannot receive the
+            # transform it waits for; it always ran out (+50 ms per scan) and the collision monitor (source_timeout
+            # 0.3 s) then dropped /scan_nav in ~95 % of its cycles (Isaac 2026-11-19). The grid frame moves slowly
+            # against the scan frame (map vs odom_2d), so the latest TF is a fine fallback.
             try:
-                t = self.tf.lookup_transform(frame, s.header.frame_id, rclpy.time.Time.from_msg(s.header.stamp),
-                                             timeout=rclpy.duration.Duration(seconds=0.05))
+                t = self.tf.lookup_transform(frame, s.header.frame_id, rclpy.time.Time.from_msg(s.header.stamp))
             except Exception:
                 try:
                     t = self.tf.lookup_transform(frame, s.header.frame_id, rclpy.time.Time())

@@ -3,7 +3,9 @@
     ros2 launch elevation_mapping_cupy haechi_nav.launch.py
     ros2 launch elevation_mapping_cupy haechi_nav.launch.py lite:=true
 
-No octomap: under the navigation split the global map is NAVI's map_server.
+Normally NAVI's mode orchestrator starts and stops this launch (robot profile
+`elevation:` section in navi_lidar); run it by hand only for debugging. The
+global map is NAVI's map_server.
 navi_lidar >= v0.6.4 cuts the exact footprint polygon out of the merged cloud
 at merge time, so the box cut here is off. Legs in mid-stride reach past the
 polygon (measured: the cell under the robot went lethal in 2.2% of frames,
@@ -12,7 +14,7 @@ ring points that stand above the cell height it already holds, which keeps
 ground, slopes and stair risers. The dedup is off because navi_lidar
 already voxelises at 0.15 m.
 
-The measured configuration (10 m map at 0.05, terrain at 3 Hz, SAM-TP at
+The measured configuration (10 m map at 0.05, terrain at 10 Hz, SAM-TP at
 4 Hz) is the default. lite:=true is the fallback for a loaded board: an 8 m
 map and SAM-TP at 2 Hz. Nav2 only ever reads the 5 x 5 m window either way.
 """
@@ -54,10 +56,9 @@ def generate_launch_description():
         DeclareLaunchArgument("audit", default_value="false",
                               description="publish the whole terrain chain (elevation, variance, slope, step, roughness, stairlike, "
                                           "drivability, safety) on elevation_map_terrain for inspection / videos."),
-        # Passed through to haechi.launch.py. It used to be a fixed "3.0" in the
-        # include below, so terrain_fps:=... on this launch was silently ignored
-        # (measured 2026-09-30: the node still reported 3.0). The measured
-        # default stays 3 Hz; see CHANGELOG v0.2.4 for why 10 Hz is not safe yet.
+        # Passed through to haechi.launch.py (it used to be a fixed "3.0" in the
+        # include below, so terrain_fps:=... here was silently ignored). 10 Hz
+        # since v0.2.5; see CHANGELOG v0.2.4/v0.2.5 for the measurements.
         DeclareLaunchArgument("terrain_fps", default_value="10.0",
                               description="Terrain grid publish rate (Hz)."),
         # Terrain prior (2026-10-21): MAPPING records it into the NAVI map folder, LOCALIZATION loads it.
@@ -88,7 +89,6 @@ def generate_launch_description():
                 "grid_threshold": LaunchConfiguration("grid_threshold"),
                 "veto_cost": LaunchConfiguration("veto_cost"),
                 "geom_grid": LaunchConfiguration("geom_grid"),
-                "gait": "false",
                 "audit": LaunchConfiguration("audit"),
                 "map_length": PythonExpression(["'8.0' if ", lite_on, " else '10.0'"]),
                 "terrain_fps": LaunchConfiguration("terrain_fps"),

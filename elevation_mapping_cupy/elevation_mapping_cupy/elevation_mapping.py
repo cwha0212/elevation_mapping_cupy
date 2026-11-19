@@ -2,16 +2,11 @@
 # Copyright (c) 2022, Takahiro Miki. All rights reserved.
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
-import math
-import os
 import threading
-import sys
-from dataclasses import dataclass
-from typing import Dict, List, Any, Tuple, Union, Optional
+from typing import List
 
 import numpy as np
 
-from elevation_mapping_cupy.traversability_filter import get_filter_torch
 from elevation_mapping_cupy.parameter import Parameter
 
 from elevation_mapping_cupy.kernels import (
@@ -70,7 +65,6 @@ class ElevationMap:
         ]
 
         # buffers
-        self.traversability_buffer = xp.full((self.cell_n, self.cell_n), xp.nan, dtype=self.data_type)
         # One device buffer the publish path rotates each layer into, so the
         # host copy is a single contiguous transfer (see copy_layer_rot180).
         self._publish_buf = cp.empty((self.cell_n - 2, self.cell_n - 2), dtype=cp.float32)
@@ -92,11 +86,6 @@ class ElevationMap:
 
         self.compile_kernels()
         self.compile_image_kernels()
-
-        # No shell substitutions in research code: param.weight_file is expected to be a real path.
-        param.load_weights(param.weight_file)
-
-        self.traversability_filter = get_filter_torch(param.w1, param.w2, param.w3, param.w_out)
 
         # Semantic layers fed by image and pointcloud channels.
         self.semantic_map = SemanticMap(param)
@@ -157,20 +146,6 @@ class ElevationMap:
         """
         position[0][:] = xp.asnumpy(self.center)
 
-    def move(self, delta_position):
-        """Shift the map along all three axes according to the input.
-
-        Args:
-            delta_position (numpy.ndarray):
-        """
-        # Shift map using delta position.
-        delta_position = xp.asarray(delta_position)
-        delta_pixel = xp.round(delta_position[:2] / self.resolution)
-        delta_position_xy = delta_pixel * self.resolution
-        self.center[:2] += xp.asarray(delta_position_xy)
-        self.center[2] += xp.asarray(delta_position[2])
-        self.shift_map_xy(delta_pixel)
-        self.shift_map_z(-delta_position[2])
 
     def move_to(self, position, R):
         """Shift the map to an absolute position and update the rotation of the robot.
@@ -269,8 +244,9 @@ class ElevationMap:
             (3, self.cell_n, self.cell_n),
             dtype=self.data_type,
         )
-        self.traversability_input = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
-        self.traversability_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
+        # dilated elevation (hole-filled) for the normal filter
+        self.dilated_elevation = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
+        self.dilation_mask_dummy = cp.zeros((self.cell_n, self.cell_n), dtype=self.data_type)
 
         self.add_points_kernel = add_points_kernel(
             self.resolution,
@@ -336,13 +312,6 @@ class ElevationMap:
                 )
                 break
 
-    def shift_translation_to_map_center(self, t):
-        """Deduct the map center to get the translation of a point w.r.t. the map center.
-
-        Args:
-            t (cupy._core.core.ndarray): Absolute point position
-        """
-        t -= self.center
 
     def update_map_with_kernel(self, points_all, channels, R, t, position_noise, orientation_noise):
         """Update map with new measurement.
@@ -415,22 +384,19 @@ class ElevationMap:
             if self.param.enable_overlap_clearance:
                 self.clear_overlap_map(t)
 
-            self.traversability_input *= 0.0
+            self.dilated_elevation *= 0.0
             self.dilation_filter_kernel(
                 self.elevation_map[5],
                 self.elevation_map[2] + self.elevation_map[6],
-                self.traversability_input,
-                self.traversability_mask_dummy,
+                self.dilated_elevation,
+                self.dilation_mask_dummy,
                 size=(self.cell_n * self.cell_n),
             )
-
-            traversability = self.traversability_filter(self.traversability_input)
-            self.elevation_map[3][3:-3, 3:-3] = traversability.reshape(
-                (traversability.shape[2], traversability.shape[3])
-            )
+            # layer 3 ("traversability") keeps its initial 1.0: upstream's CNN filled it, nothing here reads it
+            # (drift compensation, its only reader, is off for haechi).
             self.plugin_manager.reset_layers()
 
-        self.update_normal(self.traversability_input)
+        self.update_normal(self.dilated_elevation)
 
     def clear_overlap_map(self, t):
         """Clear overlapping areas around the map center.
@@ -637,21 +603,6 @@ class ElevationMap:
         """
         return self.process_map_for_publish(self.elevation_map[1], fill_nan=False, add_z=False)
 
-    def get_traversability(self):
-        """Get the traversability layer.
-
-        Returns:
-            traversability layer
-        """
-        traversability = cp.where(
-            (self.elevation_map[2] + self.elevation_map[6]) > 0.5,
-            self.elevation_map[3],
-            cp.nan,
-        )
-        self.traversability_buffer[3:-3, 3:-3] = traversability[3:-3, 3:-3]
-        traversability = self.traversability_buffer[1:-1, 1:-1]
-        return traversability
-
     def get_time(self):
         """Get the time layer.
 
@@ -694,14 +645,6 @@ class ElevationMap:
         is_upper_bound = is_upper_bound[1:-1, 1:-1]
         return is_upper_bound
 
-    def trim_memory_pool(self):
-        """Release cached CuPy allocator blocks that are not currently in use."""
-        pool.free_all_blocks()
-        cp.get_default_pinned_memory_pool().free_all_blocks()
-        torch = sys.modules.get("torch")
-        if torch is not None and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
     def exists_layer(self, name):
         """Check if the layer exists in elevation map or in the semantic map.
 
@@ -732,8 +675,6 @@ class ElevationMap:
             return self.get_variance()
         if name == "is_valid":
             return self.elevation_map[2, 1:-1, 1:-1]
-        if name == "traversability":
-            return self.get_traversability()
         if name == "time":
             return self.get_time()
         if name == "upper_bound":
@@ -784,36 +725,4 @@ class ElevationMap:
             cp.copyto(self._publish_buf, m[::-1, ::-1])
             self._publish_buf.get(out=host_out)
 
-    def get_map_with_name_ref(self, name, data):
-        """Load a layer in grid_map buffer order (rows -> -X, cols -> -Y) into data.
 
-        Kept for tests and external callers; the node publishes through
-        copy_layer_rot180, which produces the same bytes without the transpose.
-        """
-        tmp = np.empty_like(data)
-        self.copy_layer_rot180(name, tmp)
-        data[...] = tmp.T
-
-    def _transform_to_grid_map_coordinate_convention(self, m):
-        """Transform the map to the grid_map coordinate convention.
-
-        elevation_mapping_cupy uses Row=Y, Col=X (see kernels/custom_kernels.py:35)
-        grid_map uses Row→-X, Col→-Y (see grid_map_core/src/GridMapMath.cpp:64-67
-        transformBufferOrderToMapFrame returns {-index[0], -index[1]})
-        Required transformation:
-           1. Transpose: swap axes so Row=X, Col=Y (matching grid_map's axis assignment)
-           2. Flip axis 0: so increasing row → decreasing X (matching grid_map's -X)
-           3. Flip axis 1: so increasing col → decreasing Y (matching grid_map's -Y)
-
-        This is equivalent to: rot90(m.T, k=2) or flip(flip(m.T, 0), 1)
-
-        Args:
-            m (cupy._core.core.ndarray):
-
-        Returns:
-            cupy._core.core.ndarray:
-        """
-        m = m.T
-        m = xp.flip(m, 0)
-        m = xp.flip(m, 1)
-        return m

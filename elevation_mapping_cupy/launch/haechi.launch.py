@@ -23,8 +23,7 @@ import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
@@ -63,37 +62,27 @@ def generate_launch_description():
     share_dir = get_package_share_directory("elevation_mapping_cupy")
     core_param_path = os.path.join(share_dir, "config", "core", "core_param.yaml")
     robot_param_path = os.path.join(share_dir, "config", "setups", "haechi", "haechi.yaml")
-    # Navigation terrain chain (slope/step/roughness/drivability/safety).
-    # gait:=true merges the stairs/ramp/drop chain on top and brings the
-    # octomap path up with it; audit:=true adds the layers the board's
-    # driven-ground audit reads. Whatever the mode, there is exactly one
-    # terrain publisher at terrain_fps: the safety filter's persistence
-    # counter advances once per chain evaluation, so a second publisher
-    # naming a plugin layer would change the map, not just the traffic.
+    # Navigation terrain chain (slope/step/roughness/stair_step/drivability/safety).
+    # audit:=true adds the layers the board's driven-ground audit reads. Whatever
+    # the mode, there is exactly one terrain publisher at terrain_fps: the safety
+    # filter's persistence counter advances once per chain evaluation, so a second
+    # publisher naming a plugin layer would change the map, not just the traffic.
     plugin_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config.yaml")
-    gait_config_path = os.path.join(share_dir, "config", "setups", "haechi", "plugin_config_gait.yaml")
     # every number of the stairs pipeline (recorder, fit, bake, publisher, scan filter, reclear, terrain_grid stairs cost)
     stairs_yaml = os.path.join(share_dir, "config", "setups", "haechi", "stairs.yaml")
     with open(stairs_yaml) as f:
         stairs_cfg = yaml.safe_load(f) or {}
-    for path in (core_param_path, robot_param_path, plugin_config_path, gait_config_path):
+    for path in (core_param_path, robot_param_path, plugin_config_path):
         if not os.path.exists(path):
             raise FileNotFoundError(f"Config file {path} does not exist")
 
     use_semantics = LaunchConfiguration("use_semantics")
     use_sim_time = LaunchConfiguration("use_sim_time")
-    gait = LaunchConfiguration("gait")
     audit = LaunchConfiguration("audit")
-    gait_on = PythonExpression(["'", gait, "'.lower() in ('true', '1')"])
     audit_on = PythonExpression(["'", audit, "'.lower() in ('true', '1')"])
-    plugin_files = PythonExpression([
-        "['", plugin_config_path, "']",
-        " + (['", gait_config_path, "'] if ", gait_on, " else [])"])
     terrain_layers = PythonExpression([
         "['elevation', 'variance', 'sample_count', 'slope', 'step', 'roughness', 'stairlike', 'drivability', 'safety']"
-        " + (['stairs', 'ramp', 'drop'] if ", gait_on, " else []) if ", audit_on,
-        " else (['slope', 'drivability', 'safety', 'stairs', 'drop'] if ", gait_on,
-        " else ['drivability', 'safety'])"])
+        " if ", audit_on, " else ['drivability', 'safety']"])
     terrain_basic = PythonExpression(["['elevation'] if ", audit_on, " else ['safety']"])
     # stairs:=true (2026-10-29): terrain_grid_node lifts the stairs registered at mapping time (stairs_map -> stairs_prior_publisher
     # -> stairs_prior_topic) to a low uniform cost and publishes /terrain/stairs_grid; the scan filter
@@ -203,7 +192,7 @@ def generate_launch_description():
             robot_param_path,
             {
                 "use_sim_time": use_sim_time,
-                "plugin_config_file": plugin_files,
+                "plugin_config_file": plugin_config_path,
                 "map_length": LaunchConfiguration("map_length"),
                 "publishers.elevation_map_terrain.layers": terrain_layers,
                 "publishers.elevation_map_terrain.basic_layers": terrain_basic,
@@ -221,9 +210,10 @@ def generate_launch_description():
         ],
     )
 
-    # Local costmap feed: the safety layer as an OccupancyGrid, cut at the
-    # same threshold the bearing fan and the octomap use, so Nav2's local
-    # window gets free / lethal / unknown straight from the judged map.
+    # Local costmap feed: the safety layer as an OccupancyGrid, cut at
+    # grid_threshold (the geometry-only /terrain/local_grid_geom uses the same
+    # cut), so Nav2's local window gets free / lethal / unknown straight from
+    # the judged map.
     terrain_grid = Node(
         package="elevation_mapping_cupy",
         executable="terrain_grid_node",
@@ -352,13 +342,6 @@ def generate_launch_description():
         ],
     )
 
-    # The bearing fan and octomap: the gait channel's global memory. Only
-    # with gait:=true; the navigation split leaves the global map to NAVI.
-    octomap = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(share_dir, "launch", "haechi_octomap.launch.py")),
-        condition=IfCondition(gait),
-    )
-
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -443,8 +426,8 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "grid_threshold",
                 default_value="0.4",
-                description="safety below this is lethal in /terrain/local_grid; "
-                "matches the octomap's threshold so local and global agree.",
+                description="safety (drivability for local_grid_geom) below this is "
+                "lethal in /terrain/local_grid and /terrain/local_grid_geom.",
             ),
             DeclareLaunchArgument(
                 "veto_cost",
@@ -452,11 +435,9 @@ def generate_launch_description():
                 description="Grid value for a cell the geometry passes and only the "
                 "camera fails: a cost the planner may pay, not a wall. -1 = lethal.",
             ),
-            DeclareLaunchArgument("gait", default_value="false",
-                                  description="Add the stairs/ramp/drop chain and the octomap path."),
             DeclareLaunchArgument("stairs", default_value="false",
                                   description="Stair navigation: lift the stairs registered at mapping time (stairs_map / stairs_prior_topic) in "
-                                              "/terrain/local_grid, publish /terrain/stairs_grid, run the scan filter (/scan -> /scan_nav). Independent of gait."),
+                                              "/terrain/local_grid, publish /terrain/stairs_grid, run the scan filter (/scan -> /scan_nav)."),
             DeclareLaunchArgument("stairs_prior_topic", default_value="",
                                   description="OccupancyGrid of known flights (>= 50 = stairs), e.g. the sim oracle /terrain/stairs_prior."),
             DeclareLaunchArgument("stairs_cost", default_value=str(stairs_cfg["terrain_grid_node"]["ros__parameters"]["stairs_cost"]),
@@ -490,6 +471,5 @@ def generate_launch_description():
             map_loader,
             prior_recorder,
             terrain_grid_geom,
-            octomap,
         ]
     )

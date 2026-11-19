@@ -20,6 +20,7 @@ own height along its path finds every flight it walked, and many frames in diffe
 Cost: one np.unique per cloud and a sorted merge every merge_every clouds; ~2-6 M voxels for a 300 s run.
 """
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -281,6 +282,11 @@ def main():
             n.get_logger().error("stopped by %s:\n%s" % (e, traceback.format_exc()))
     finally:
         if n.save_on_shutdown and not n.saved:
+            # ros2 launch forwards its own SIGINT to every node after a Ctrl-C / group signal already hit us, and
+            # SIGTERMs after sigterm_timeout: either one used to abort the save mid-write (KeyboardInterrupt in
+            # savez, measured 2026-11-19). The save is the whole point of shutting down, so let it finish.
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
             try:
                 n.save()
             except Exception as e:      # noqa: BLE001

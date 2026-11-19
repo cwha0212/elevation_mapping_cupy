@@ -3,16 +3,8 @@
 # Licensed under the MIT license. See LICENSE file in the project root for details.
 #
 from abc import ABC, abstractmethod
-import cupy as cp
-from typing import List, Dict, Any
-from dataclasses import dataclass
 import importlib
 import inspect
-
-
-# @dataclass
-# class FusionParams:
-#     name: str
 
 
 class FusionBase(ABC):
@@ -37,7 +29,6 @@ class FusionBase(ABC):
 
 class FusionManager(object):
     def __init__(self, params):
-        self.fusion_plugins: Dict[str, FusionBase] = {}
         self.params = params
         self.plugins = []
 
@@ -64,20 +55,6 @@ class FusionManager(object):
                 return idx
         print("[WARNING] Plugin {} is not in the list: {}".format(name, self.plugins))
         return None
-
-    def execute_plugin(
-        self, name: str, points_all, R, t, pcl_ids, layer_ids, elevation_map, semantic_map, new_map, elements_to_shift
-    ):
-        """
-        Execute a registered fusion plugin
-        """
-        idx = self.get_plugin_idx(name, "pointcloud")
-        if idx is not None:
-            self.plugins[idx](
-                points_all, R, t, pcl_ids, layer_ids, elevation_map, semantic_map, new_map, elements_to_shift
-            )
-        # else:
-        #     raise ValueError("Plugin {} is not registered".format(name))
 
     def execute_image_plugin(
         self,

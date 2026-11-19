@@ -40,7 +40,6 @@
     # Default frame configuration (can be overridden in robot-specific configs)
     map_frame: 'odom'                               # The map frame where the odometry source uses.
     base_frame: 'base_link'                    # The robot's base frame. This frame will be a center of the map.
-    corrected_map_frame: 'odom'
 
     #### Feature toggles ########
     enable_edge_sharpen: true

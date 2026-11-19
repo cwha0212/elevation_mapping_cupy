@@ -10,17 +10,13 @@ Packages
   `terrain_grid_node` (C++), which cuts the `safety` layer into
   `/terrain/local_grid` (free / camera-cost / lethal / unknown).
 - `elevation_map_msgs` — `ChannelInfo`, the channel list a semantic image carries.
-- `samtp/` — SAM-TP model assets: fetch script, checksums, engine build and ONNX export (the files themselves are a GitHub Release).
-- `gz_demo` (`elevation_mapping_gz_demo`) — the Gazebo Fortress bench: worlds,
-  sim configs, the stairs/gait channel nodes and the Nav2 sim parameters.
-  Not needed on the robot.
+- `samtp/` — SAM-TP model assets: fetch script, checksums and engine build (the files themselves are a GitHub Release).
 
 Model assets (once per board)
 
     bash samtp/fetch_assets.sh
 
-Dependencies on the robot (the sim package's deps are conditional and skipped;
-set `ELEVATION_GZ=1` in front of rosdep on a sim machine)
+Dependencies on the robot
 
     rosdep install --from-paths src/elevation_mapping_cupy --ignore-src -r -y
 
@@ -29,16 +25,22 @@ Build on the robot
     colcon build --packages-select elevation_map_msgs elevation_mapping_cupy \
       --cmake-args -DCMAKE_BUILD_TYPE=Release
 
-Run on the robot (NAVI lidar + localization already up)
+Run on the robot
+
+NAVI starts and stops this package itself. The haechi robot profile
+(`navi_lidar/config/profile/haechi.yaml`, `elevation:` section) names
+`haechi_nav.launch.py` and its per-mode arguments; NAVI's mode orchestrator
+launches it with every localization/mapping mode and shuts it down with SIGINT
+(so the prior/stairs recorders save into the map folder), and `navi_lidar
+nav2.launch.py` picks `nav2_params_elevation.yaml` from the same profile.
+If the grid stops, the orchestrator reports it and cancels Nav2 goals.
+By hand (debugging, NAVI lidar + localization already up):
 
     ros2 launch elevation_mapping_cupy haechi_nav.launch.py
-    ros2 launch navi_lidar nav2.launch.py robot:=haechi map:=<map.yaml> \
-      params_file:=$(ros2 pkg prefix nav2_bringup)/share/nav2_bringup/params/nav2_params_elevation.yaml
 
 Bag replay and modes
 
     ros2 launch elevation_mapping_cupy haechi.launch.py            # navigation chain
-    ros2 launch elevation_mapping_cupy haechi.launch.py gait:=true # + stairs/ramp/drop + octomap
     ros2 launch elevation_mapping_cupy haechi.launch.py audit:=true # extra layers for driven_audit
 
 Board install and run procedure: `HAECHI_BOARD.md`. Changes: `CHANGELOG.md`.
@@ -48,4 +50,5 @@ Branches follow the NAVI repos: work on `chang_feature`, integrate into `dev`
 
 Configuration lives in `elevation_mapping_cupy/config/setups/haechi/`:
 `haechi.yaml` (frames, topics, publishers), `plugin_config.yaml` (slope, step,
-roughness, drivability, semantic safety) and `plugin_config_gait.yaml`.
+roughness, drivability, semantic safety) and `stairs.yaml` (stairs record/fit/raster).
+Shared mapper defaults: `config/core/core_param.yaml`.

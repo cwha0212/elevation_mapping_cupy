@@ -157,17 +157,9 @@ class PluginManager(object):
             self._deps.append(deps)
 
     def load_plugin_settings(self, file_path):
-        """Load one plugin config file, or several merged in order.
-
-        With a list, later files add plugins after earlier ones (and a
-        repeated key replaces the earlier entry), so an optional chain such
-        as the gait channel can sit in its own file.
-        """
-        paths = [file_path] if isinstance(file_path, str) else list(file_path)
-        cfg = {}
-        for path in paths:
-            loaded = YAML().load(open(path, "r")) or {}
-            cfg.update(loaded)
+        """Load the plugin chain from one config file (key = plugin module, in order)."""
+        with open(file_path, "r") as f:
+            cfg = YAML().load(f) or {}
         plugin_params = []
         extra_params = []
         for k, v in cfg.items():
@@ -201,13 +193,6 @@ class PluginManager(object):
             names.append(obj.name)
         return names
 
-    def get_plugin_index_with_name(self, name: str) -> int:
-        try:
-            idx = self.plugin_names.index(name)
-            return idx
-        except Exception as e:
-            print("Error with plugin {}: {}".format(name, e))
-            return None
 
     def get_layer_index_with_name(self, name: str) -> int:
         try:
@@ -271,18 +256,8 @@ class PluginManager(object):
                             _active_stack=_active_stack,
                         )
                 n_param = self._n_params[idx]
-                if n_param == 5:
-                    self.layers[idx] = self.plugins[idx](elevation_map, layer_names, self.layers, self.layer_names)
-                elif n_param == 7:
-                    self.layers[idx] = self.plugins[idx](
-                        elevation_map,
-                        layer_names,
-                        self.layers,
-                        self.layer_names,
-                        semantic_map,
-                        semantic_params,
-                    )
-                elif n_param == 8:
+                # every haechi plugin takes the 6 map arguments + rotation; the semantic veto also takes elements_to_shift
+                if n_param == 8:
                     self.layers[idx] = self.plugins[idx](
                         elevation_map,
                         layer_names,
@@ -317,35 +292,3 @@ class PluginManager(object):
         if idx is not None:
             return self.plugin_params[idx]
 
-
-if __name__ == "__main__":
-    plugins = [
-        PluginParams(name="min_filter", layer_name="min_filter"),
-        PluginParams(name="smooth_filter", layer_name="smooth"),
-    ]
-    extra_params = [
-        {"dilation_size": 5, "iteration_n": 5},
-        {"input_layer_name": "elevation2"},
-    ]
-    manager = PluginManager(200)
-    manager.load_plugin_settings("../config/plugin_config.yaml")
-    print(manager.layer_names)
-    print(manager.plugin_names)
-    elevation_map = cp.zeros((7, 200, 200)).astype(cp.float32)
-    layer_names = [
-        "elevation",
-        "variance",
-        "is_valid",
-        "traversability",
-        "time",
-        "upper_bound",
-        "is_upper_bound",
-    ]
-    elevation_map[0] = cp.random.randn(200, 200)
-    elevation_map[2] = cp.abs(cp.random.randn(200, 200))
-    print("map", elevation_map[0])
-    print("layer map ", manager.layers)
-    manager.update_with_name("min_filter", elevation_map, layer_names)
-    manager.update_with_name("smooth_filter", elevation_map, layer_names)
-    # manager.update_with_name("sem_fil", elevation_map, layer_names, semantic_map=semantic_map)
-    print(manager.get_map_with_name("smooth"))
