@@ -43,7 +43,10 @@ DEFAULTS = dict(sensor_height=0.74, min_slope=0.2, min_run=0.6, rise_min=0.10, r
                 # riser sawtooth, so the margin is 3x, not rise/4). A rough outdoor ramp (> 1 cm) may still pass as stairs:
                 # harmless for the footprint (cost lane), costs the scan filter / controller hold on it. Such a flight is
                 # neither point-fitted nor registered from the trajectory.
-                ramp_mad_min=0.010)
+                # 0.010 -> 0.006 (2026-11-20): with the smoother LIO z of the new IMU covariance (NAVI v2.1.0) real 1F bag
+                # flights came down to 0.006-0.009 m and 0-2 of 6 fell out as "plain ramp" per run; 0.006 registers 6/6 on
+                # every recorded run. Margin over the synthetic ramps is now 1 mm (0.005), not 2x.
+                ramp_mad_min=0.006)
 DEFAULTS.update(config.load("stairs_fit"))      # config/setups/haechi/stairs.yaml wins
 
 
