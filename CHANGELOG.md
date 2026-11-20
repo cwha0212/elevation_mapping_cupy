@@ -8,6 +8,17 @@ haechi 포크(elevation_mapping_cupy)의 주요 변경사항을 기록한다. �
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-11-20
+
+`Dev v0.3.1` — **계단 등록의 경사로 판정 임계 `ramp_mad_min` 0.010 → 0.006 m.** 짝: NAVI Dev v2.1.1.
+
+### Changed
+- `stairs_fit` `ramp_mad_min` 0.010 → 0.006 m (`config/setups/haechi/stairs.yaml`, `haechi_terrain/stairs_fit.py` 기본값).
+  NAVI v2.1.0 의 IMU 공분산 변경으로 LIO z 가 계단 위에서 매끈해져, 실 1F bag 의 실제 계단 lane residual 이 0.006–0.009 m 까지
+  내려왔고 실행마다 6 구간 중 0–2 개가 "plain ramp" 로 빠졌다(등록 4–6/6). 저장된 bag 매핑 기록 5개를 0.006 으로 다시 맞추면
+  모두 6/6(가장 낮은 계단 0.006 m — 임계에 붙어 있다). 합성 12–30° 경사로(1 cm 잡음 0.002–0.005 m)와의 여유는 1 mm 로 줄었다:
+  거친 경사로가 계단으로 등록될 수 있다(비용 lane 이라 footprint 에는 무해, 그 위에서 scan filter·controller hold 가 걸린다).
+
 ## [v0.3.0] - 2026-11-19
 
 `Dev v0.3.0` — **NAVI 자동 기동 대응 + 계단 주행 보강(오를 수 있는 단 통행, 계단 구간 짧은 기억 모드, 표본 수 게이트) +

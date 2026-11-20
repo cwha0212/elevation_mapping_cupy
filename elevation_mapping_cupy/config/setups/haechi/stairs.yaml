@@ -35,7 +35,7 @@ stairs_fit:
     n_tol: 0.05
     stair_margin: 0.05
     clearance: 0.30        # points higher than this above the local surface are not ground [m]
-    ramp_mad_min: 0.010    # a lane profile a straight line explains to within this is a plain ramp, not stairs [m]
+    ramp_mad_min: 0.006    # a lane profile a straight line explains to within this is a plain ramp, not stairs [m]
 
 # ---- mapping: bake into map_terrain (haechi_terrain.terrain_map.merge_terrain_map). Not a ROS node.
 terrain_map_merge:
